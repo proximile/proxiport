@@ -46,6 +46,15 @@ builds:
       - "-extldflags '-static'"
     env:
       - CGO_ENABLED=1
+      # When cross-compiling for linux/arm64 from the x86_64 runner, use
+      # the aarch64 cross-toolchain installed by the release workflow.
+      # GOARCH evaluates per-target.
+      - >-
+        {{- if eq .Arch "arm64" -}}
+          CC=aarch64-linux-gnu-gcc
+        {{- else -}}
+          CC=gcc
+        {{- end -}}
     goos:
       - linux
     goarch:
