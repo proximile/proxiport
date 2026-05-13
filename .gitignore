@@ -1,0 +1,85 @@
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# MkDocs site build
+_site/
+site/
+
+# Python venv (for mkdocs)
+.venv/
+__pycache__/
+
+# Go build artifacts
+/proxiport
+/proxiportd
+/proxiport.exe
+/proxiportd.exe
+# (but keep the cmd/ source directories of the same name)
+!cmd/proxiport
+!cmd/proxiportd
+*.test
+*.out
+resource.syso
+vendor/
+dist/
+
+# Air live-reload
+.air.toml
+tmp/
+
+# Windows installer artifacts
+*.msi
+*.wixobj
+*.wixpdb
+
+# Frontend
+frontend/node_modules/
+frontend/build/
+frontend/.svelte-kit/
+node_modules/
+
+# Logs
+*.log
+yarn-debug.log*
+yarn-error.log*
+
+# Hugo (legacy upstream docs; not used by ProxiPort)
+docs/public/
+docs/.hugo_build.lock
+
+# Local runtime configs (operator-edited, never committed)
+proxiport-*.conf
+proxiportd-*.conf
+proxiport.conf
+proxiportd.conf
+cheat-sheet.txt
+
+# Package builds
+*.rpm
+*.deb
+.pkg-env
+
+# Test-run scratch files
+*test-resources
+server/notifications/out.json
+server/notifications/channels/scriptRunner/out.json
+
+# Local docroot (built SPA served by the server in dev)
+docroot/
+
+# Secrets (defensive — there should be none in the tree)
+*.pem
+*.key
+.env
+.env.*
+# ...except the test fixtures under testdata/certs/, which are
+# self-signed keys for the reserved RFC-2606 *.test TLD. Used by
+# the cert-validation tests in server/chconfig and
+# server/clients/clienttunnel. Not credentials — anyone can
+# regenerate equivalents with `openssl req`.
+!testdata/certs/*.key
+!testdata/certs/*.pem

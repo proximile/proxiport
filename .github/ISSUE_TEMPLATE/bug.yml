@@ -1,0 +1,59 @@
+name: Bug report
+description: Something is broken in ProxiPort.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the bug.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ProxiPort version
+      description: Output of `proxiportd --version` (server) or `proxiport --version` (agent), or commit SHA.
+      placeholder: "v0.x.y or commit abcdef0"
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - server (proxiportd)
+        - agent (proxiport)
+        - frontend (SvelteKit SPA)
+        - docs
+        - packaging / install
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproducer
+      description: Step-by-step commands or actions that reproduce the bug. The simpler the better.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include relevant log lines. Server logs default to `/var/log/proxiport/proxiportd.log`.
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, architecture, reverse proxy in front of the server (if any), datastore (sqlite / mysql), agent count.
+    validations:
+      required: false

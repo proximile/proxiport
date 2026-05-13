@@ -1,0 +1,95 @@
+ProxiPort
+=========
+
+ProxiPort is licensed under the GNU Affero General Public License v3.0
+(AGPL-3.0-or-later). See LICENSE for the full license text.
+
+The project is fully open source. There is no proprietary plugin host,
+no closed-source GUI, and no license-gated capability.
+
+
+Origin and attribution
+----------------------
+
+ProxiPort is a continuation of the open-source remote-management project
+rport (CloudRadar GmbH, 2020; RealVNC Limited, 2023) and its community
+fork openrport (the openrport authors, 2024-2025). Both upstreams shipped
+their source under the MIT License.
+
+ProxiPort imports the upstream openrport Go server and agent tree. The
+upstream MIT-licensed portions remain covered by their original MIT
+terms (see LICENSE-MIT for the inherited notice). The combined work, as
+distributed by Proximile LLC under the name ProxiPort, is
+AGPL-3.0-or-later.
+
+
+Scope of the fork
+-----------------
+
+ProxiPort forks ONLY the FOSS portion of the upstream tree. Specifically:
+
+- We took the MIT-licensed Go server, agent, shared libraries, build
+  scripts, and API documentation.
+- We did NOT take the upstream `plus/` plugin scaffolding. The `plus/`
+  directory in openrport existed only to load a closed-source proprietary
+  plugin binary (the "Plus" plugin, distributed separately by the previous
+  upstream maintainer under a proprietary licence). That binary was never
+  in any source repository, was never part of the FOSS code, and is not
+  present in ProxiPort in any form. The `plus/` scaffolding was deleted
+  from the ProxiPort tree along with every `IsPlusEnabled` capability
+  gate. ProxiPort has no plugin-host substitute and does not attempt to
+  reimplement the proprietary Plus features as gated commercial add-ons;
+  features that previously lived behind the gate will be reimplemented in
+  the open under AGPL.
+- We did NOT take the upstream Vue.js / Nuxt frontend. The upstream
+  shipped that frontend only as a prebuilt JavaScript bundle; the source
+  was never published. Because the source was never available, we could
+  not fork it, and we made no attempt to. The frontend in `frontend/` is
+  an original SvelteKit / TypeScript / Tailwind SPA written from scratch
+  for ProxiPort by Proximile LLC, AGPL-licensed along with the rest of
+  the tree.
+
+In short: every line of ProxiPort source is either inherited MIT code
+from rport/openrport (subject to the original MIT licence as preserved in
+LICENSE-MIT) or original AGPL-licensed code written for ProxiPort. No
+proprietary code, no closed-source binary, and no capability-gated logic
+is present anywhere in the ProxiPort source tree.
+
+
+Bundled third-party FOSS components
+-----------------------------------
+
+ProxiPort uses the following FOSS components without modification. Each
+retains its own license. See the upstream project for the authoritative
+copy.
+
+- jpillora/chisel — MIT (basis of the SSH-over-WebSocket tunnel
+  transport, by way of the upstream rport fork).
+- noVNC — MPL-2.0 (embedded VNC client used by the optional remote
+  desktop feature).
+- Apache Guacamole — Apache-2.0 (RDP/VNC/SSH gateway used by the
+  optional remote desktop feature).
+- Go module dependencies — see go.mod / go.sum and the LICENSE files of
+  each module under the module cache. All are FOSS-licensed.
+- npm devDependencies for the frontend — see frontend/package.json and
+  the LICENSE files of each package under node_modules. All are
+  FOSS-licensed.
+
+
+Names and attribution
+---------------------
+
+"RPort" and "openrport" are names used by the respective upstream
+projects. ProxiPort is not affiliated with, endorsed by, or sponsored by
+RealVNC Limited, CloudRadar GmbH, or the openrport authors.
+"ProxiPort" is the project name used by Proximile LLC.
+
+
+Contact
+-------
+
+If you find a file in this tree that is not FOSS, is missing attribution,
+or you believe is licensed incorrectly, please open an issue on the
+ProxiPort repository — attribution bugs are bugs and we will fix them.
+
+Maintainer: Proximile LLC.

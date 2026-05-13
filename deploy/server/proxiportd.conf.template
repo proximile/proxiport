@@ -1,0 +1,59 @@
+# ProxiPort server config template.
+#
+# Render before deploying:
+#   sed -e "s|__HOST__|proxiport.example.com|" \
+#       -e "s|__KEY_SEED__|$(openssl rand -hex 18)|" \
+#       -e "s|__ADMIN_PW__|$(openssl rand -base64 18)|" \
+#       -e "s|__CLIENT_AUTH_PW__|$(openssl rand -base64 18)|" \
+#       -e "s|__JWT_SECRET__|$(openssl rand -hex 18)|" \
+#       proxiportd.conf.template > proxiportd.conf
+#
+# Listener layout matches the upstream openrport prod convention:
+#   [server] -> 0.0.0.0:80   plain HTTP/WS agent listener
+#                            (SSH inside the WS does the encryption)
+#   [api]    -> 0.0.0.0:443  HTTPS, certbot-managed Let's Encrypt cert files
+
+[server]
+  address = "0.0.0.0:80"
+  url = ["http://__HOST__:80"]
+
+  # ProxiPort does not ship a first-party pairing service; leave empty to
+  # disable the pairing endpoint, or point at one you operate.
+  pairing_url = ""
+
+  key_seed = "__KEY_SEED__"
+
+  # First-deploy single client auth credential. Move to auth_file or a DB
+  # table once you have more than one client.
+  auth = "smoketest:__CLIENT_AUTH_PW__"
+
+  # Server-side tunnel egress port range. Must be open in the host firewall.
+  used_ports = ['20000-20099']
+
+  data_dir = "/var/lib/proxiport"
+
+  purge_disconnected_clients = true
+
+  # Reuse the API's LE cert for HTTP-based tunnel proxies (NoVNC, RDP, etc.).
+  tunnel_proxy_cert_file = "/etc/letsencrypt/live/__HOST__/fullchain.pem"
+  tunnel_proxy_key_file = "/etc/letsencrypt/live/__HOST__/privkey.pem"
+
+[logging]
+  log_file = "/var/log/proxiport/proxiportd.log"
+  log_level = "info"
+
+[api]
+  address = "0.0.0.0:443"
+  base_url = "https://__HOST__:443"
+
+  auth = "admin:__ADMIN_PW__"
+
+  # Pinning the JWT secret so users don't get logged out on restart.
+  jwt_secret = "__JWT_SECRET__"
+
+  cert_file = "/etc/letsencrypt/live/__HOST__/fullchain.pem"
+  key_file = "/etc/letsencrypt/live/__HOST__/privkey.pem"
+
+[database]
+  db_type = "sqlite"
+  db_name = "/var/lib/proxiport/user-auth.db"

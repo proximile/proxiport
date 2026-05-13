@@ -1,0 +1,101 @@
+env:
+  - CGO_ENABLED=0
+  - PROJECT=github.com/proximile/proxiport
+builds:
+  - id: proxiport
+    main: ./cmd/proxiport
+    binary: proxiport
+    ldflags:
+      - '-s -w -X {{.Env.PROJECT}}/share.BuildVersion={{.Version}}'
+      - "-extldflags '-static'"
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+    goarch:
+      - 386
+      - amd64
+      - arm
+      - arm64
+      - mips
+      - mipsle
+      - mips64
+      - mips64le
+      - s390x
+    goarm:
+      - 6
+      - 7
+    gomips:
+      - hardfloat
+      - softfloat
+    ignore:
+      - goos: windows
+        goarch: arm64
+      - goos: darwin
+        goarch: 386
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: 386
+  - id: proxiportd
+    main: ./cmd/proxiportd
+    binary: proxiportd
+    ldflags:
+      - '-s -w -X {{.Env.PROJECT}}/share.BuildVersion={{.Version}}'
+      - "-extldflags '-static'"
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+archives:
+  - id: proxiport-only
+    name_template: >-
+      proxiport_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+      {{- if .Mips }}_{{ .Mips }}{{ end }}
+    builds:
+      - proxiport
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - proxiport.example.conf
+      - LICENSE
+      - LICENSE-MIT
+      - NOTICE
+      - README.md
+  - id: proxiportd-only
+    name_template: >-
+      proxiportd_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+      {{- if .Mips }}_{{ .Mips }}{{ end }}
+    builds:
+      - proxiportd
+    files:
+      - proxiportd.example.conf
+      - LICENSE
+      - LICENSE-MIT
+      - NOTICE
+      - README.md
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: '{{ .Tag }}'
+changelog:
+  sort: asc
+release:
+  github:
+    owner: proximile
+    name: proxiport
+  draft: true
+  prerelease: auto

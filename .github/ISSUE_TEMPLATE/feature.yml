@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose a new feature or change in behaviour.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is the user-visible problem this feature would solve? Skip the implementation; describe the gap.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How would you like ProxiPort to behave? Be concrete.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - server (proxiportd)
+        - agent (proxiport)
+        - frontend (SvelteKit SPA)
+        - REST API
+        - packaging / install
+        - docs
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing workarounds, comparable features in other tools, or earlier attempts.
+    validations:
+      required: false
+  - type: textarea
+    id: scope-check
+    attributes:
+      label: Scope check
+      description: ProxiPort is a remote-management / reverse-tunnel tool. It deliberately is not a mesh VPN, not a freemium product, and not a generic RMM SaaS. Briefly explain why this feature fits ProxiPort's scope.
+    validations:
+      required: true

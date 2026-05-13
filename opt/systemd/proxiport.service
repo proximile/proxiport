@@ -1,0 +1,19 @@
+#
+# Proxiport (client) systemd service shipped with deb/rpm package.
+#
+[Unit]
+Description=Create reverse tunnels with ease.
+ConditionFileIsExecutable=/usr/bin/proxiport
+StartLimitIntervalSec=5
+StartLimitBurst=10
+After=network.target network-online.target
+
+[Service]
+ExecStart=/usr/bin/proxiport "-c" "/etc/proxiport/proxiport.conf"
+User=proxiport
+Restart=always
+RestartSec=120
+EnvironmentFile=-/etc/sysconfig/proxiport
+
+[Install]
+WantedBy=multi-user.target

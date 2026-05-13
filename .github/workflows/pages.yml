@@ -1,0 +1,75 @@
+name: docs
+
+# Build the mkdocs-material site from this repo and publish the static
+# output to proxiport/proxiport.github.io, which is served at
+# https://docs.proxiport.net/ (CNAME alias of proxiport.github.io).
+#
+# Requires a repository secret DOCS_DEPLOY_TOKEN containing a
+# fine-grained personal-access-token owned by `proximile` and scoped to
+# proxiport/proxiport.github.io with the "Contents: read and write"
+# permission. The token has no other powers (no admin, no actions,
+# no other repos).
+#
+# When the secret is unset, the build still runs (so syntax errors in
+# docs are caught) but the publish step is skipped cleanly — no
+# misleading red X for an obviously-unconfigured first run.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      DOCS_DEPLOY_TOKEN: ${{ secrets.DOCS_DEPLOY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MkDocs Material
+        run: pip install --upgrade mkdocs-material pymdown-extensions
+
+      - name: Build docs
+        run: mkdocs build --strict --site-dir _site
+
+      - name: Publish to proxiport/proxiport.github.io
+        if: env.DOCS_DEPLOY_TOKEN != ''
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          personal_token: ${{ secrets.DOCS_DEPLOY_TOKEN }}
+          external_repository: proxiport/proxiport.github.io
+          publish_branch: main
+          publish_dir: ./_site
+          keep_files: false
+          # Republish as an orphan commit every time, so the docs-site
+          # history is always exactly the latest deploy. We want this
+          # because (a) docs are build output, not source; history
+          # belongs on the source repo, and (b) a fresh orphan commit
+          # rotates out any historical content we'd rather not keep.
+          force_orphan: true
+          user_name: proximile
+          user_email: 191914090+proximile@users.noreply.github.com
+          commit_message: |
+            docs: deploy from ${{ github.repository }}@${{ github.sha }}
+          cname: docs.proxiport.net
+
+      - name: Note skipped publish
+        if: env.DOCS_DEPLOY_TOKEN == ''
+        run: |
+          echo "::notice::DOCS_DEPLOY_TOKEN secret not set; built but did not publish. Set the secret and re-run via workflow_dispatch."

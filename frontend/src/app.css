@@ -1,0 +1,83 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --color-pp-bg: #0b1020;
+  --color-pp-surface: #0f1629;
+  --color-pp-surface-2: #161f3a;
+  --color-pp-border: #243056;
+  --color-pp-accent: #6366f1;
+  --color-pp-accent-hover: #818cf8;
+  --color-pp-good: #10b981;
+  --color-pp-warn: #f59e0b;
+  --color-pp-bad: #ef4444;
+}
+
+html, body { height: 100%; }
+body { font-family: var(--font-sans); background: var(--color-pp-bg); }
+
+/* Scrollbar styling for dense data tables */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #0f1629; }
+::-webkit-scrollbar-thumb { background: #243056; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #334273; }
+
+/* form inputs default */
+input, textarea, select {
+  background-color: var(--color-pp-surface-2);
+  border: 1px solid var(--color-pp-border);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  color: inherit;
+  font-size: 0.875rem;
+  width: 100%;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--color-pp-accent);
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.25);
+}
+
+/* primary button */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.1s ease, border-color 0.1s ease;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--color-pp-accent); color: white; }
+.btn-primary:hover:not(:disabled) { background: var(--color-pp-accent-hover); }
+.btn-ghost { background: transparent; color: #cbd5e1; border-color: var(--color-pp-border); }
+.btn-ghost:hover:not(:disabled) { background: var(--color-pp-surface-2); }
+.btn-danger { background: #dc2626; color: white; }
+.btn-danger:hover:not(:disabled) { background: #ef4444; }
+
+/* card surface */
+.card {
+  background: var(--color-pp-surface);
+  border: 1px solid var(--color-pp-border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+/* table */
+.tbl { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.tbl th { text-align: left; padding: 0.75rem; background: var(--color-pp-surface-2); font-weight: 600; color: #94a3b8; border-bottom: 1px solid var(--color-pp-border); }
+.tbl td { padding: 0.75rem; border-bottom: 1px solid var(--color-pp-border); }
+.tbl tr:hover td { background: rgba(36,48,86,0.3); }
+
+/* status pill */
+.pill { display: inline-flex; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
+.pill-good { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+.pill-warn { background: rgba(245,158,11,0.15); color: #fcd34d; }
+.pill-bad  { background: rgba(239,68,68,0.15); color: #fca5a5; }
+.pill-info { background: rgba(99,102,241,0.15); color: #c7d2fe; }
+.pill-muted { background: rgba(148,163,184,0.15); color: #cbd5e1; }

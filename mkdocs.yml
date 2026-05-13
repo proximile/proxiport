@@ -1,0 +1,48 @@
+site_name: ProxiPort
+site_description: Self-hosted remote-management server. Fully open source.
+site_url: https://docs.proxiport.net/
+repo_url: https://github.com/proximile/proxiport
+repo_name: proximile/proxiport
+copyright: "Copyright &copy; 2026 Proximile LLC. AGPL-3.0-or-later."
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+
+nav:
+  - Home: index.md
+  - Origin and licensing: origin.md
+  - What changed from openrport: changes-from-openrport.md
+  - Architecture: architecture.md
+  - Install: install.md
+  - Migrating from rport / openrport: migration.md
+  - Operator runbook: operator-runbook.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
