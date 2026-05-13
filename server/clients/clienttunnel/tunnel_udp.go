@@ -49,7 +49,7 @@ func newTunnelUDP(logger *logger.Logger, ssh ssh.Conn, remote models.Remote, acl
 func (t *tunnelUDP) Start(ctx context.Context) error {
 	t.Logger.Debugf("Starting udp tunnel...")
 	remoteAddr := t.Remote.Remote() + "/udp"
-	sshChan, reqs, err := t.sshConn.OpenChannel("proxiport", []byte(remoteAddr))
+	sshChan, reqs, err := t.sshConn.OpenChannel("rport", []byte(remoteAddr))
 	if err != nil {
 		return err
 	}

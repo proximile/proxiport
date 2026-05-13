@@ -14,39 +14,53 @@
   let error = $state('');
   let creating = $state(false);
 
+  // Hostname users will type into their browser/SSH client to reach a tunnel.
+  // Server-side lhost is typically 0.0.0.0 (bind-all), which is useless to
+  // surface — show the host this SPA was loaded from instead.
+  const serverHost = typeof window !== 'undefined' ? window.location.hostname : '';
+
   // ---- Step 1: Service ----------------------------------------------------
-  // Outer service preset. When set to 'forwarding', the form reveals a
-  // sub-service picker plus a Destination IP/Hostname input — that's the
-  // openrport "Service Forwarding" UX, where the tunnel terminates on a
-  // host *behind* the client, not on the client itself.
   let service = $state<'ssh' | 'rdp' | 'vnc' | 'realvnc' | 'http' | 'https' | 'other' | 'forwarding'>('ssh');
   let subService = $state<'ssh' | 'rdp' | 'vnc' | 'realvnc' | 'http' | 'https' | 'other'>('ssh');
-  let remotePort = $state(22);
+  let remotePort = $state<number | undefined>(22);
   let destHost = $state('');
-  let storeInLibrary = $state(false);
-  let libraryName = $state('');
+
+  // TLS reverse proxy in front of the tunnel — server terminates TLS using
+  // its own configured cert, then forwards plaintext to the client. Replaces
+  // the per-tunnel "cert pass" notion: ProxiPort doesn't ship per-tunnel
+  // certs, the server-wide cert covers all proxied tunnels.
+  let tlsProxy = $state(false);
+  let tlsHostname = $state('');
 
   const DEFAULT_PORTS: Record<string, number> = {
     ssh: 22, rdp: 3389, vnc: 5900, realvnc: 5900, http: 80, https: 443, other: 0
   };
 
-  // Update remote port default when service changes (but don't clobber if user
-  // already edited it manually away from the previous default).
   let lastDefaultPort = $state(22);
   function onServiceChange() {
     const effective = service === 'forwarding' ? subService : service;
     const next = DEFAULT_PORTS[effective] ?? 0;
     if (remotePort === lastDefaultPort) remotePort = next;
     lastDefaultPort = next;
+    if (effective !== 'http' && effective !== 'https') tlsProxy = false;
+  }
+
+  function effectiveScheme(): string {
+    return service === 'forwarding' ? subService : service;
+  }
+
+  function tlsProxyAvailable(): boolean {
+    const s = effectiveScheme();
+    return s === 'http' || s === 'https';
   }
 
   // ---- Step 2: Public port ------------------------------------------------
   let publicPortMode = $state<'random' | 'specify'>('random');
-  let publicPort = $state<number | ''>('');
+  let publicPort = $state<number | undefined>(undefined);
 
   // ---- Step 3: ACL --------------------------------------------------------
   let aclMode = $state<'current' | 'specific' | 'anyone'>('current');
-  let aclIp = $state(''); // populated for 'current' via /me/ip; freeform for 'specific'
+  let aclIp = $state('');
   let myIp = $state('');
 
   async function loadMyIp() {
@@ -55,15 +69,12 @@
       const ip = typeof r === 'string' ? r : (r?.ip ?? '');
       myIp = ip;
       if (aclMode === 'current') aclIp = ip;
-    } catch {
-      // best-effort
-    }
+    } catch { /* best-effort */ }
   }
 
   function onAclModeChange() {
     if (aclMode === 'current') aclIp = myIp;
     else if (aclMode === 'anyone') aclIp = '';
-    // 'specific' keeps whatever the user typed
   }
 
   // ---- Step 4: Timeouts ---------------------------------------------------
@@ -72,6 +83,10 @@
   let destroyEnabled = $state(false);
   let destroyHours = $state(2);
   let destroyMinutes = $state(30);
+
+  // ---- Library ------------------------------------------------------------
+  let storeInLibrary = $state(false);
+  let libraryName = $state('');
 
   async function load(id: string) {
     loading = true;
@@ -99,12 +114,7 @@
   });
 
   // ---- Build API params ---------------------------------------------------
-  function effectiveScheme(): string {
-    return service === 'forwarding' ? subService : service;
-  }
-
   function buildRemote(): string {
-    // Forwarding: <host>:<port>. Other: just the port (server binds on 0.0.0.0).
     if (service === 'forwarding') {
       if (!destHost) return String(remotePort);
       return `${destHost}:${remotePort}`;
@@ -115,7 +125,7 @@
   function buildAcl(): string {
     if (aclMode === 'anyone') return '';
     if (aclMode === 'current') return aclIp ? `${aclIp}/32` : '';
-    return aclIp; // 'specific' — already a CIDR
+    return aclIp;
   }
 
   function buildAutoClose(): string {
@@ -129,9 +139,41 @@
     return parts.join('');
   }
 
+  function formValid(): string {
+    const p = Number(remotePort);
+    if (!p || p < 1 || p > 65535) return 'Remote port must be 1–65535.';
+    if (service === 'forwarding' && !destHost.trim()) return 'Destination host is required for service forwarding.';
+    if (publicPortMode === 'specify') {
+      const pp = Number(publicPort);
+      if (!pp || pp < 1 || pp > 65535) return 'Public port must be 1–65535.';
+    }
+    if (aclMode === 'specific' && !aclIp.trim()) return 'CIDR is required for a specific ACL.';
+    return '';
+  }
+
+  // Local URL we show in the active-tunnels table — the address users
+  // actually type. window.location.hostname plus the server-assigned lport.
+  function localUrl(t: Tunnel): string {
+    const host = serverHost || t.lhost || '';
+    return `${host}:${t.lport}`;
+  }
+
+  // The remote endpoint the tunnel forwards to on the client side.
+  function remoteUrl(t: Tunnel): string {
+    const r = (t as any).rport ?? '';
+    const h = t.rhost ?? '';
+    return `${h}:${r}`;
+  }
+
   async function createTunnel(e: Event) {
     e.preventDefault();
     const id = $page.params.id;
+    if (!id) return;
+    const why = formValid();
+    if (why) {
+      error = why;
+      return;
+    }
     creating = true;
     error = '';
     try {
@@ -151,21 +193,29 @@
       }
       const autoClose = buildAutoClose();
       if (autoClose) params.set('auto-close', autoClose);
+      if (tlsProxy && tlsProxyAvailable()) {
+        params.set('http_proxy', 'true');
+        if (tlsHostname.trim()) params.set('host_header', tlsHostname.trim());
+      }
 
       await apiPut(`/clients/${id}/tunnels?${params}`);
 
       if (storeInLibrary) {
         try {
           const body: Record<string, unknown> = {
-            name: libraryName || `${effectiveScheme()} ${buildRemote()}`,
+            name: libraryName || `${sch} ${buildRemote()}`,
             client_id: id,
             remote_port: Number(remotePort),
-            scheme: effectiveScheme()
+            scheme: sch
           };
           if (service === 'forwarding' && destHost) body.remote_host = destHost;
           if (publicPortMode === 'specify' && publicPort) body.local_port = Number(publicPort);
           if (acl) body.acl = acl;
           if (autoClose) body.auto_close = autoClose;
+          if (tlsProxy && tlsProxyAvailable()) {
+            body.http_proxy = true;
+            if (tlsHostname.trim()) body.host_header = tlsHostname.trim();
+          }
           await apiPost(`/clients/${id}/stored-tunnels`, body);
         } catch (libErr) {
           pushToast('warn', 'Tunnel created, but couldn\'t save to library: ' +
@@ -185,24 +235,23 @@
   }
 
   async function deleteTunnel(tid: string) {
+    const id = $page.params.id;
+    if (!id) return;
     if (!confirm(`Delete tunnel ${tid}?`)) return;
     try {
-      await apiDelete(`/clients/${$page.params.id}/tunnels/${tid}`);
+      await apiDelete(`/clients/${id}/tunnels/${tid}`);
       pushToast('good', 'Tunnel deleted.');
-      await load($page.params.id);
+      await load(id);
     } catch (err) {
       pushToast('bad', err instanceof Error ? err.message : String(err));
     }
   }
 
-  // Reactive: when service changes, refresh the default port
   $effect(() => {
-    // depend on both service and subService
     void service; void subService;
     onServiceChange();
   });
 
-  // Reactive: when ACL mode changes, sync the IP field
   $effect(() => {
     void aclMode;
     onAclModeChange();
@@ -218,7 +267,7 @@
     ['other', 'Any Service'],
     ['forwarding', 'Service Forwarding']
   ];
-  const SUB_SERVICE_OPTIONS: Array<[string, string]> = SERVICE_OPTIONS.slice(0, -1); // no 'forwarding'
+  const SUB_SERVICE_OPTIONS: Array<[string, string]> = SERVICE_OPTIONS.slice(0, -1);
 </script>
 
 <div class="space-y-6">
@@ -233,14 +282,15 @@
     </div>
 
     <form onsubmit={createTunnel} class="p-4 space-y-6">
-      <!-- Step 1 -->
+      <!-- Step 1: Service + destination + remote port -->
       <div class="flex items-start gap-3">
         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm text-white">1</div>
-        <div class="flex-1">
+        <div class="flex-1 space-y-3">
           <div class="text-sm">Service to access on the remote site</div>
-          <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label class="text-xs col-span-2">
-              <span class="block text-slate-400 mb-1">Select a service</span>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <label class="text-xs md:col-span-2">
+              <span class="block text-slate-400 mb-1">Service</span>
               <select bind:value={service}>
                 {#each SERVICE_OPTIONS as [v, label]}
                   <option value={v}>{label}</option>
@@ -249,7 +299,6 @@
             </label>
 
             {#if service === 'forwarding'}
-              <!-- Sub-service + port + destination host -->
               <label class="text-xs">
                 <span class="block text-slate-400 mb-1">Sub-service</span>
                 <select bind:value={subService}>
@@ -258,50 +307,54 @@
                   {/each}
                 </select>
               </label>
-            {:else}
-              <label class="text-xs">
-                <span class="block text-slate-400 mb-1">Port</span>
-                <input type="number" min="1" max="65535" bind:value={remotePort} class="font-mono" />
-              </label>
             {/if}
           </div>
 
           {#if service === 'forwarding'}
-            <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <label class="text-xs col-span-2">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <label class="text-xs md:col-span-2">
                 <span class="block text-slate-400 mb-1">Destination IP / Hostname</span>
                 <input bind:value={destHost} placeholder="192.168.178.1" class="font-mono" />
               </label>
               <label class="text-xs">
                 <span class="block text-slate-400 mb-1">Port</span>
-                <input type="number" min="1" max="65535" bind:value={remotePort} class="font-mono" />
+                <input type="number" min="1" max="65535" bind:value={remotePort} class="font-mono" required />
+              </label>
+            </div>
+          {:else}
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <label class="text-xs md:col-start-3">
+                <span class="block text-slate-400 mb-1">Port</span>
+                <input type="number" min="1" max="65535" bind:value={remotePort} class="font-mono" required />
               </label>
             </div>
           {/if}
 
-          <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label class="text-xs col-span-2 flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" bind:checked={storeInLibrary} />
-              <span>Store in library for later re-use</span>
-            </label>
-            {#if storeInLibrary}
-              <label class="text-xs">
-                <span class="block text-slate-400 mb-1">Library name (optional)</span>
-                <input bind:value={libraryName} placeholder="auto" />
+          {#if tlsProxyAvailable()}
+            <div class="pt-3 border-t border-pp-border space-y-2">
+              <label class="text-xs flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" bind:checked={tlsProxy} />
+                <span>Terminate TLS on the server using the server's certificate</span>
               </label>
-            {/if}
-          </div>
+              {#if tlsProxy}
+                <label class="text-xs block max-w-md">
+                  <span class="block text-slate-400 mb-1">Hostname (Host header forwarded to the client)</span>
+                  <input bind:value={tlsHostname} placeholder="intranet.local" class="font-mono w-full" />
+                </label>
+              {/if}
+            </div>
+          {/if}
         </div>
       </div>
 
-      <!-- Step 2 -->
+      <!-- Step 2: Public port -->
       <div class="flex items-start gap-3">
         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm text-white">2</div>
         <div class="flex-1">
           <div class="text-sm">Public port</div>
           <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label class="text-xs col-span-2">
-              <span class="block text-slate-400 mb-1">Select a port</span>
+            <label class="text-xs md:col-span-2">
+              <span class="block text-slate-400 mb-1">Mode</span>
               <select bind:value={publicPortMode}>
                 <option value="random">Random free port</option>
                 <option value="specify">Specific port</option>
@@ -310,47 +363,49 @@
             {#if publicPortMode === 'specify'}
               <label class="text-xs">
                 <span class="block text-slate-400 mb-1">Port</span>
-                <input type="number" min="1" max="65535" bind:value={publicPort} class="font-mono" placeholder="20000" />
+                <input type="number" min="1" max="65535" bind:value={publicPort} class="font-mono" placeholder="20000" required />
               </label>
             {/if}
           </div>
         </div>
       </div>
 
-      <!-- Step 3 -->
+      <!-- Step 3: ACL -->
       <div class="flex items-start gap-3">
         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm text-white">3</div>
         <div class="flex-1">
           <div class="text-sm">ACL — who is allowed to use the tunnel</div>
           <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label class="text-xs col-span-2">
-              <span class="block text-slate-400 mb-1">Select an ACL</span>
+            <label class="text-xs md:col-span-2">
+              <span class="block text-slate-400 mb-1">Mode</span>
               <select bind:value={aclMode}>
                 <option value="current">Only my current IP address</option>
                 <option value="specific">Specific network range</option>
                 <option value="anyone">No restrictions (anyone can access)</option>
               </select>
             </label>
-            <label class="text-xs" class:opacity-50={aclMode === 'anyone'}>
-              <span class="block text-slate-400 mb-1">
-                {aclMode === 'current' ? 'IP Address' : aclMode === 'specific' ? 'CIDR' : 'IP Address'}
-              </span>
-              <input bind:value={aclIp}
-                     readonly={aclMode !== 'specific'}
-                     placeholder={aclMode === 'specific' ? '192.168.1.0/24' : ''}
-                     class="font-mono" />
-            </label>
+            {#if aclMode !== 'anyone'}
+              <label class="text-xs">
+                <span class="block text-slate-400 mb-1">
+                  {aclMode === 'specific' ? 'CIDR' : 'IP address'}
+                </span>
+                <input bind:value={aclIp}
+                       readonly={aclMode !== 'specific'}
+                       placeholder={aclMode === 'specific' ? '192.168.1.0/24' : ''}
+                       class="font-mono" />
+              </label>
+            {/if}
           </div>
         </div>
       </div>
 
-      <!-- Step 4 -->
+      <!-- Step 4: Timeouts -->
       <div class="flex items-start gap-3">
         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm text-white">4</div>
-        <div class="flex-1">
-          <div class="text-sm">Further options</div>
-          <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-            <label class="text-xs col-span-2 flex items-center gap-2 cursor-pointer">
+        <div class="flex-1 space-y-3">
+          <div class="text-sm">Timeouts</div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <label class="text-xs md:col-span-2 flex items-center gap-2 cursor-pointer">
               <input type="checkbox" bind:checked={idleEnabled} />
               <span>Close tunnel after inactivity of</span>
             </label>
@@ -359,8 +414,8 @@
               <input type="number" min="1" bind:value={idleMinutes} disabled={!idleEnabled} class="font-mono" />
             </label>
           </div>
-          <div class="mt-2 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-            <label class="text-xs col-span-2 flex items-center gap-2 cursor-pointer">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <label class="text-xs md:col-span-2 flex items-center gap-2 cursor-pointer">
               <input type="checkbox" bind:checked={destroyEnabled} />
               <span>Destroy tunnel after</span>
             </label>
@@ -372,6 +427,25 @@
               <span class="block text-slate-400 mb-1">Minutes</span>
               <input type="number" min="0" max="59" bind:value={destroyMinutes} disabled={!destroyEnabled} class="font-mono" />
             </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Library -->
+      <div class="flex items-start gap-3 pt-2 border-t border-pp-border">
+        <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-700 text-sm text-slate-300">★</div>
+        <div class="flex-1">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <label class="text-xs md:col-span-2 flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" bind:checked={storeInLibrary} />
+              <span>Also save these settings to the stored-tunnels library</span>
+            </label>
+            {#if storeInLibrary}
+              <label class="text-xs">
+                <span class="block text-slate-400 mb-1">Library name (optional)</span>
+                <input bind:value={libraryName} placeholder="auto" />
+              </label>
+            {/if}
           </div>
         </div>
       </div>
@@ -394,15 +468,15 @@
     {:else}
       <table class="tbl">
         <thead>
-          <tr><th>ID</th><th>Local</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Idle</th><th>Created</th><th></th></tr>
+          <tr><th>ID</th><th>Public URL</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Idle</th><th>Created</th><th></th></tr>
         </thead>
         <tbody>
           {#each client.tunnels as t}
             <tr>
               <td class="font-mono">{t.id}</td>
-              <td class="font-mono text-emerald-300">{t.lhost ?? ''}:{t.lport}</td>
-              <td class="font-mono text-slate-300">{t.rhost ?? ''}:{t.rport}</td>
-              <td><span class="pill pill-info">{t.scheme || t.protocol || '—'}</span></td>
+              <td class="font-mono text-emerald-300">{localUrl(t)}</td>
+              <td class="font-mono text-slate-300">{remoteUrl(t)}</td>
+              <td><span class="pill pill-info">{t.scheme || t.protocol || '—'}</span>{#if t.http_proxy}<span class="pill pill-info ml-1">TLS</span>{/if}</td>
               <td class="font-mono text-xs text-slate-400">{t.acl || '—'}</td>
               <td class="text-slate-400">{t.idle_timeout_minutes ?? '—'}m</td>
               <td class="text-slate-400">{fmtRelative(t.created_at)}</td>

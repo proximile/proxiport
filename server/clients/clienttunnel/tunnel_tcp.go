@@ -165,7 +165,7 @@ func (t *tunnelTCP) accept(ctx context.Context, src io.ReadWriteCloser) {
 		return
 	}
 	// ssh request to open connection to this tunnel's remote
-	dst, reqs, err := t.sshConn.OpenChannel("proxiport", []byte(t.Remote.Remote()))
+	dst, reqs, err := t.sshConn.OpenChannel("rport", []byte(t.Remote.Remote()))
 	if err != nil {
 		l.Errorf("Could not establish TCP tunnel: %v", err)
 		return

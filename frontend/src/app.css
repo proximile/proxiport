@@ -23,8 +23,9 @@ body { font-family: var(--font-sans); background: var(--color-pp-bg); }
 ::-webkit-scrollbar-thumb { background: #243056; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #334273; }
 
-/* form inputs default */
-input, textarea, select {
+/* form inputs default — exclude checkbox/radio so they don't stretch */
+input:not([type=checkbox]):not([type=radio]),
+textarea, select {
   background-color: var(--color-pp-surface-2);
   border: 1px solid var(--color-pp-border);
   border-radius: 0.375rem;
@@ -37,6 +38,10 @@ input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--color-pp-accent);
   box-shadow: 0 0 0 2px rgba(99,102,241,0.25);
+}
+input[type=checkbox], input[type=radio] {
+  width: auto;
+  cursor: pointer;
 }
 
 /* primary button */

@@ -43,7 +43,7 @@ type Remote struct {
 	LocalPortRandom    bool          `json:"lport_random"`
 	Owner              string        `json:"owner"`
 	RemoteHost         string        `json:"rhost"`
-	RemotePort         string        `json:"proxiport"`
+	RemotePort         string        `json:"rport"`
 	Scheme             *string       `json:"scheme"`
 	ACL                *string       `json:"acl"` // string representation of Tunnel.TunnelACL field
 	IdleTimeoutMinutes int           `json:"idle_timeout_minutes"`
