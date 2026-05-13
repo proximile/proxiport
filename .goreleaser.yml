@@ -106,5 +106,6 @@ release:
   github:
     owner: proximile
     name: proxiport
-  draft: true
-  prerelease: auto
+  draft: false
+  prerelease: false
+  make_latest: true
