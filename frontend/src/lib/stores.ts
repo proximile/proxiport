@@ -4,7 +4,14 @@ import { browser } from '$app/environment';
 const TOKEN_KEY = 'proxiport.jwt';
 const VAULT_PASS_KEY = 'proxiport.vault.passphrase'; // kept in sessionStorage only
 
-export type VaultInit = 'initialized' | 'uninitialized' | 'unknown';
+// Matches the server-side constants in server/vault/model.go:
+//   DbStatusInit    = "setup-completed"
+//   DbStatusNotInit = "uninitialized"
+// 'initialized' was an earlier client-side guess that never matched the
+// real API value, which made the gate always read locked even when the
+// vault was unlocked. Kept as an alias here so a fix on either side
+// won't re-break the gate.
+export type VaultInit = 'setup-completed' | 'initialized' | 'uninitialized' | 'unknown';
 export type VaultLock = 'unlocked' | 'locked' | '';
 export type VaultStatusShape = { init: VaultInit; status: VaultLock };
 
@@ -44,7 +51,7 @@ export const vaultStatus = writable<VaultStatusShape>({ init: 'unknown', status:
 /** True iff the server says the vault is initialized AND unlocked. */
 export const vaultUnlocked: Readable<boolean> = derived(
   vaultStatus,
-  ($s) => $s.init === 'initialized' && $s.status === 'unlocked'
+  ($s) => ($s.init === 'setup-completed' || $s.init === 'initialized') && $s.status === 'unlocked'
 );
 
 /** A single short-lived toast bus. Kept tiny — one message at a time. */
