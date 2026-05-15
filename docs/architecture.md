@@ -41,6 +41,10 @@ A single Go binary, `proxiportd`. Responsibilities:
 The server is the only piece that holds state. Agents are otherwise
 stateless beyond their own configuration.
 
+![Server info page — version, host-key fingerprint, pairing URL, the
+list of Connect-URLs the agents and admins use, and a snapshot of
+the auth posture.](screenshots/23-server-info-2fa-off.png)
+
 ## Agent
 
 A single Go binary, `proxiport` (the agent). Responsibilities:
@@ -55,6 +59,14 @@ A single Go binary, `proxiport` (the agent). Responsibilities:
 Agents do not call out to the public internet beyond their server
 connection. They do not require an inbound port.
 
+![Client detail page — identity, OS / kernel / hardware inventory,
+recent heartbeat, and the tabs that group everything you can do
+against this agent.](screenshots/02-client-detail-alpha.png)
+
+![Monitoring tab — CPU and memory series sampled from the agent and
+held in `monitoring.db`. Defaults to short retention; tune with
+`[monitoring]` in `proxiportd.conf`.](screenshots/03-monitoring-cpu-mem.png)
+
 ## Tunnel transport
 
 ProxiPort uses the [chisel](https://github.com/jpillora/chisel)
@@ -67,6 +79,18 @@ terminates TLS on both `[server] address` (chisel control channel) and
 `[api] address` (REST + SPA). The same proxy can host them on a single
 port via SNI / path routing.
 
+![Tunnel create form — pick the remote target on the agent, the
+public scheme, and the ACL gate. The server allocates the public
+port from `[server] used_ports` unless you pin
+one.](screenshots/04-tunnel-create-form.png)
+
+![Active tunnel — the ACL is enforced at the server's listener
+before any byte reaches the agent. `Only my current IP address` is
+a one-click preset.](screenshots/05-tunnel-acl-active.png)
+
+![Global active-tunnel view across all clients. The same listing
+backs `GET /api/v1/tunnels`.](screenshots/06-tunnels-global-active.png)
+
 ## Datastore
 
 SQLite is the default and is the right choice for small to medium
@@ -78,6 +102,10 @@ The vault — an encrypted KV store for documents and per-client
 secrets — uses a separate SQLite file with passphrase-derived
 encryption. The passphrase is supplied at vault unlock time and is not
 persisted server-side.
+
+![Vault unlock prompt. The passphrase is held in process memory only
+— a server restart re-locks the vault and every operator has to
+unlock again.](screenshots/17-vault-unlock.png)
 
 ## Frontend
 
@@ -100,6 +128,10 @@ Three layers:
 3. **TOTP second factor** is optional; when enabled, `/login` returns a
    short-lived intermediate token, and the SPA POSTs the TOTP code to
    `/verify-2fa` to obtain the final JWT.
+
+![Login with 2FA enabled — the SPA holds the intermediate token in
+memory, prompts for the TOTP, and only exchanges for the final JWT
+on a correct code.](screenshots/33-login-2fa-totp.png)
 
 All authentication endpoints feed a per-username ban list with a
 2-second penalty for failed attempts, which is what produces the

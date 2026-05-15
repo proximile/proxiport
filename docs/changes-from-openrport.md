@@ -38,6 +38,12 @@ The frontend in `frontend/` is original work: a SvelteKit SPA written
 from scratch in TypeScript against the existing REST API. It is
 AGPL-licensed along with the rest of the tree.
 
+![ProxiPort login screen.](screenshots/00-login-screen.png)
+
+![Inventory page after a few agents have connected — the same view
+the upstream SPA called the "Clients" page, rebuilt against the
+same REST endpoints.](screenshots/01-inventory-dashboard.png)
+
 User-visible effect: the operator-facing web UI looks different.
 Functional surface area is broadly the same — clients, tunnels,
 commands, scripts, schedules, monitoring, library, vault, users,

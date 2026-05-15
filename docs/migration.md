@@ -37,6 +37,13 @@ schema rebuild.
    sudo journalctl -u proxiportd -n 50
    ```
    Pending schema migrations run automatically on first start.
+
+   Existing agents reconnect against the same client-auth credentials
+   and the same host-key fingerprint, so the inventory comes back
+   populated without any per-agent touch:
+
+   ![Inventory after the server-side migration — every agent that
+   was already paired reconnects on its own.](screenshots/01-inventory-dashboard.png)
 7. **Disable the old unit so it does not race ProxiPort on reboot.**
    ```sh
    sudo systemctl disable rportd

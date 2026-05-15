@@ -67,6 +67,18 @@ sudo systemctl enable --now proxiportd
 Put a reverse proxy in front. The TLS terminator must support WebSocket
 upgrade on the client-listener port and forward `X-Forwarded-For`.
 
+Hit the SPA in a browser and log in with the admin credentials from
+`proxiportd.conf`.
+
+![ProxiPort login screen.](screenshots/00-login-screen.png)
+
+Once the server is up, jump to the **Info** page — that's where the
+host-key fingerprint and the list of Connect-URLs the agents should
+use live.
+
+![Server info — copy the fingerprint into each agent's
+`proxiport.conf` to pin it.](screenshots/23-server-info-2fa-off.png)
+
 ## Agent
 
 ### Requirements
@@ -117,6 +129,10 @@ sudo systemctl enable --now proxiport
 
 The agent connects, registers, and waits for tunnel-open requests from
 the server. It reconnects automatically.
+
+Refresh the SPA. The new agent shows up in the inventory.
+
+![Inventory with the first agent online.](screenshots/01-inventory-dashboard.png)
 
 ## Migrating from rport or openrport
 

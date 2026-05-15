@@ -6,6 +6,9 @@ remote machine and brings tunnels up on demand. It is fully open source,
 top to bottom — no proprietary plugin host, no closed frontend, no
 capability gates.
 
+![The ProxiPort inventory page after a few agents have
+connected.](screenshots/01-inventory-dashboard.png)
+
 ProxiPort is maintained by [Proximile LLC](https://proximile.llc) and
 licensed under **AGPL-3.0-or-later**.
 
