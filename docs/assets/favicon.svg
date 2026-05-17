@@ -1,12 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title">
   <title id="title">ProxiPort</title>
   <rect width="32" height="32" rx="6" fill="#0b1020"/>
+  <!-- Tunnel mouth: outer arch -->
   <path d="M 5 21 A 11 9 0 0 1 27 21"
         stroke="#818cf8" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <!-- Tunnel mouth: inner depth ring -->
   <path d="M 10.5 21 A 5.5 4.5 0 0 1 21.5 21"
         stroke="#818cf8" stroke-width="1.8" fill="none" stroke-linecap="round" opacity="0.55"/>
+  <!-- Ground line at the base of the tunnel -->
   <line x1="4" y1="21.5" x2="28" y2="21.5"
         stroke="#818cf8" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Traffic arrow exiting the tunnel toward the right -->
   <path d="M 8 26.5 L 22 26.5 M 19 23.5 L 22 26.5 L 19 29.5"
         stroke="#10b981" stroke-width="2" fill="none"
         stroke-linecap="round" stroke-linejoin="round"/>

@@ -7,6 +7,8 @@ copyright: "Copyright &copy; 2026 Proximile LLC. AGPL-3.0-or-later."
 
 theme:
   name: material
+  logo: assets/wordmark.svg
+  favicon: assets/favicon.svg
   palette:
     - scheme: default
       primary: indigo
@@ -35,6 +37,22 @@ nav:
   - Install: install.md
   - Migrating from rport / openrport: migration.md
   - Operator runbook: operator-runbook.md
+  - Authentication:
+    - API auth: api-authentication.md
+    - Client auth: client-authentication.md
+  - Server hardening:
+    - HTTPS: https.md
+    - IP-address determination: ip-address-determination.md
+  - Working with clients:
+    - Command execution: command-execution.md
+    - Scripts: scripts.md
+    - Tunnel hosting: tunnel-hosting.md
+    - Watchdog: watchdog.md
+    - Vault: vault.md
+  - Configuration:
+    - Client groups and permissions: client-groups-permissions.md
+    - Monitoring: monitoring.md
+    - Client attributes file: client-attributes.md
 
 markdown_extensions:
   - admonition

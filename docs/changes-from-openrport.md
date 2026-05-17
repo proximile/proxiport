@@ -95,6 +95,31 @@ The pieces that gave rport / openrport their value are kept exactly:
 | `rportd.conf` | `proxiportd.conf` |
 | `rport.conf` | `proxiport.conf` |
 
+## Planned for v0.2 and beyond
+
+These are tracked, not promised. Filed here so contributors can
+see the direction of travel before any code lands.
+
+- **OIDC / OAuth login.** First-class identity-provider login as
+  an open-source replacement for the upstream Plus plugin's SSO.
+  See [API authentication](api-authentication.md) for the
+  current local-user model the OIDC flow will sit alongside.
+- **Extended group permissions (RBAC).** Per-group policy file
+  (YAML) layered on top of the existing
+  [client groups and permissions](client-groups-permissions.md)
+  model, so operators can express "this group can run scripts on
+  hosts tagged `prod` but not `infra`" without code changes.
+- **Alerting / notification dispatch.** SMTP, Slack, and generic
+  webhook sinks for the [monitoring](monitoring.md) rule engine,
+  replacing the proprietary alerting that used to ship with the
+  upstream Plus plugin.
+- **Sandboxed NoVNC demo.** The public ProxiPort demo will gain
+  a pre-opened NoVNC tunnel terminating at a network-jailed
+  Firefox container that can reach only a baked-in offline
+  Wikipedia mirror — so visitors can exercise the proxy feature
+  end-to-end without ProxiPort itself operating an unrestricted
+  web kiosk.
+
 ## Licence change
 
 The combined work changes from MIT (upstream openrport / rport) to
