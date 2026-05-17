@@ -59,33 +59,12 @@ jobs:
         # port. Running those packages in parallel races on `go run`'s
         # build cache and the subprocess startup, so run them one at a
         # time.
-        #
-        # FIXME: under the toolchain CI installs from `go-version-file:
-        # go.mod` (currently `go 1.22`), proxiportd refuses to start
-        # under the BDD harness with "Invalid config: client
-        # authentication must be enabled", even though each BDD subdir
-        # has a `proxiportd.conf` with `auth = "..."` set. Repros
-        # neither locally on Go 1.25 nor with `go test ./bdd/<pkg>/`
-        # in isolation. Suspected: viper's
-        # `SetConfigName("proxiportd.conf")` discovery behavior is
-        # different on 1.22; investigate via `SetConfigFile`. Until
-        # that's fixed, run BDD non-blocking so unit + lint failures
-        # still gate the workflow.
-        continue-on-error: true
         run: go test -count=1 -p 1 -timeout 5m ./bdd/...
 
       - name: golangci-lint
-        # FIXME: the inherited .golangci.yml uses pre-v2 syntax (deadline,
-        # output.format, check-shadowing, list-type / include-go-root /
-        # packages under depguard, unused.check-exported, maligned, golint,
-        # etc.) which golangci-lint v1.64+ rejects with "configuration
-        # contains invalid elements". Migrate the config to the current
-        # schema (or pin the action to v1.55 with `version: v1.55.0`),
-        # then drop continue-on-error.
-        continue-on-error: true
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.12.2
           args: --timeout=5m
 
   frontend:
