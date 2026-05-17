@@ -1,0 +1,41 @@
+#
+# ProxiPort server (proxiportd) systemd unit shipped with the deb/rpm
+# package. Mirrors the layout of /usr/bin/proxiport for the agent: the
+# binary is in /usr/bin, config in /etc/proxiport, state in
+# /var/lib/proxiport, and the daemon runs as the unprivileged
+# `proxiport` system user that the package creates on first install.
+#
+[Unit]
+Description=ProxiPort server
+ConditionFileIsExecutable=/usr/bin/proxiportd
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+ExecStart=/usr/bin/proxiportd -c /etc/proxiport/proxiportd.conf
+User=proxiport
+Group=proxiport
+Restart=always
+RestartSec=10
+EnvironmentFile=-/etc/sysconfig/proxiportd
+EnvironmentFile=-/etc/default/proxiportd
+
+# Allow binding 80/443 without root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+
+# Reverse-proxy users that hand certs to proxiportd via the standard
+# Debian/Ubuntu `ssl-cert` group can pick them up here.
+SupplementaryGroups=ssl-cert
+
+# Hardening
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/proxiport /var/log/proxiport
+
+[Install]
+WantedBy=multi-user.target

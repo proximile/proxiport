@@ -1,3 +1,5 @@
+version: 2
+
 env:
   - CGO_ENABLED=0
   - PROJECT=github.com/proximile/proxiport
@@ -96,6 +98,108 @@ archives:
       - LICENSE-MIT
       - NOTICE
       - README.md
+nfpms:
+  # Agent package: static, ships everywhere proxiport runs as a service.
+  - id: proxiport
+    package_name: proxiport
+    file_name_template: >-
+      {{ .PackageName }}_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    builds:
+      - proxiport
+    vendor: Proximile LLC
+    homepage: https://proxiport.net
+    maintainer: Proximile LLC <191914090+proximile@users.noreply.github.com>
+    description: |-
+      ProxiPort agent. Idles on a remote machine, connects out to a
+      ProxiPort server over SSH-over-WebSocket, and brings tunnels up
+      on demand. Works behind NAT — no inbound firewall rules needed.
+    license: AGPL-3.0-or-later
+    section: net
+    priority: optional
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    contents:
+      - src: ./proxiport.example.conf
+        dst: /etc/proxiport/proxiport.example.conf
+        type: config|noreplace
+      - src: ./opt/systemd/proxiport.service
+        dst: /lib/systemd/system/proxiport.service
+      - src: ./LICENSE
+        dst: /usr/share/doc/proxiport/LICENSE
+      - src: ./LICENSE-MIT
+        dst: /usr/share/doc/proxiport/LICENSE-MIT
+      - src: ./NOTICE
+        dst: /usr/share/doc/proxiport/NOTICE
+      - src: ./README.md
+        dst: /usr/share/doc/proxiport/README.md
+    scripts:
+      preinstall: ./opt/packaging/preinstall.sh
+      postinstall: ./opt/packaging/postinstall.sh
+      preremove: ./opt/packaging/preremove.sh
+      postremove: ./opt/packaging/postremove.sh
+    overrides:
+      deb:
+        dependencies:
+          - libc6
+      rpm:
+        dependencies:
+          - glibc
+  # Server package: CGO=1 (sqlite), linux/amd64 + linux/arm64 only.
+  - id: proxiportd
+    package_name: proxiportd
+    file_name_template: >-
+      {{ .PackageName }}_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    builds:
+      - proxiportd
+    vendor: Proximile LLC
+    homepage: https://proxiport.net
+    maintainer: Proximile LLC <191914090+proximile@users.noreply.github.com>
+    description: |-
+      ProxiPort server. Accepts WebSocket connections from ProxiPort
+      agents, multiplexes SSH tunnels over them, and exposes a REST
+      API + SPA for operators. Self-hosted, AGPL-3.0-or-later.
+    license: AGPL-3.0-or-later
+    section: net
+    priority: optional
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    contents:
+      - src: ./proxiportd.example.conf
+        dst: /etc/proxiport/proxiportd.example.conf
+        type: config|noreplace
+      - src: ./opt/systemd/proxiportd.service
+        dst: /lib/systemd/system/proxiportd.service
+      - src: ./LICENSE
+        dst: /usr/share/doc/proxiportd/LICENSE
+      - src: ./LICENSE-MIT
+        dst: /usr/share/doc/proxiportd/LICENSE-MIT
+      - src: ./NOTICE
+        dst: /usr/share/doc/proxiportd/NOTICE
+      - src: ./README.md
+        dst: /usr/share/doc/proxiportd/README.md
+    scripts:
+      preinstall: ./opt/packaging/preinstall.sh
+      postinstall: ./opt/packaging/postinstall.sh
+      preremove: ./opt/packaging/preremove.sh
+      postremove: ./opt/packaging/postremove.sh
+    overrides:
+      deb:
+        dependencies:
+          - libc6
+      rpm:
+        dependencies:
+          - glibc
 checksum:
   name_template: 'checksums.txt'
 snapshot:

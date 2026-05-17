@@ -29,11 +29,41 @@ platform-native service manager.
 
 ### Install
 
-ProxiPort is currently distributed as a **tarball** from the project's
-[GitHub releases page](https://github.com/proximile/proxiport/releases).
-Each release ships a static `proxiportd` binary, a sample
-`proxiportd.conf`, and a systemd unit file, for `linux/amd64` and
-`linux/arm64`.
+Each release ships from the project's
+[GitHub releases page](https://github.com/proximile/proxiport/releases)
+in three flavours, for `linux/amd64` and `linux/arm64`:
+
+- **Debian/Ubuntu `.deb`** (`proxiportd_<ver>_linux_x86_64.deb` /
+  `_linux_arm64.deb`) — preferred on dpkg-based distros.
+- **Fedora/RHEL/openSUSE `.rpm`** (`proxiportd_<ver>_linux_x86_64.rpm` /
+  `_linux_arm64.rpm`) — preferred on rpm-based distros.
+- **Tarball** (`proxiportd_<ver>_linux_x86_64.tar.gz` etc.) for hosts
+  where you don't want a package manager involved.
+
+#### Debian / Ubuntu
+
+```sh
+curl -LO https://github.com/proximile/proxiport/releases/latest/download/proxiportd_linux_x86_64.deb
+sudo dpkg -i proxiportd_linux_x86_64.deb
+sudo vi /etc/proxiport/proxiportd.conf
+sudo systemctl enable --now proxiportd
+```
+
+The package creates a `proxiport` system user, installs the binary at
+`/usr/bin/proxiportd`, ships a systemd unit at
+`/lib/systemd/system/proxiportd.service`, and seeds
+`/etc/proxiport/proxiportd.conf` from the example. State lives under
+`/var/lib/proxiport`.
+
+#### Fedora / RHEL / openSUSE
+
+```sh
+sudo rpm -ivh https://github.com/proximile/proxiport/releases/latest/download/proxiportd_linux_x86_64.rpm
+sudo vi /etc/proxiport/proxiportd.conf
+sudo systemctl enable --now proxiportd
+```
+
+#### Tarball (fallback)
 
 ```sh
 # Replace VERSION and ARCH (x86_64 or aarch64) for your target.
@@ -45,9 +75,8 @@ sudo cp proxiportd.example.conf /etc/proxiport/proxiportd.conf
 sudo cp proxiportd.service /etc/systemd/system/
 ```
 
-We do not yet maintain distro-native packages (`.deb`, `.rpm`),
-container images, or any other registry-published artifacts. If you need
-one of those, build it from source — `go install
+We do not yet publish container images or other registry artifacts. If
+you need one, build it from source — `go install
 github.com/proximile/proxiport/cmd/proxiportd@latest` produces a working
 binary against `main`.
 
@@ -96,9 +125,16 @@ use live.
 
 ### Install
 
-Same shape as the server — tarball from the GitHub releases page,
-extract, copy binary + config + service unit. Replace `proxiportd` with
-`proxiport` in the URL above.
+Same shape as the server — `.deb`, `.rpm`, or tarball from the GitHub
+releases page. Replace `proxiportd` with `proxiport` in the URLs above.
+The agent ships for more architectures than the server: `linux/amd64`,
+`linux/arm64`, `linux/i386`, and `linux/armv7`.
+
+```sh
+# Debian/Ubuntu (amd64 shown):
+curl -LO https://github.com/proximile/proxiport/releases/latest/download/proxiport_linux_x86_64.deb
+sudo dpkg -i proxiport_linux_x86_64.deb
+```
 
 The fastest way to bring up a new agent is the **pairing service** at
 [`pairing.proxiport.net`](https://pairing.proxiport.net/): the operator
