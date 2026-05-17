@@ -1,5 +1,12 @@
 # Install
 
+!!! tip "Just want to see it work?"
+    The public demo at
+    [`https://demo.proxiport.net/`](https://demo.proxiport.net/) lets
+    you sign in (`demo` / `demo`) and explore an Inventory of three
+    pre-registered agents without installing anything. State resets
+    on the half-hour.
+
 ProxiPort has two pieces: the **server** (`proxiportd`) and the **agent**
 (`proxiport`). One server reaches many agents; the agent dials the server
 over an outbound WebSocket, so it works behind NAT without inbound

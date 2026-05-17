@@ -7,6 +7,19 @@ plugin host, no proprietary frontend, no capability-gated edition.
 
 Maintained by [Proximile LLC](https://proximile.llc).
 
+## Try it
+
+A public demo runs at
+[**`https://demo.proxiport.net/`**](https://demo.proxiport.net/).
+Sign in with `demo` / `demo` (the SPA login page shows the same
+banner). The demo guest has a read-only profile — destructive
+endpoints are walled off — and the whole state resets on the
+half-hour, so it's safe to poke at. Three pre-registered agents
+appear in the Inventory.
+
+The demo is for evaluation only; do not depend on it. To run
+your own, see [Install](docs/install.md).
+
 ## Origin and licensing
 
 ProxiPort is a continuation of the open-source remote-management project

@@ -12,6 +12,21 @@ connected.](screenshots/01-inventory-dashboard.png)
 ProxiPort is maintained by [Proximile LLC](https://proximile.llc) and
 licensed under **AGPL-3.0-or-later**.
 
+## Try the public demo
+
+A live demo runs at
+[**`https://demo.proxiport.net/`**](https://demo.proxiport.net/).
+Sign in with `demo` / `demo` — the SPA login page shows the same
+banner. Three pre-registered agents appear in Inventory. The demo
+guest has a read-only profile and a small set of admin-only
+endpoints (user management, agent-credential listing, request-IP
+echo) are walled off at the edge, so it's safe to poke at without
+exposing operator-side state. The whole DB and agent fleet reset
+on the half-hour.
+
+The demo is for evaluation only; do not rely on it. To run your
+own server, see [Install](install.md).
+
 ## Why it exists
 
 The upstream **rport** project was MIT-licensed when CloudRadar GmbH
