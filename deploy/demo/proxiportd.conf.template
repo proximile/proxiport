@@ -1,0 +1,57 @@
+# ProxiPort demo server config template.
+#
+# Rendered by deploy/demo/deploy.sh. The differences from the
+# production deploy/server template are:
+#
+#   * doc_root is set so the bundled SPA is served from the same
+#     :443 listener as the API. No separate static file server.
+#   * purge_disconnected_clients = true so abandoned demo agents
+#     don't accumulate.
+#   * tunnel egress range narrowed to 100 ports (sufficient for a
+#     demo and cheaper to firewall).
+#
+# Substitution markers:
+#   __HOST__              public hostname (e.g. demo.proxiport.net)
+#   __KEY_SEED__          openssl rand -hex 18
+#   __ADMIN_PW__          random admin password
+#   __CLIENT_AUTH_PW__    random client-auth password
+#   __JWT_SECRET__        openssl rand -hex 32
+
+[server]
+  address = "0.0.0.0:80"
+  url = ["http://__HOST__:80"]
+
+  pairing_url = "https://pairing.proxiport.net"
+
+  key_seed = "__KEY_SEED__"
+
+  auth = "smoketest:__CLIENT_AUTH_PW__"
+
+  used_ports = ['20000-20099']
+  data_dir = "/var/lib/proxiport"
+
+  purge_disconnected_clients = true
+  keep_disconnected_clients = "1h"
+
+  tunnel_proxy_cert_file = "/etc/letsencrypt/live/__HOST__/fullchain.pem"
+  tunnel_proxy_key_file = "/etc/letsencrypt/live/__HOST__/privkey.pem"
+
+[logging]
+  log_file = "/var/log/proxiport/proxiportd.log"
+  log_level = "info"
+
+[api]
+  address = "0.0.0.0:443"
+  base_url = "https://__HOST__:443"
+
+  auth = "admin:__ADMIN_PW__"
+  jwt_secret = "__JWT_SECRET__"
+
+  cert_file = "/etc/letsencrypt/live/__HOST__/fullchain.pem"
+  key_file = "/etc/letsencrypt/live/__HOST__/privkey.pem"
+
+  doc_root = "/var/lib/proxiport/docroot"
+
+[database]
+  db_type = "sqlite"
+  db_name = "/var/lib/proxiport/user-auth.db"

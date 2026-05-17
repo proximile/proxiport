@@ -26,6 +26,7 @@ __pycache__/
 resource.syso
 vendor/
 dist/
+build/
 
 # Air live-reload
 .air.toml

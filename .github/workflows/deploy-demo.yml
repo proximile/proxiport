@@ -1,0 +1,155 @@
+name: deploy-demo
+
+# Fires after a release publication (goreleaser writes the binary
+# artifacts as part of `release.yml`, then the GitHub UI flips the
+# release out of "draft" — the publication event fires at that point).
+#
+# Pulls the just-released proxiportd Linux/amd64 binary, builds the
+# matching SPA from the tag, and ships both to the demo droplet
+# behind Caddy at https://demo.proxiport.net/.
+#
+# Requires the repo secret `DEMO_DEPLOY_SSH_KEY` — an Ed25519
+# private key whose public half is in /root/.ssh/authorized_keys
+# on the demo droplet. The reset timer on the droplet re-seeds the
+# guest user + ACLs hourly; deploys here only replace the binary
+# and SPA, never touch the database.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "release tag to deploy (e.g. v0.2.0)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: false
+
+env:
+  DEMO_HOST: demo.proxiport.net
+  DEMO_SSH_USER: root
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build SPA
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Download proxiportd binary from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p stage
+          TAG="${{ steps.tag.outputs.tag }}"
+          # Strip leading 'v' from tag; release artifacts use the bare semver.
+          VER="${TAG#v}"
+          ASSET="proxiportd_${VER}_linux_x86_64.tar.gz"
+          gh release download "$TAG" \
+              --repo "${{ github.repository }}" \
+              --pattern "$ASSET" \
+              --dir stage/
+          tar -C stage -xzf "stage/$ASSET"
+          file stage/proxiportd
+          stat -c '%s' stage/proxiportd
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEMO_DEPLOY_SSH_KEY }}" > ~/.ssh/demo_deploy
+          chmod 0600 ~/.ssh/demo_deploy
+          ssh-keyscan -H "$DEMO_HOST" >> ~/.ssh/known_hosts
+
+      - name: Push binary + SPA to droplet
+        run: |
+          SSH="ssh -i ~/.ssh/demo_deploy -o StrictHostKeyChecking=yes"
+          SCP="scp -i ~/.ssh/demo_deploy -o StrictHostKeyChecking=yes"
+
+          # Stage binary
+          $SCP stage/proxiportd "$DEMO_SSH_USER@$DEMO_HOST:/tmp/proxiportd.new"
+
+          # Stage SPA (recursive, atomically swapped on the droplet)
+          $SSH "$DEMO_SSH_USER@$DEMO_HOST" 'rm -rf /tmp/proxiport-spa.new && mkdir -p /tmp/proxiport-spa.new'
+          rsync -a -e "ssh -i ~/.ssh/demo_deploy -o StrictHostKeyChecking=yes" \
+              frontend/build/ "$DEMO_SSH_USER@$DEMO_HOST:/tmp/proxiport-spa.new/"
+
+          # Atomic-ish swap + restart. The reset timer's own state
+          # (admin password file, seed DB, agent compose) is left
+          # alone — this workflow only touches the binary and SPA.
+          $SSH "$DEMO_SSH_USER@$DEMO_HOST" "
+              set -euxo pipefail
+              install -o root -g root -m 0755 /tmp/proxiportd.new /usr/local/bin/proxiportd
+              rm /tmp/proxiportd.new
+
+              install -d -o proxiport -g proxiport -m 0750 /var/lib/proxiport/docroot
+              rsync -a --delete /tmp/proxiport-spa.new/ /var/lib/proxiport/docroot/
+              chown -R proxiport:proxiport /var/lib/proxiport/docroot
+              rm -rf /tmp/proxiport-spa.new
+
+              systemctl restart proxiportd
+
+              # Trigger a reset so the agent fleet relaunches with
+              # the new binary (and the demo DB seed is freshly applied).
+              systemctl start proxiport-demo-reset.service
+          "
+
+      - name: Smoke-test the deploy
+        run: |
+          set -euxo pipefail
+          # Wait for the API to come back, then check status + guest login.
+          for i in $(seq 1 30); do
+              CODE=$(curl -sSo /dev/null -w '%{http_code}' "https://$DEMO_HOST/" || true)
+              [[ "$CODE" == "200" ]] && break
+              sleep 2
+          done
+          [[ "$CODE" == "200" ]] || { echo "demo did not return 200 after restart"; exit 1; }
+
+          TOKEN=$(curl -sS -X POST "https://$DEMO_HOST/api/v1/login" \
+                  -H 'Content-Type: application/json' \
+                  -d '{"username":"demo","password":"demo"}' \
+                  | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["token"])')
+          [[ -n "$TOKEN" ]] || { echo "demo login failed"; exit 1; }
+
+          COUNT=$(curl -sS -H "Authorization: Bearer $TOKEN" \
+                  "https://$DEMO_HOST/api/v1/clients" \
+                  | python3 -c 'import sys,json;print(json.load(sys.stdin)["meta"]["count"])')
+          echo "agents visible to demo user: $COUNT"
+          [[ "$COUNT" -ge 3 ]] || { echo "expected >=3 agents, got $COUNT"; exit 1; }
+
+          # Sandbox endpoints must still 403 / synthetic.
+          IP=$(curl -sS -H "Authorization: Bearer $TOKEN" "https://$DEMO_HOST/api/v1/me/ip" \
+                  | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["ip"])')
+          [[ "$IP" == "0.0.0.0" ]] || { echo "/me/ip wall down: got $IP"; exit 1; }
+          USERS=$(curl -sSo /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "https://$DEMO_HOST/api/v1/users")
+          [[ "$USERS" == "403" ]] || { echo "/users wall down: got $USERS"; exit 1; }
+
+          echo "demo deploy of ${{ steps.tag.outputs.tag }} OK"

@@ -15,8 +15,17 @@
   let error = $state('');
   let loginToken = $state(''); // short-lived JWT from /login when TOTP is enabled
 
+  // Only the demo deployment exposes guest credentials in the UI.
+  // Detection is hostname-prefix-based so the banner is invisible on
+  // every other install. Matches `demo.*` so future demo subdomains
+  // (try.proxiport.net, etc.) need explicit opt-in here.
+  let isDemo = $state(false);
+
   onMount(() => {
     if (get(tokenStore)) goto('/inventory', { replaceState: true });
+    if (typeof window !== 'undefined' && window.location.hostname.startsWith('demo.')) {
+      isDemo = true;
+    }
   });
 
   async function submitCreds(e: Event) {
@@ -62,6 +71,17 @@
       <div class="text-2xl font-semibold tracking-tight text-indigo-300">ProxiPort</div>
       <div class="text-xs text-slate-500 mt-1">remote access · OSS</div>
     </div>
+
+    {#if isDemo}
+      <div class="rounded border border-indigo-700/50 bg-indigo-950/40 px-3 py-2 text-xs text-indigo-200">
+        <div class="font-semibold mb-1">Public demo</div>
+        Sign in with
+        <span class="font-mono text-indigo-100">demo</span> /
+        <span class="font-mono text-indigo-100">demo</span>.
+        State resets on the half-hour; destructive actions are
+        disabled.
+      </div>
+    {/if}
 
     {#if stage === 'creds'}
       <form class="space-y-3" onsubmit={submitCreds}>
