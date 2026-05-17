@@ -521,7 +521,24 @@ func (al *APIListener) checkBearerToken(ctx context.Context, bearerToken, uri, m
 	return authorized, tokenCtx, nil
 }
 
+// bcryptPrefixes are the algorithm identifiers we recognize on stored
+// password hashes. htpasswd writes "$2y$", Go's golang.org/x/crypto/bcrypt
+// writes "$2a$", Python's bcrypt module writes "$2b$" — all three are the
+// same algorithm, only the identifier differs.
+var bcryptPrefixes = []string{"$2y$", "$2a$", "$2b$"}
+
+// htpasswdBcryptPrefix is kept for backward compatibility with callers
+// (e.g. server/api/users/file.go) that quote it in error messages.
 const htpasswdBcryptPrefix = "$2y$"
+
+func hasBcryptPrefix(s string) bool {
+	for _, p := range bcryptPrefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
 
 // validateCredentials returns true if given credentials belong to a user with access to the API.
 func (al *APIListener) validateCredentials(username, password string, skipPasswordValidation bool) (bool, *users.User, error) {
@@ -569,8 +586,10 @@ func (al *APIListener) shouldCreateMissingUser(user *users.User, skipPasswordVal
 }
 
 func verifyPassword(saved, provided string) bool {
-	// bcrypt hashed password
-	if strings.HasPrefix(saved, htpasswdBcryptPrefix) {
+	// bcrypt hashed password — accept any of the equivalent identifiers
+	// ($2a$, $2b$, $2y$). Upstream only checked $2y$, which silently
+	// rejects hashes produced by every bcrypt library except htpasswd.
+	if hasBcryptPrefix(saved) {
 		return bcrypt.CompareHashAndPassword([]byte(saved), []byte(provided)) == nil
 	}
 
