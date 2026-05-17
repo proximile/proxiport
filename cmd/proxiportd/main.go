@@ -441,12 +441,8 @@ func decodeAndValidateConfig(mLog *logger.MemLogger) error {
 	if *cfgPath != "" {
 		viperCfg.SetConfigFile(*cfgPath)
 	} else {
-		// SetConfigFile (instead of AddConfigPath + SetConfigName) — viper's
-		// name-based discovery treats the dot in "proxiportd.conf" as an
-		// extension delimiter and then probes for proxiportd.conf.toml on
-		// some toolchains, which silently misses a real proxiportd.conf in
-		// CWD. Pointing viper at the literal file avoids the heuristic.
-		viperCfg.SetConfigFile("./proxiportd.conf")
+		viperCfg.AddConfigPath(".")
+		viperCfg.SetConfigName("proxiportd.conf")
 	}
 
 	if err := chshare.DecodeViperConfig(viperCfg, cfg, nil); err != nil {
