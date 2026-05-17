@@ -39,4 +39,11 @@ jobs:
           version: "~> v2"
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use a fine-grained PAT (RELEASE_PAT, scoped contents: write
+          # on this repo) instead of GITHUB_TOKEN so the release-published
+          # event propagates to the downstream deploy-demo workflow.
+          # Workflows triggered by GITHUB_TOKEN cannot trigger further
+          # workflows — that's the documented anti-loop guard. Falls back
+          # to GITHUB_TOKEN on forks / dispatch where RELEASE_PAT is
+          # absent, so the release still cuts.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
