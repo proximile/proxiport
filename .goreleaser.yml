@@ -112,6 +112,7 @@ nfpms:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
+      {{- if .Mips }}_{{ .Mips }}{{ end }}
     ids:
       - proxiport
     vendor: Proximile LLC
