@@ -31,77 +31,86 @@ platform-native service manager.
 
 ### Install
 
-Current releases ship only the tarball — `.deb` and `.rpm` packaging
-is wired into the release config but the artefacts aren't yet
-uploaded to the GitHub release. See "Coming soon" below.
+Each release on the
+[GitHub releases page](https://github.com/proximile/proxiport/releases)
+ships the server for `linux/amd64` and `linux/arm64` in three formats:
 
-Each release lives on the project's
-[GitHub releases page](https://github.com/proximile/proxiport/releases),
-with `linux/amd64` and `linux/arm64` tarballs for the server.
+- **Debian/Ubuntu `.deb`** — `proxiportd_<ver>_linux_<arch>.deb`
+- **Fedora/RHEL/openSUSE `.rpm`** — `proxiportd_<ver>_linux_<arch>.rpm`
+- **Tarball** — `proxiportd_<ver>_linux_<arch>.tar.gz`, for other
+  distributions
 
-#### Tarball
+Asset filenames carry the version; the snippets below resolve the
+latest tag from the GitHub API before downloading. Substitute `arm64`
+for `x86_64` on aarch64 hosts.
+
+#### Debian / Ubuntu
 
 ```sh
-# Resolve the latest version, then download for your arch.
 VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
         | grep -m1 '"tag_name"' | cut -d'"' -f4)
-# x86_64 shown; for arm64 substitute "arm64" for "x86_64".
+curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxiportd_${VER#v}_linux_x86_64.deb"
+sudo dpkg -i "proxiportd_${VER#v}_linux_x86_64.deb"
+sudo vi /etc/proxiport/proxiportd.conf
+sudo systemctl enable --now proxiportd
+```
+
+The package creates the `proxiport` system user, installs the binary
+at `/usr/bin/proxiportd`, ships the systemd unit at
+`/lib/systemd/system/proxiportd.service`, and seeds
+`/etc/proxiport/proxiportd.conf` from the example. State lives under
+`/var/lib/proxiport`.
+
+#### Fedora / RHEL / openSUSE
+
+```sh
+VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
+        | grep -m1 '"tag_name"' | cut -d'"' -f4)
+sudo rpm -ivh "https://github.com/proximile/proxiport/releases/download/${VER}/proxiportd_${VER#v}_linux_x86_64.rpm"
+sudo vi /etc/proxiport/proxiportd.conf
+sudo systemctl enable --now proxiportd
+```
+
+Same layout as the `.deb` — `proxiport` user, `/usr/bin/proxiportd`,
+unit at `/lib/systemd/system/proxiportd.service`, config at
+`/etc/proxiport/proxiportd.conf`, state under `/var/lib/proxiport`.
+
+#### Tarball (other distributions)
+
+```sh
+VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
+        | grep -m1 '"tag_name"' | cut -d'"' -f4)
 curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxiportd_${VER#v}_linux_x86_64.tar.gz"
 tar xzf "proxiportd_${VER#v}_linux_x86_64.tar.gz"
 
-# Install the binary and example config.
 sudo install -m 0755 proxiportd /usr/bin/proxiportd
-sudo mkdir -p /etc/proxiport
+sudo install -d /etc/proxiport
 sudo install -m 0644 proxiportd.example.conf /etc/proxiport/proxiportd.conf
+sudo install -m 0644 proxiportd.service /lib/systemd/system/proxiportd.service
 
-# Create the unprivileged service user and state dir the systemd unit expects.
 sudo useradd --system --home /var/lib/proxiport --shell /usr/sbin/nologin proxiport || true
 sudo install -d -o proxiport -g proxiport -m 0750 /var/lib/proxiport
 
-# Fetch the systemd unit from the same release tag (not yet bundled in
-# the tarball — that ships in the .deb/.rpm packages below).
-sudo curl -fsSL -o /lib/systemd/system/proxiportd.service \
-    "https://raw.githubusercontent.com/proximile/proxiport/${VER}/opt/systemd/proxiportd.service"
 sudo systemctl daemon-reload
-
-sudo vi /etc/proxiport/proxiportd.conf      # set admin/client auth, JWT secret, key_seed
+sudo vi /etc/proxiport/proxiportd.conf
 sudo systemctl enable --now proxiportd
 ```
 
 The systemd unit runs `proxiportd` as the unprivileged `proxiport`
-user, reads its config from `/etc/proxiport/proxiportd.conf`, and
-keeps state under `/var/lib/proxiport`. `CAP_NET_BIND_SERVICE` lets
-it bind 80/443 without running as root.
-
-#### Coming soon: `.deb` and `.rpm`
-
-The goreleaser config produces Debian/Ubuntu and Fedora/RHEL/openSUSE
-packages for both `proxiportd` and `proxiport`, but the v0.1.x
-releases shipped only the tarballs — the packaging step is on the
-fix list. Once shipped, the install will collapse to:
-
-```sh
-# Debian/Ubuntu (when shipped):
-curl -LO https://github.com/proximile/proxiport/releases/latest/download/proxiportd_<ver>_linux_x86_64.deb
-sudo dpkg -i proxiportd_<ver>_linux_x86_64.deb
-```
-
-```sh
-# Fedora/RHEL/openSUSE (when shipped):
-sudo rpm -ivh https://github.com/proximile/proxiport/releases/download/<tag>/proxiportd_<ver>_linux_x86_64.rpm
-```
-
-The package will create the `proxiport` system user, install the
-binary at `/usr/bin/proxiportd`, ship the systemd unit at
-`/lib/systemd/system/proxiportd.service`, and seed
-`/etc/proxiport/proxiportd.conf` from the example.
+user. `CAP_NET_BIND_SERVICE` is granted so the binary can bind ports
+80 and 443 without root.
 
 #### Building from source
 
-For container images or any other artefact we don't publish, build
-from source — `go install github.com/proximile/proxiport/cmd/proxiportd@latest`
-produces a working binary against `main`. The server needs CGO
-(`CGO_ENABLED=1`) for SQLite; the agent is pure Go.
+If none of the published artefacts fit your platform — or you want a
+container image, which we do not publish — build from source:
+
+```sh
+go install github.com/proximile/proxiport/cmd/proxiportd@latest
+```
+
+The server needs CGO (`CGO_ENABLED=1`) for the embedded SQLite. The
+agent is pure Go.
 
 ### Configure
 
@@ -168,16 +177,34 @@ curl https://pairing.proxiport.net/<code> | sudo sh
 and the installer drops a working binary plus `proxiport.conf` into
 place. Source for the pairing service: <https://github.com/proximile/proxiport-pairing>.
 
-The same "tarball only for now, `.deb`/`.rpm` coming" caveat applies
-to the agent — see the server's [Coming soon](#coming-soon-deb-and-rpm)
-note. Agent tarballs are published for many more platforms than the
-server: linux (amd64/arm64/i386/armv6/armv7/mips/mips64/s390x), macOS
-(amd64/arm64), Windows (amd64), and FreeBSD (amd64/arm64/armv6/armv7/i386).
+The agent ships in the same three package formats as the server, plus
+tarballs for a wider platform list: linux (amd64, arm64, i386, armv6,
+armv7, mips/mipsle/mips64/mips64le hard- and softfloat, s390x), macOS
+(amd64, arm64), Windows (amd64), and FreeBSD (amd64, arm64, armv6,
+armv7, i386). `.deb` and `.rpm` are published for every Linux variant.
 
-### Manual install (tarball)
+### Manual install — Debian / Ubuntu
 
-If you prefer to install the agent yourself, fetch the tarball for
-your platform (the example uses linux/amd64):
+```sh
+VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
+        | grep -m1 '"tag_name"' | cut -d'"' -f4)
+curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxiport_${VER#v}_linux_x86_64.deb"
+sudo dpkg -i "proxiport_${VER#v}_linux_x86_64.deb"
+sudo vi /etc/proxiport/proxiport.conf
+sudo systemctl enable --now proxiport
+```
+
+### Manual install — Fedora / RHEL / openSUSE
+
+```sh
+VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
+        | grep -m1 '"tag_name"' | cut -d'"' -f4)
+sudo rpm -ivh "https://github.com/proximile/proxiport/releases/download/${VER}/proxiport_${VER#v}_linux_x86_64.rpm"
+sudo vi /etc/proxiport/proxiport.conf
+sudo systemctl enable --now proxiport
+```
+
+### Manual install — tarball (other platforms)
 
 ```sh
 VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
@@ -186,14 +213,13 @@ curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxip
 tar xzf "proxiport_${VER#v}_linux_x86_64.tar.gz"
 
 sudo install -m 0755 proxiport /usr/bin/proxiport
-sudo mkdir -p /etc/proxiport
+sudo install -d /etc/proxiport
 sudo install -m 0644 proxiport.example.conf /etc/proxiport/proxiport.conf
-
-# Fetch the systemd unit from the same release tag.
-sudo curl -fsSL -o /lib/systemd/system/proxiport.service \
-    "https://raw.githubusercontent.com/proximile/proxiport/${VER}/opt/systemd/proxiport.service"
+sudo install -m 0644 proxiport.service /lib/systemd/system/proxiport.service
 sudo systemctl daemon-reload
 ```
+
+#### Configure the agent
 
 Edit `/etc/proxiport/proxiport.conf`:
 
@@ -204,13 +230,14 @@ auth = "<client-auth-id>:<password>"
 fingerprint = "<server-host-key-fingerprint>"
 ```
 
-The `fingerprint` value pins the server's host key so the agent refuses
-to talk to an imposter. It's printed by `proxiportd` at startup.
+The `fingerprint` value pins the server's host key so the agent
+refuses to talk to an imposter. It is printed by `proxiportd` at
+startup, and shown on the server **Info** page.
 
 Start the service:
 
 ```sh
-sudo systemctl enable --now proxiport
+sudo systemctl enable --now proxiport     # or `restart` if it is already running
 ```
 
 The agent connects, registers, and waits for tunnel-open requests from
@@ -229,7 +256,8 @@ unchanged where the underlying behaviour is unchanged.
 To migrate:
 
 1. Stop the upstream service (`rportd` or `openrportd`).
-2. Install the ProxiPort server tarball.
+2. Install ProxiPort using the Debian/Ubuntu, Fedora/RHEL, or tarball
+   path above.
 3. Copy your existing `rportd.conf` to `/etc/proxiport/proxiportd.conf`.
 4. Start `proxiportd`.
 5. On each agent, replace the upstream binary, copy the config to
