@@ -191,8 +191,9 @@ Rotating one credential out of many does not affect other agents.
 - Pin `[server] key_seed` so the host-key fingerprint stays stable
   across server restarts; otherwise every agent fails the next
   fingerprint check.
-- Put `proxiportd`'s client-listener port behind a TLS-terminating
-  reverse proxy — see [HTTPS](https.md).
+- Serve `proxiportd`'s client-listener over TLS — either built-in
+  (`cert_file`/`key_file` or `enable_acme` under `[server]`) or
+  behind a reverse proxy. See [HTTPS](https.md).
 - Watch for repeated failed-auth log lines and ban offending IPs at
   the firewall. The server has a built-in `client_login_wait` and
   `max_failed_login` / `ban_time` pair but it is per-IP at the HTTP

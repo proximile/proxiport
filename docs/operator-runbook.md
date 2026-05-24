@@ -173,7 +173,10 @@ manually.](screenshots/04-tunnel-create-form.png)
 The ACL is enforced at the server's listener, not at the agent —
 denied traffic never crosses the chisel session. `Only my current
 IP address` is the default preset and reads the request's
-`X-Forwarded-For` (set this in your reverse proxy).
+`X-Forwarded-For`, falling back to the connection's remote address
+when that header is absent. If you front the server with a reverse
+proxy, configure the proxy to set `X-Forwarded-For`; with built-in
+TLS the connection IP is used directly.
 
 ![Active tunnel with a single-IP ACL applied.](screenshots/05-tunnel-acl-active.png)
 

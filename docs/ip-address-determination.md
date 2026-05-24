@@ -150,8 +150,11 @@ yours.
   network.
 - Always set the refresh interval to a value that won't get you
   throttled — 30 minutes is the default and is rarely the bottleneck.
-- Configure the reverse proxy to forward `X-Forwarded-For` so the
-  audit log records the real visitor IP, not the proxy.
+- If you front the server with a reverse proxy, configure it to
+  forward `X-Forwarded-For` so the audit log records the real
+  visitor IP, not the proxy. With built-in TLS the connection
+  remote address is used directly and no header configuration is
+  needed.
 
 See also: [client attributes](client-attributes.md) for tagging agents
 by location/role/datacenter, and

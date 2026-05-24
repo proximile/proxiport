@@ -71,13 +71,15 @@ archives:
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
       {{- if .Mips }}_{{ .Mips }}{{ end }}
-    builds:
+    ids:
       - proxiport
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     files:
       - proxiport.example.conf
+      - src: opt/systemd/proxiport.service
+        dst: proxiport.service
       - LICENSE
       - LICENSE-MIT
       - NOTICE
@@ -90,10 +92,12 @@ archives:
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
       {{- if .Mips }}_{{ .Mips }}{{ end }}
-    builds:
+    ids:
       - proxiportd
     files:
       - proxiportd.example.conf
+      - src: opt/systemd/proxiportd.service
+        dst: proxiportd.service
       - LICENSE
       - LICENSE-MIT
       - NOTICE
@@ -108,7 +112,7 @@ nfpms:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
-    builds:
+    ids:
       - proxiport
     vendor: Proximile LLC
     homepage: https://proxiport.net
@@ -158,7 +162,7 @@ nfpms:
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
-    builds:
+    ids:
       - proxiportd
     vendor: Proximile LLC
     homepage: https://proxiport.net
@@ -203,7 +207,7 @@ nfpms:
 checksum:
   name_template: 'checksums.txt'
 snapshot:
-  name_template: '{{ .Tag }}'
+  version_template: '{{ .Tag }}'
 changelog:
   sort: asc
 release:

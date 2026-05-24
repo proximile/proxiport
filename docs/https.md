@@ -1,16 +1,18 @@
 # Securing proxiportd with HTTPS
 
-ProxiPort can serve the REST API and the SPA over HTTPS directly, or
-sit behind a TLS-terminating reverse proxy. Both shapes are supported
-in production. This page covers all three common deployments:
+`proxiportd` terminates TLS itself on both the API/SPA listener and
+the agent (chisel) listener. Three deployment shapes are supported:
 
-1. **Reverse proxy in front** (recommended for most operators) —
-   nginx, Caddy, or Traefik handles TLS; ProxiPort listens on plain
-   HTTP/WebSocket bound to localhost.
-2. **Built-in ACME** — ProxiPort obtains and renews a Let's Encrypt
-   certificate itself.
-3. **Manually-managed certificates** — supply your own
-   `cert_file`/`key_file` and renew them on your own schedule.
+1. **Built-in ACME** — ProxiPort obtains and renews a Let's Encrypt
+   certificate itself. One config line on a single-purpose host; no
+   external tooling.
+2. **Manually-managed certificates** — supply your own
+   `cert_file`/`key_file` and renew them on your own schedule (or
+   wire `certbot` to do it).
+3. **External reverse proxy in front** — nginx, Caddy, or Traefik
+   handles TLS; ProxiPort listens on plain HTTP/WebSocket bound to
+   localhost. Useful when you already run a TLS edge for other
+   services on the same host.
 
 !!! warning "Never run the API on plain HTTP across the network"
     Credentials, JWTs, command output, and file pushes all cross the
@@ -22,11 +24,11 @@ in production. This page covers all three common deployments:
 
 | Setup | When it fits |
 | --- | --- |
-| Reverse proxy | You already run nginx/Caddy; you want one TLS surface across many services; you want HTTP/2 / HTTP/3, request logging, rate limiting, or path routing in one place. |
-| Built-in ACME | Single-purpose host, no other web service on the box, port 80 reachable from the internet for HTTP-01 challenges. |
+| Built-in ACME | Single-purpose host, no other web service on the box, port 80 reachable from the internet for HTTP-01 challenges. Easiest production setup. |
 | Manual cert files | Behind an internal CA, an air-gapped environment, or any setup where certbot cannot reach Let's Encrypt directly. |
+| External reverse proxy | You already run nginx/Caddy; you want one TLS surface across many services; you want HTTP/2 / HTTP/3, request logging, rate limiting, or path routing in one place. |
 
-## Reverse proxy in front (recommended)
+## External reverse proxy in front
 
 Bind ProxiPort to localhost and let the proxy handle TLS. Two pieces
 need to be reachable through the proxy:

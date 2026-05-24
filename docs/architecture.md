@@ -6,13 +6,13 @@ UI** served by the server for human admins. There is no required cloud
 component and no required third-party service.
 
 ```
-+---------+      WebSocket (typically 443     +-----------+
-| agent   |       behind a reverse proxy)     | server    |
++---------+      WebSocket over TLS           +-----------+
+| agent   |       (typically 443)             | server    |
 +---------+   <----------------------------   |           |
               chisel control channel          |           |
                                               |           |
-+---------+      HTTPS (typically 443         |           |
-| admin   |       behind the same proxy)      |  REST API |
++---------+      HTTPS                        |           |
+| admin   |       (typically 443)             |  REST API |
 | browser |   <----------------------------   |  + SPA    |
 +---------+      SvelteKit SPA + REST         +-----------+
                                                     |
@@ -23,6 +23,12 @@ component and no required third-party service.
                                               | datastore |
                                               +-----------+
 ```
+
+`proxiportd` terminates TLS directly on both listeners — point it at
+a `cert_file` + `key_file` pair, or turn on the built-in ACME client
+for automatic Let's Encrypt certificates. An external reverse proxy
+(nginx, Caddy, Traefik) is an option, not a requirement. See
+[HTTPS](https.md) for the full deployment matrix.
 
 ## Server
 
@@ -74,10 +80,13 @@ SSH-over-WebSocket transport, inherited from the upstream fork. Each
 chisel session is one TLS-or-not-TLS WebSocket carrying SSH framing,
 inside which tunnel sub-channels are multiplexed.
 
-For production deployments put the server behind a reverse proxy that
-terminates TLS on both `[server] address` (chisel control channel) and
-`[api] address` (REST + SPA). The same proxy can host them on a single
-port via SNI / path routing.
+For production deployments, serve both listeners over TLS. The
+simplest path is the server's built-in TLS — supply `cert_file` +
+`key_file` (or `enable_acme`) under both `[server]` and `[api]`,
+each on the port the agents and operators reach. If you already
+operate an nginx, Caddy, or Traefik front-end, you can park
+`proxiportd` on localhost and let the proxy terminate TLS instead;
+both shapes are described in [HTTPS](https.md).
 
 ![Tunnel create form — pick the remote target on the agent, the
 public scheme, and the ACL gate. The server allocates the public
