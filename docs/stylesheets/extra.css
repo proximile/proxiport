@@ -1,0 +1,8 @@
+/* The wordmark logo (assets/wordmark.svg) already contains the
+   "ProxiPort" text, so mkdocs-material's default header title — which
+   renders site_name as a sibling of the logo — duplicates the brand.
+   Hide the entire .md-header__title block; the wordmark is sufficient
+   on its own and the per-page heading is shown in the body as <h1>. */
+.md-header__title {
+    display: none;
+}
