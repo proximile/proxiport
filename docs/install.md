@@ -47,8 +47,8 @@ for `x86_64` on aarch64 hosts.
 #### Debian / Ubuntu
 
 ```sh
-VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
-        | grep -m1 '"tag_name"' | cut -d'"' -f4)
+VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
+        | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxiportd_${VER#v}_linux_x86_64.deb"
 sudo dpkg -i "proxiportd_${VER#v}_linux_x86_64.deb"
 sudo vi /etc/proxiport/proxiportd.conf
@@ -64,8 +64,8 @@ at `/usr/bin/proxiportd`, ships the systemd unit at
 #### Fedora / RHEL / openSUSE
 
 ```sh
-VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
-        | grep -m1 '"tag_name"' | cut -d'"' -f4)
+VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
+        | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 sudo rpm -ivh "https://github.com/proximile/proxiport/releases/download/${VER}/proxiportd_${VER#v}_linux_x86_64.rpm"
 sudo vi /etc/proxiport/proxiportd.conf
 sudo systemctl enable --now proxiportd
@@ -78,8 +78,8 @@ unit at `/lib/systemd/system/proxiportd.service`, config at
 #### Tarball (other distributions)
 
 ```sh
-VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
-        | grep -m1 '"tag_name"' | cut -d'"' -f4)
+VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
+        | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxiportd_${VER#v}_linux_x86_64.tar.gz"
 tar xzf "proxiportd_${VER#v}_linux_x86_64.tar.gz"
 
@@ -186,8 +186,8 @@ armv7, i386). `.deb` and `.rpm` are published for every Linux variant.
 ### Manual install — Debian / Ubuntu
 
 ```sh
-VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
-        | grep -m1 '"tag_name"' | cut -d'"' -f4)
+VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
+        | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxiport_${VER#v}_linux_x86_64.deb"
 sudo dpkg -i "proxiport_${VER#v}_linux_x86_64.deb"
 sudo vi /etc/proxiport/proxiport.conf
@@ -197,8 +197,8 @@ sudo systemctl enable --now proxiport
 ### Manual install — Fedora / RHEL / openSUSE
 
 ```sh
-VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
-        | grep -m1 '"tag_name"' | cut -d'"' -f4)
+VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
+        | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 sudo rpm -ivh "https://github.com/proximile/proxiport/releases/download/${VER}/proxiport_${VER#v}_linux_x86_64.rpm"
 sudo vi /etc/proxiport/proxiport.conf
 sudo systemctl enable --now proxiport
@@ -207,8 +207,8 @@ sudo systemctl enable --now proxiport
 ### Manual install — tarball (other platforms)
 
 ```sh
-VER=$(curl -fsS https://api.github.com/repos/proximile/proxiport/releases/latest \
-        | grep -m1 '"tag_name"' | cut -d'"' -f4)
+VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
+        | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxiport_${VER#v}_linux_x86_64.tar.gz"
 tar xzf "proxiport_${VER#v}_linux_x86_64.tar.gz"
 
