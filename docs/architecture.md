@@ -35,9 +35,11 @@ for automatic Let's Encrypt certificates. An external reverse proxy
 A single Go binary, `proxiportd`. Responsibilities:
 
 - terminate the chisel control channel from agents on
-  `[server] address` (`0.0.0.0:8080` out of the box)
+  `[server] address` (`0.0.0.0:80` in the seeded config; SSH-over-WS
+  carries its own encryption so no TLS at this layer)
 - serve the REST API and the SvelteKit SPA on `[api] address`
-  (`0.0.0.0:3000` in the example config)
+  (`127.0.0.1:3000` in the seeded config; production setups switch this
+  to one of the three TLS profiles in [HTTPS](https.md))
 - persist clients, users, tunnels, scripts, commands, schedules, and
   audit records to SQLite (default) or MySQL
 - enforce auth (HTTP-Basic for agents on the tunnel port; JWT for the

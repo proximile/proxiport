@@ -57,7 +57,7 @@ break on embedded newlines, quotes, and special characters:
 ```bash
 SCRIPT=$(printf '#!/bin/bash\nset -euo pipefail\nuptime\nfree -h\n' | base64 -w0)
 TOKEN=$(curl -s -u admin:password \
-  http://proxiport.example.com:3000/api/v1/login | jq -r .data.token)
+  https://proxiport.example.com/api/v1/login | jq -r .data.token)
 CLIENT=alpha-prod
 
 JOB=$(curl -s -X POST \
@@ -68,11 +68,11 @@ JOB=$(curl -s -X POST \
     \"interpreter\": \"/bin/bash\",
     \"timeout_sec\": 30
   }" \
-  "http://proxiport.example.com:3000/api/v1/clients/$CLIENT/scripts" \
+  "https://proxiport.example.com/api/v1/clients/$CLIENT/scripts" \
   | jq -r .data.jid)
 
 curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://proxiport.example.com:3000/api/v1/clients/$CLIENT/commands/$JOB" | jq
+  "https://proxiport.example.com/api/v1/clients/$CLIENT/commands/$JOB" | jq
 ```
 
 Note that the **result** is fetched from the commands endpoint, not a
@@ -105,7 +105,7 @@ curl -s -X POST \
     \"abort_on_error\": false,
     \"timeout_sec\": 60
   }" \
-  http://proxiport.example.com:3000/api/v1/scripts
+  https://proxiport.example.com/api/v1/scripts
 ```
 
 Concurrency and abort-on-error semantics are the same as
@@ -160,11 +160,11 @@ curl -s -X POST \
     "cwd":"/root",
     "script":"pwd"
   }' \
-  http://proxiport.example.com:3000/api/v1/library/scripts
+  https://proxiport.example.com/api/v1/library/scripts
 
 # List, sort by newest first
 curl -s -H "Authorization: Bearer $TOKEN" \
-  'http://proxiport.example.com:3000/api/v1/library/scripts?sort=-created_at' \
+  'https://proxiport.example.com/api/v1/library/scripts?sort=-created_at' \
   | jq
 
 # Update (full replacement; partial updates are not supported)
@@ -172,11 +172,11 @@ curl -s -X PUT \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   --data-raw '{ "name":"...", "interpreter":"...", "is_sudo":false, "cwd":"...", "script":"..." }' \
-  http://proxiport.example.com:3000/api/v1/library/scripts/<script-id>
+  https://proxiport.example.com/api/v1/library/scripts/<script-id>
 
 # Delete
 curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
-  http://proxiport.example.com:3000/api/v1/library/scripts/<script-id>
+  https://proxiport.example.com/api/v1/library/scripts/<script-id>
 ```
 
 The endpoint accepts `sort=` and `filter[<field>]=` on `id`, `name`,

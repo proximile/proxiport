@@ -20,13 +20,13 @@ platform-native service manager.
 
 ### Requirements
 
-- Linux x86_64 or arm64 with systemd
-- A public hostname is recommended so you can serve TLS. ProxiPort
-  terminates TLS itself — point `[api] cert_file` + `key_file` at a
-  PEM pair, or set `[api] enable_acme = true` to get a Let's Encrypt
-  certificate from the embedded ACME client. A separate reverse proxy
-  (nginx, Caddy, Traefik) is optional, useful when you already run one
-  for other services. See [HTTPS](https.md) for all three setups.
+- Linux x86_64 or arm64 with systemd.
+- A public hostname pointed at the host. The **Pick a public listener**
+  step below walks through the three TLS setups (built-in ACME, manual
+  cert, reverse proxy) — all of them need a hostname.
+- Ports 80 and 443 reachable from the network you want agents to
+  connect from (80 for the agent listener and ACME HTTP-01 challenges,
+  443 for the TLS API).
 - SQLite is the default datastore; MySQL is also supported.
 
 ### Install
@@ -51,15 +51,7 @@ VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/lates
         | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxiportd_${VER#v}_linux_x86_64.deb"
 sudo dpkg -i "proxiportd_${VER#v}_linux_x86_64.deb"
-sudo vi /etc/proxiport/proxiportd.conf
-sudo systemctl enable --now proxiportd
 ```
-
-The package creates the `proxiport` system user, installs the binary
-at `/usr/bin/proxiportd`, ships the systemd unit at
-`/lib/systemd/system/proxiportd.service`, and seeds
-`/etc/proxiport/proxiportd.conf` from the example. State lives under
-`/var/lib/proxiport`.
 
 #### Fedora / RHEL / openSUSE
 
@@ -67,13 +59,7 @@ at `/usr/bin/proxiportd`, ships the systemd unit at
 VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
         | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 sudo rpm -ivh "https://github.com/proximile/proxiport/releases/download/${VER}/proxiportd_${VER#v}_linux_x86_64.rpm"
-sudo vi /etc/proxiport/proxiportd.conf
-sudo systemctl enable --now proxiportd
 ```
-
-Same layout as the `.deb` — `proxiport` user, `/usr/bin/proxiportd`,
-unit at `/lib/systemd/system/proxiportd.service`, config at
-`/etc/proxiport/proxiportd.conf`, state under `/var/lib/proxiport`.
 
 #### Tarball (other distributions)
 
@@ -90,15 +76,12 @@ sudo install -m 0644 proxiportd.service /lib/systemd/system/proxiportd.service
 
 sudo useradd --system --home /var/lib/proxiport --shell /usr/sbin/nologin proxiport || true
 sudo install -d -o proxiport -g proxiport -m 0750 /var/lib/proxiport
-
+sudo setcap CAP_NET_BIND_SERVICE=+eip /usr/bin/proxiportd
 sudo systemctl daemon-reload
-sudo vi /etc/proxiport/proxiportd.conf
-sudo systemctl enable --now proxiportd
 ```
 
-The systemd unit runs `proxiportd` as the unprivileged `proxiport`
-user. `CAP_NET_BIND_SERVICE` is granted so the binary can bind ports
-80 and 443 without root.
+Tarball installs do not auto-generate secrets or seed the config; the
+**Configure** step below covers what to set by hand.
 
 #### Building from source
 
@@ -112,43 +95,132 @@ go install github.com/proximile/proxiport/cmd/proxiportd@latest
 The server needs CGO (`CGO_ENABLED=1`) for the embedded SQLite. The
 agent is pure Go.
 
-### Configure
+### What just happened
 
-Edit `/etc/proxiport/proxiportd.conf`:
+The `.deb` / `.rpm` post-install ran four steps the operator otherwise
+has to do manually:
 
-- `[api] auth = "admin:<password>"` — initial admin login (rotate
-  before exposing the API).
-- `[server] auth = "<client-auth-id>:<password>"` — credentials the agent
-  uses to register.
-- `[api] jwt_secret = "<long-random-string>"` — pin so users do not
-  get logged out on every restart.
-- `[server] key_seed = "<long-random-hex>"` — pin the server host key
-  so the agent's `fingerprint` check stays stable across restarts.
+- generated a random ECDSA `key_seed`, JWT signing secret, admin
+  password, and first agent credential — all written into
+  `/etc/proxiport/proxiportd.conf` in place of the example placeholders;
+- recorded the admin and client-auth credentials in two files under
+  `/var/lib/proxiport/`:
 
-Restart the unit so it picks up the new config (or `enable --now` it
-if you skipped that step in the install block above):
+    ```text
+    /var/lib/proxiport/initial-admin-password   # SPA login
+    /var/lib/proxiport/initial-client-auth      # first agent's auth pair
+    ```
+
+    Both files are mode `0640 root:proxiport`. Read with `sudo cat`.
+
+- granted `CAP_NET_BIND_SERVICE` on `/usr/bin/proxiportd` so the
+  unprivileged `proxiport` user can bind ports 80 and 443;
+- created `/var/lib/proxiport` (state) and `/var/log/proxiport` (logs)
+  with `proxiport` ownership.
+
+The server is **not yet enabled**. The seeded config binds the API to
+`127.0.0.1` only, so nothing is reachable from the network until the
+next step.
+
+### Pick a public listener
+
+The seeded config leaves `[api] address = "127.0.0.1:3000"` so nothing
+is exposed off-box until you choose how TLS will be served. There are
+three working setups; pick one and edit `/etc/proxiport/proxiportd.conf`
+accordingly. Full walk-through with worked examples is in
+[HTTPS](https.md).
+
+=== "Built-in ACME (easiest)"
+
+    Single-purpose host with a public DNS A record pointing at it and
+    port 80 reachable from the internet for Let's Encrypt's HTTP-01
+    challenge. `proxiportd` obtains and renews the certificate itself.
+
+    ```toml
+    [api]
+      address     = "0.0.0.0:443"
+      base_url    = "https://proxiport.example.com"
+      enable_acme = true
+    ```
+
+=== "Manual cert files"
+
+    Bring your own cert + key (certbot --manual, internal CA, anything
+    PEM). Both files must be readable by the `proxiport` system user.
+
+    ```toml
+    [api]
+      address   = "0.0.0.0:443"
+      base_url  = "https://proxiport.example.com"
+      cert_file = "/etc/proxiport/tls/fullchain.pem"
+      key_file  = "/etc/proxiport/tls/privkey.pem"
+    ```
+
+=== "Reverse proxy"
+
+    nginx / Caddy / Traefik terminates TLS upstream and forwards plain
+    HTTP to `proxiportd` over loopback. Keep `address = "127.0.0.1:3000"`
+    in the seeded config and point your proxy at it. See
+    [HTTPS](https.md#external-reverse-proxy-in-front) for the directives
+    each proxy needs for the WebSocket upgrade.
+
+### Open the firewall
+
+Wherever your server runs there is probably one host-level firewall and
+one cloud-level firewall. Both need port 80 (for the agent listener and
+ACME HTTP-01) and 443 (for the TLS API), unless you went with the
+reverse-proxy option.
+
+=== "UFW (Ubuntu)"
+
+    ```sh
+    sudo ufw allow 80/tcp
+    sudo ufw allow 443/tcp
+    ```
+
+=== "firewalld (RHEL / Fedora)"
+
+    ```sh
+    sudo firewall-cmd --add-service=http  --permanent
+    sudo firewall-cmd --add-service=https --permanent
+    sudo firewall-cmd --reload
+    ```
+
+=== "DigitalOcean / AWS / GCP"
+
+    On hyperscalers the host firewall above only opens the kernel —
+    the cloud's network firewall is what the public internet sees. Add
+    inbound TCP rules for `80` and `443` to the droplet's Cloud
+    Firewall (DO), the instance's Security Group (AWS), or the VPC
+    firewall (GCP).
+
+### Enable the service
 
 ```sh
-sudo systemctl restart proxiportd
+sudo systemctl enable --now proxiportd
+sudo systemctl status proxiportd
 ```
 
-Enable TLS before exposing the server to anything other than
-`127.0.0.1`. The fastest path is built-in ACME — set
-`[api] enable_acme = true` and `[api] base_url = "https://<your-host>"`
-in `proxiportd.conf` and restart. For manually-managed certificates,
-point `[api] cert_file` and `[api] key_file` at a PEM pair. If you
-prefer to front the server with an external reverse proxy (nginx,
-Caddy, Traefik), see [HTTPS](https.md) — the same page covers the
-WebSocket-upgrade and `X-Forwarded-For` settings the proxy needs.
+If the unit fails to start, `journalctl -u proxiportd -n 50` shows
+why — the most common causes are an `[api] address` that's already in
+use, a `base_url` whose hostname does not resolve, or `cert_file` /
+`key_file` paths the `proxiport` user cannot read.
 
-Hit the SPA in a browser and log in with the admin credentials from
-`proxiportd.conf`.
+### Log in
+
+Read the random admin password generated at install time:
+
+```sh
+sudo cat /var/lib/proxiport/initial-admin-password
+```
+
+Open `https://<your-host>/` in a browser and sign in. Rotate the
+password from the Profile screen once you're in.
 
 ![ProxiPort login screen.](screenshots/00-login-screen.png)
 
-Once the server is up, jump to the **Info** page — that's where the
-host-key fingerprint and the list of Connect-URLs the agents should
-use live.
+The **Info** page is where the host-key fingerprint and the
+Connect-URL list live — both are needed when configuring agents.
 
 ![Server info — copy the fingerprint into each agent's
 `proxiport.conf` to pin it.](screenshots/23-server-info-2fa-off.png)
@@ -157,11 +229,11 @@ use live.
 
 ### Requirements
 
-- Linux / macOS / Windows
-- Outbound TCP to the server on whatever port the server's
-  client-listener is published on — 443 in most production setups,
-  whether that's served by `proxiportd` directly or by a reverse
-  proxy in front of it.
+- Linux / macOS / Windows.
+- Outbound TCP from the agent host to the server's `[server]`
+  listener — port 80 in the seeded default. Agents never accept
+  inbound connections, so no firewall changes are needed on their
+  side.
 
 ### Install
 
@@ -183,28 +255,24 @@ armv7, mips/mipsle/mips64/mips64le hard- and softfloat, s390x), macOS
 (amd64, arm64), Windows (amd64), and FreeBSD (amd64, arm64, armv6,
 armv7, i386). `.deb` and `.rpm` are published for every Linux variant.
 
-### Manual install — Debian / Ubuntu
+#### Manual install — Debian / Ubuntu
 
 ```sh
 VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
         | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxiport_${VER#v}_linux_x86_64.deb"
 sudo dpkg -i "proxiport_${VER#v}_linux_x86_64.deb"
-sudo vi /etc/proxiport/proxiport.conf
-sudo systemctl enable --now proxiport
 ```
 
-### Manual install — Fedora / RHEL / openSUSE
+#### Manual install — Fedora / RHEL / openSUSE
 
 ```sh
 VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
         | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 sudo rpm -ivh "https://github.com/proximile/proxiport/releases/download/${VER}/proxiport_${VER#v}_linux_x86_64.rpm"
-sudo vi /etc/proxiport/proxiport.conf
-sudo systemctl enable --now proxiport
 ```
 
-### Manual install — tarball (other platforms)
+#### Manual install — tarball (other platforms)
 
 ```sh
 VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
@@ -219,25 +287,31 @@ sudo install -m 0644 proxiport.service /lib/systemd/system/proxiport.service
 sudo systemctl daemon-reload
 ```
 
-#### Configure the agent
+### Configure the agent
 
-Edit `/etc/proxiport/proxiport.conf`:
+Edit `/etc/proxiport/proxiport.conf` and set three fields:
 
 ```toml
 [client]
-server = "your-server.example.com:443"
-auth = "<client-auth-id>:<password>"
-fingerprint = "<server-host-key-fingerprint>"
+  server      = "your-proxiport-server.example.com:80"
+  auth        = "<client-auth-id>:<password>"
+  fingerprint = "<server-host-key-fingerprint>"
 ```
 
-The `fingerprint` value pins the server's host key so the agent
-refuses to talk to an imposter. It is printed by `proxiportd` at
-startup, and shown on the server **Info** page.
+- **`server`** — the address the agent dials. Port should match what the
+  proxiportd `[server]` listener was bound to; the seeded default is 80.
+- **`auth`** — pull the first credential off the server with
+  `sudo cat /var/lib/proxiport/initial-client-auth`, or any later
+  credential you've created. Both halves of `<id>:<password>` go in.
+- **`fingerprint`** — the proxiportd host-key fingerprint, printed in
+  the server's log on first boot and shown on the SPA's **Info** page.
+  Without it, the agent will accept whatever public key the server
+  presents — fine for testing, never for production.
 
-Start the service:
+Then start the service:
 
 ```sh
-sudo systemctl enable --now proxiport     # or `restart` if it is already running
+sudo systemctl enable --now proxiport
 ```
 
 The agent connects, registers, and waits for tunnel-open requests from
@@ -246,6 +320,30 @@ the server. It reconnects automatically.
 Refresh the SPA. The new agent shows up in the inventory.
 
 ![Inventory with the first agent online.](screenshots/01-inventory-dashboard.png)
+
+## Upgrading from a v0.1.2 install
+
+v0.1.3 changes two things that already-running v0.1.2 installs do not
+pick up automatically — the package postinstall deliberately leaves an
+existing `/etc/proxiport/proxiportd.conf` alone.
+
+- **`[api] address` default moved from `0.0.0.0:3000` to `127.0.0.1:3000`.**
+  v0.1.2 servers that have always relied on the example config will
+  still listen on 3000 publicly until you switch them onto one of the
+  three public-listener profiles above. Until then, the API is reachable
+  on plain HTTP, which is exactly what the v0.1.3 defaults are meant
+  to stop.
+- **Random secrets and initial credential files** are only generated on
+  first install. If you set `key_seed` / `jwt_secret` / `[api] auth`
+  yourself when bringing v0.1.2 up, nothing to do. If you left them at
+  the example placeholders (`<YOUR_SEED>`, `<YOUR_SECRET>`,
+  `admin:foobaz`, `clientAuth1:1234`), generate replacements manually
+  before upgrading — `openssl rand -hex 32` for the seed,
+  `openssl rand -base64 24` for the JWT secret, anything strong for
+  the auth strings.
+
+Otherwise the upgrade is `dpkg -i` / `rpm -Uvh` of the new package and
+`systemctl restart proxiportd`. Config schema is unchanged.
 
 ## Migrating from rport or openrport
 

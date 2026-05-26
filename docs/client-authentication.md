@@ -133,18 +133,18 @@ the `/api/v1/clients-auth` endpoints accept full CRUD:
 ```bash
 # List
 curl -s -u admin:password \
-  http://proxiport.example.com:3000/api/v1/clients-auth | jq
+  https://proxiport.example.com/api/v1/clients-auth | jq
 
 # Create
 curl -s -X POST \
   -u admin:password \
   -H 'Content-Type: application/json' \
   --data-raw '{"id":"delta-edge","password":"foB3ainai9ouQu0o"}' \
-  http://proxiport.example.com:3000/api/v1/clients-auth
+  https://proxiport.example.com/api/v1/clients-auth
 
 # Delete
 curl -s -X DELETE -u admin:password \
-  http://proxiport.example.com:3000/api/v1/clients-auth/delta-edge
+  https://proxiport.example.com/api/v1/clients-auth/delta-edge
 ```
 
 The same operations are wired into the **Client Access** page in the

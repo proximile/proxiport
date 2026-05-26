@@ -84,7 +84,7 @@ For 2-dimensional labels (e.g. `country=France`), use
 
 ```bash
 TOKEN=$(curl -s -u admin:password \
-  http://proxiport.example.com:3000/api/v1/login | jq -r .data.token)
+  https://proxiport.example.com/api/v1/login | jq -r .data.token)
 
 # Create
 curl -s -X POST \
@@ -98,22 +98,22 @@ curl -s -X POST \
       "tag": ["edge*"]
     }
   }' \
-  http://proxiport.example.com:3000/api/v1/client-groups
+  https://proxiport.example.com/api/v1/client-groups
 
 # Read
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://proxiport.example.com:3000/api/v1/client-groups/linux-edge | jq
+  https://proxiport.example.com/api/v1/client-groups/linux-edge | jq
 
 # Update (full replacement; partial PATCH is not supported)
 curl -s -X PUT \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   --data-raw '{ "id": "linux-edge", "description": "...", "params": { ... } }' \
-  http://proxiport.example.com:3000/api/v1/client-groups/linux-edge
+  https://proxiport.example.com/api/v1/client-groups/linux-edge
 
 # Delete
 curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
-  http://proxiport.example.com:3000/api/v1/client-groups/linux-edge
+  https://proxiport.example.com/api/v1/client-groups/linux-edge
 ```
 
 The same CRUD is wired into the **Client Groups** page in the SPA.
@@ -179,7 +179,7 @@ curl -s -X PUT \
       "auditlog": true
     }
   }' \
-  http://proxiport.example.com:3000/api/v1/user-groups/ops-readonly
+  https://proxiport.example.com/api/v1/user-groups/ops-readonly
 ```
 
 The same matrix is editable on the **User Groups** page in the SPA.

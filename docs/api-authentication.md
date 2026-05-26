@@ -18,7 +18,7 @@ checks the credentials on each request:
 
 ```bash
 curl -s -u admin:password \
-  http://proxiport.example.com:3000/api/v1/clients | jq
+  https://proxiport.example.com/api/v1/clients | jq
 ```
 
 When the TOTP second factor is enabled, basic auth with a password
@@ -33,11 +33,11 @@ default lifetime is 10 minutes; request a longer one with
 
 ```bash
 TOKEN=$(curl -s -u admin:password \
-  'http://proxiport.example.com:3000/api/v1/login?token-lifetime=3600' \
+  'https://proxiport.example.com/api/v1/login?token-lifetime=3600' \
   | jq -r .data.token)
 
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://proxiport.example.com:3000/api/v1/clients | jq
+  https://proxiport.example.com/api/v1/clients | jq
 ```
 
 The JWT is HMAC-signed with `[api] jwt_secret` from
@@ -59,7 +59,7 @@ work even when TOTP is enabled on the account:
 
 ```bash
 curl -s -u admin:e83d40e4-e237-43d6-bb99-35972ded631b \
-  http://proxiport.example.com:3000/api/v1/clients | jq
+  https://proxiport.example.com/api/v1/clients | jq
 ```
 
 Tokens carry an expiry date and a scope (`read`, `read+write`). Mint
@@ -208,16 +208,16 @@ To enroll programmatically:
 ```bash
 # Step 1: get a login token (cannot be used as a bearer token).
 LOGIN_TOKEN=$(curl -s -u alice:password \
-  http://proxiport.example.com:3000/api/v1/login | jq -r .data.token)
+  https://proxiport.example.com/api/v1/login | jq -r .data.token)
 
 # Step 2: create a TOTP secret (returns secret + base64 PNG of QR).
 curl -s -X POST \
   -H "Authorization: Bearer $LOGIN_TOKEN" \
-  http://proxiport.example.com:3000/api/v1/me/totp-secret
+  https://proxiport.example.com/api/v1/me/totp-secret
 
 # Step 3: validate a code from the app to finish enrollment.
 curl -s -X POST \
-  http://proxiport.example.com:3000/api/v1/verify-2fa \
+  https://proxiport.example.com/api/v1/verify-2fa \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $LOGIN_TOKEN" \
   --data-raw '{"username":"alice","token":"123456"}'

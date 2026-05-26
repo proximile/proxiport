@@ -35,13 +35,13 @@ membership.
 
 ```bash
 TOKEN=$(curl -s -u admin:password \
-  http://proxiport.example.com:3000/api/v1/login | jq -r .data.token)
+  https://proxiport.example.com/api/v1/login | jq -r .data.token)
 
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   --data-raw '{"password":"a-vault-passphrase"}' \
-  http://proxiport.example.com:3000/api/v1/vault-admin/init
+  https://proxiport.example.com/api/v1/vault-admin/init
 ```
 
 The passphrase must be between 4 and 32 bytes. Anything outside that
@@ -51,7 +51,7 @@ range is rejected.
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://proxiport.example.com:3000/api/v1/vault-admin | jq
+  https://proxiport.example.com/api/v1/vault-admin | jq
 ```
 
 ```json
@@ -74,11 +74,11 @@ curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   --data-raw '{"password":"a-vault-passphrase"}' \
-  http://proxiport.example.com:3000/api/v1/vault-admin/sesame
+  https://proxiport.example.com/api/v1/vault-admin/sesame
 
 # Lock (DELETE on the same path)
 curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
-  http://proxiport.example.com:3000/api/v1/vault-admin/sesame
+  https://proxiport.example.com/api/v1/vault-admin/sesame
 ```
 
 If the wrong passphrase is supplied to unlock, the request is
@@ -99,7 +99,7 @@ created_by, created_at, key — but not the decrypted value:
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://proxiport.example.com:3000/api/v1/vault | jq
+  https://proxiport.example.com/api/v1/vault | jq
 ```
 
 Supports `sort=` (prefix with `-` for descending) and
@@ -142,7 +142,7 @@ curl -s -X POST \
     "value": "ssh-ed25519 AAAA…",
     "type": "secret"
   }' \
-  http://proxiport.example.com:3000/api/v1/vault
+  https://proxiport.example.com/api/v1/vault
 ```
 
 ### Update and delete
@@ -153,11 +153,11 @@ curl -s -X PUT \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   --data-raw '{ "client_id":"alpha-prod","required_group":"","key":"deploy-key","value":"...","type":"secret" }' \
-  http://proxiport.example.com:3000/api/v1/vault/1
+  https://proxiport.example.com/api/v1/vault/1
 
 # Delete
 curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
-  http://proxiport.example.com:3000/api/v1/vault/1
+  https://proxiport.example.com/api/v1/vault/1
 ```
 
 ### Field reference
@@ -209,7 +209,7 @@ A minimal export script:
 ```bash
 USER=admin
 TOKEN=e83d40e4-e237-43d6-bb99-35972ded631b
-URL=http://proxiport.example.com:3000/api/v1/vault
+URL=https://proxiport.example.com/api/v1/vault
 FOLDER=./vault-backup
 
 mkdir -p "${FOLDER}"

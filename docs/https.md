@@ -48,13 +48,13 @@ proxiport.example.com {
 
 Caddy proxies WebSocket upgrades by default; no extra directives
 needed for `/ws/*` paths. To split agents onto a separate hostname or
-port, add a second site block pointing at `127.0.0.1:8080`.
+port, add a second site block pointing at `127.0.0.1:80`.
 
 The matching `proxiportd.conf`:
 
 ```toml
 [server]
-  address = "127.0.0.1:8080"
+  address = "127.0.0.1:80"
 
 [api]
   address = "127.0.0.1:3000"
@@ -120,7 +120,8 @@ system user and the key must not be passphrase-protected:
 
 ```toml
 [api]
-  address = "0.0.0.0:3000"
+  address   = "0.0.0.0:443"
+  base_url  = "https://proxiport.example.com"
   cert_file = "/etc/proxiport/tls/fullchain.pem"
   key_file  = "/etc/proxiport/tls/privkey.pem"
 ```
@@ -128,7 +129,7 @@ system user and the key must not be passphrase-protected:
 Restart `proxiportd` after writing the config. Verify with:
 
 ```bash
-curl -Iv -u admin:password https://proxiport.example.com:3000/api/v1/status
+curl -Iv -u admin:password https://proxiport.example.com/api/v1/status
 ```
 
 ### Using certbot

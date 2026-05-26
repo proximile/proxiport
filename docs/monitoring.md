@@ -122,10 +122,10 @@ without modifying the agent.
 
 ```bash
 TOKEN=$(curl -s -u admin:password \
-  http://proxiport.example.com:3000/api/v1/login | jq -r .data.token)
+  https://proxiport.example.com/api/v1/login | jq -r .data.token)
 
 curl -s -H "Authorization: Bearer $TOKEN" \
-  'http://proxiport.example.com:3000/api/v1/clients/alpha-prod/metrics?from=2026-05-17T00:00:00Z' \
+  'https://proxiport.example.com/api/v1/clients/alpha-prod/metrics?from=2026-05-17T00:00:00Z' \
   | jq
 ```
 

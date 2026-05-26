@@ -32,18 +32,18 @@ user are all preserved on the job record.
 ```bash
 CLIENT=alpha-prod
 TOKEN=$(curl -s -u admin:password \
-  http://proxiport.example.com:3000/api/v1/login | jq -r .data.token)
+  https://proxiport.example.com/api/v1/login | jq -r .data.token)
 
 JOB=$(curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   --data-raw '{"command":"uname -a","timeout_sec":10}' \
-  "http://proxiport.example.com:3000/api/v1/clients/$CLIENT/commands" \
+  "https://proxiport.example.com/api/v1/clients/$CLIENT/commands" \
   | jq -r .data.jid)
 
 # Fetch the result once it completes
 curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://proxiport.example.com:3000/api/v1/clients/$CLIENT/commands/$JOB" | jq
+  "https://proxiport.example.com/api/v1/clients/$CLIENT/commands/$JOB" | jq
 ```
 
 A representative response:
@@ -103,7 +103,7 @@ curl -s -X POST \
     "abort_on_error": false,
     "timeout_sec": 30
   }' \
-  http://proxiport.example.com:3000/api/v1/commands
+  https://proxiport.example.com/api/v1/commands
 ```
 
 The response carries one parent `jid` and one child job per target

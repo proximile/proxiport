@@ -120,7 +120,7 @@ backend behind it:
 
 ```toml
 [api]
-  address = "0.0.0.0:3000"
+  address = "127.0.0.1:3000"
   # cert_file and key_file MUST be commented out — Caddy terminates TLS.
 
 [caddy-integration]
@@ -257,7 +257,7 @@ A minimal upload:
 
 ```bash
 TOKEN=$(curl -s -u admin:password \
-  http://proxiport.example.com:3000/api/v1/login | jq -r .data.token)
+  https://proxiport.example.com/api/v1/login | jq -r .data.token)
 
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
@@ -267,7 +267,7 @@ curl -s -X POST \
   -F 'dest=/etc/hosts.allow' \
   -F 'force=true' \
   -F 'mode=0644' \
-  http://proxiport.example.com:3000/api/v1/files
+  https://proxiport.example.com/api/v1/files
 ```
 
 Useful form fields:

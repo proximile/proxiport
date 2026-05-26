@@ -2,15 +2,16 @@ openapi: 3.0.1
 info:
  title: proxiportd HTTP(S) API
  description: >-
- To run API, use `--api-addr=yourserver:3000` CLI argument or enable it in
- config file
+ The API listens on whatever `[api] address` is set to in proxiportd.conf.
+ The seeded default is `127.0.0.1:3000`; production setups bind a public
+ TLS profile on port 443.
  version: 1.0.0
  license:
  name: MIT
  url: https://raw.githubusercontent.com/proximile/proxiport/main/LICENSE
 servers:
- - url: http://yourserver:3000/api/v1
- - url: https://yourserver:3000/api/v1
+ - url: https://yourserver/api/v1
+ - url: http://127.0.0.1:3000/api/v1
 security:
  - bearer_auth: []
  - basic_auth: []

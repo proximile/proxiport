@@ -114,7 +114,7 @@ was there.
 
 ```bash
 TOKEN=$(curl -s -u admin:password \
-  http://proxiport.example.com:3000/api/v1/login | jq -r .data.token)
+  https://proxiport.example.com/api/v1/login | jq -r .data.token)
 
 curl -s -X PUT \
   -H "Authorization: Bearer $TOKEN" \
@@ -127,7 +127,7 @@ curl -s -X PUT \
       "datacenter": "OVH"
     }
   }' \
-  http://proxiport.example.com:3000/api/v1/clients/alpha-prod/attributes
+  https://proxiport.example.com/api/v1/clients/alpha-prod/attributes
 ```
 
 ## Precedence
@@ -145,21 +145,21 @@ The clients list endpoint accepts filters on both shapes:
 ```bash
 # All agents tagged "server"
 curl -s -H "Authorization: Bearer $TOKEN" \
-  'http://proxiport.example.com:3000/api/v1/clients?filter[tags]=server' | jq
+  'https://proxiport.example.com/api/v1/clients?filter[tags]=server' | jq
 
 # All agents whose city label equals "Lille"
 curl -s -H "Authorization: Bearer $TOKEN" \
-  'http://proxiport.example.com:3000/api/v1/clients?filter[labels]=city:%20Lille' | jq
+  'https://proxiport.example.com/api/v1/clients?filter[labels]=city:%20Lille' | jq
 ```
 
 Wildcards are supported with `*`:
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
-  'http://proxiport.example.com:3000/api/v1/clients?filter[tags]=ser*' | jq
+  'https://proxiport.example.com/api/v1/clients?filter[tags]=ser*' | jq
 
 curl -s -H "Authorization: Bearer $TOKEN" \
-  'http://proxiport.example.com:3000/api/v1/clients?filter[labels]=*:%20Lille' | jq
+  'https://proxiport.example.com/api/v1/clients?filter[labels]=*:%20Lille' | jq
 ```
 
 URL-encode the space as `%20`. The filter is case-insensitive, like
