@@ -155,5 +155,7 @@ func (u *Updates) SetConn(c ssh.Conn) {
 }
 
 func (u *Updates) Stop() {
+	u.mtx.Lock()
 	u.conn = nil
+	u.mtx.Unlock()
 }
