@@ -141,9 +141,17 @@ func (u *Updates) sendUpdates() {
 
 func (u *Updates) SetConn(c ssh.Conn) {
 	u.mtx.Lock()
-	defer u.mtx.Unlock()
-
 	u.conn = c
+	u.mtx.Unlock()
+
+	// Push the cached status to the newly-set conn. Without this the
+	// status emitted by the very first refreshStatus() can race against
+	// SetConn() — if the sendUpdates goroutine acquires the lock before
+	// SetConn, it sees u.conn == nil and silently returns, and nothing
+	// re-sends until the next interval (which may be hours). The race
+	// shows up reliably under -race and was hanging the test for the
+	// full 10-minute timeout.
+	go u.sendUpdates()
 }
 
 func (u *Updates) Stop() {
