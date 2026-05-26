@@ -95,6 +95,30 @@ go install github.com/proximile/proxiport/cmd/proxiportd@latest
 The server needs CGO (`CGO_ENABLED=1`) for the embedded SQLite. The
 agent is pure Go.
 
+### Quick setup with `proxiport-setup`
+
+If this is a single-host install with a public hostname pointed at it,
+the `proxiport-setup` script bundled with the `.deb` / `.rpm` does
+everything below in one command:
+
+```sh
+sudo proxiport-setup --fqdn proxiport.example.com
+```
+
+It mirrors the upstream openrport curl-bash installer: takes `--fqdn`,
+`--email`, `--api-port`, `--client-port`, `--port-range`, `--totp` /
+`--no-2fa`; opens UFW or firewalld rules; rewrites `proxiportd.conf` to
+bind `:80` for agents and `:443` for the API; turns on built-in ACME if
+the hostname is publicly resolvable (or accepts `--cert-file` /
+`--key-file` for an existing PEM pair); creates a SQLite
+`users`/`groups`/`group_details`/`clients_auth` schema with a
+bcrypt-hashed random admin password; enables TOTP 2FA by default;
+starts `proxiportd`; and prints the admin URL and credentials.
+
+If that fits your install, jump to **[Log in](#log-in)**. If you want
+to lay it out by hand, read on — the remaining sections walk through
+exactly what the script automates.
+
 ### What just happened
 
 The `.deb` / `.rpm` post-install ran four steps the operator otherwise
@@ -120,7 +144,8 @@ has to do manually:
 
 The server is **not yet enabled**. The seeded config binds the API to
 `127.0.0.1` only, so nothing is reachable from the network until the
-next step.
+next step (or until you run `proxiport-setup`, which handles all of
+this in one shot).
 
 ### Pick a public listener
 

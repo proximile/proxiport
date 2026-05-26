@@ -98,6 +98,8 @@ archives:
       - proxiportd.example.conf
       - src: opt/systemd/proxiportd.service
         dst: proxiportd.service
+      - src: opt/packaging/proxiport-setup.sh
+        dst: proxiport-setup
       - LICENSE
       - LICENSE-MIT
       - NOTICE
@@ -185,6 +187,10 @@ nfpms:
         type: config|noreplace
       - src: ./opt/systemd/proxiportd.service
         dst: /lib/systemd/system/proxiportd.service
+      - src: ./opt/packaging/proxiport-setup.sh
+        dst: /usr/bin/proxiport-setup
+        file_info:
+          mode: 0755
       - src: ./LICENSE
         dst: /usr/share/doc/proxiportd/LICENSE
       - src: ./LICENSE-MIT
