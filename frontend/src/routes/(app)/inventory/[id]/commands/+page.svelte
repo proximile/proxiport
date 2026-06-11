@@ -20,7 +20,7 @@
   async function loadHistory() {
     try {
       const id = $page.params.id;
-      const jobs = await apiGet<Job[]>(`/clients/${id}/commands?page[limit]=50&sort=-finished_at`).catch(() => []);
+      const jobs = await apiGet<Job[]>(`/clients/${id}/commands?fields[jobs]=jid,status,finished_at,started_at,created_by,command,error&page[limit]=50&sort=-finished_at`).catch(() => []);
       history = jobs ?? [];
     } catch (_) {
       // ignore — no commands history yet
@@ -69,7 +69,8 @@
         if (job.status === 'successful' || job.status === 'failed' || job.status === 'cancelled') {
           if (job.result?.stdout) stream = [...stream, job.result.stdout];
           if (job.result?.stderr) stream = [...stream, `[stderr] ${job.result.stderr}`];
-          stream = [...stream, `\n--- exit_code=${job.result?.exit_code ?? '?'} status=${job.status} ---`];
+          if (job.error) stream = [...stream, `[error] ${job.error}`];
+          stream = [...stream, `\n--- status=${job.status} ---`];
           running = false;
           loadHistory();
           return;
@@ -150,14 +151,14 @@
       <div class="p-4 text-sm text-slate-500">No commands run yet.</div>
     {:else}
       <table class="tbl">
-        <thead><tr><th>When</th><th>By</th><th>Command</th><th>Exit</th><th>Status</th></tr></thead>
+        <thead><tr><th>When</th><th>By</th><th>Command</th><th>Error</th><th>Status</th></tr></thead>
         <tbody>
           {#each history as j}
             <tr>
               <td class="text-xs text-slate-400">{j.finished_at ?? j.started_at ?? '—'}</td>
               <td class="text-xs">{j.created_by ?? '—'}</td>
               <td class="font-mono text-xs truncate max-w-[24rem]">{j.command ?? '—'}</td>
-              <td class="font-mono">{j.result?.exit_code ?? '—'}</td>
+              <td class="text-xs text-red-300 truncate max-w-[14rem]" title={j.error ?? ''}>{j.error || '—'}</td>
               <td>
                 <span class="pill" class:pill-good={j.status === 'successful'} class:pill-bad={j.status === 'failed'} class:pill-muted={!j.status}>{j.status ?? '—'}</span>
               </td>

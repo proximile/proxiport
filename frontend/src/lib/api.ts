@@ -156,8 +156,30 @@ export const LOGIN_PATH = '/auth';
 
 export type LoginResponse = {
   token?: string;
-  two_fa?: { token: string; send_to?: string; delivery_method?: string };
+  two_fa?: {
+    token: string;
+    send_to?: string;
+    delivery_method?: string;
+    /** TOTP only: "pending" = no secret enrolled yet, "exists" = enrolled. */
+    totp_key_status?: string;
+  };
 };
+
+/**
+ * First-login TOTP enrollment. When a login responds with
+ * `two_fa.totp_key_status === "pending"`, the interim login token is
+ * scoped to allow exactly one POST /me/totp-secret so the user can
+ * enroll an authenticator app before calling verify2fa.
+ */
+export async function createTotpSecret(loginToken: string): Promise<{ secret?: string; qr?: string }> {
+  const res = await fetch(`/api/v1/me/totp-secret`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${loginToken}` }
+  });
+  if (!res.ok) await raise(res);
+  const body = await parseJson(res);
+  return (body && 'data' in body ? body.data : body) as { secret?: string; qr?: string };
+}
 
 /**
  * Step 2 of login. POST /verify-2fa with `{username, token: totpCode}` and

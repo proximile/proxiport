@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { login, verify2fa, ApiException } from '$lib/api';
+  import { login, verify2fa, createTotpSecret, ApiException } from '$lib/api';
   import { tokenStore } from '$lib/stores';
   import { get } from 'svelte/store';
   import Spinner from '$lib/components/Spinner.svelte';
@@ -14,6 +14,13 @@
   let busy = $state(false);
   let error = $state('');
   let loginToken = $state(''); // short-lived JWT from /login when TOTP is enabled
+
+  // First-login TOTP enrollment: when the server says no secret exists yet
+  // (totp_key_status === 'pending'), the interim token may create one. We
+  // show the QR inline so the user can scan it, then verify as usual.
+  let enrollQr = $state('');
+  let enrollSecret = $state('');
+  let enrollBusy = $state(false);
 
   // Only the demo deployment exposes guest credentials in the UI.
   // Detection is hostname-prefix-based so the banner is invisible on
@@ -40,6 +47,24 @@
       } else {
         loginToken = res.token ?? '';
         stage = '2fa';
+        enrollQr = '';
+        enrollSecret = '';
+        if (res.two_fa?.totp_key_status === 'pending' && loginToken) {
+          // No authenticator enrolled yet — create the secret with the
+          // interim token and show the QR right on the 2FA step.
+          enrollBusy = true;
+          try {
+            const t = await createTotpSecret(loginToken);
+            enrollQr = t.qr ?? '';
+            enrollSecret = t.secret ?? '';
+          } catch (enrollErr) {
+            error = enrollErr instanceof ApiException
+              ? enrollErr.errors[0]?.title || enrollErr.message
+              : String(enrollErr);
+          } finally {
+            enrollBusy = false;
+          }
+        }
       }
     } catch (err) {
       error = err instanceof ApiException ? err.errors[0]?.title || err.message : String(err);
@@ -100,9 +125,29 @@
       </form>
     {:else}
       <form class="space-y-3" onsubmit={submit2fa}>
-        <div class="text-sm text-slate-300">
-          Enter the 6-digit TOTP code for <span class="font-mono text-indigo-300">{username}</span>.
-        </div>
+        {#if enrollBusy}
+          <Spinner label="Preparing authenticator enrollment…" />
+        {:else if enrollQr}
+          <div class="text-sm text-slate-300">
+            No authenticator app is enrolled for
+            <span class="font-mono text-indigo-300">{username}</span> yet.
+            Scan this QR code with your authenticator app, then enter the
+            6-digit code it shows.
+          </div>
+          <img
+            src={`data:image/png;base64,${enrollQr}`}
+            alt="TOTP enrollment QR code"
+            class="mx-auto w-44 h-44 bg-white p-2 rounded"
+          />
+          <details class="text-xs text-slate-400">
+            <summary class="cursor-pointer">Can't scan? Enter the secret manually</summary>
+            <code class="font-mono select-all break-all">{enrollSecret}</code>
+          </details>
+        {:else}
+          <div class="text-sm text-slate-300">
+            Enter the 6-digit TOTP code for <span class="font-mono text-indigo-300">{username}</span>.
+          </div>
+        {/if}
         <label class="block">
           <span class="text-xs uppercase tracking-wider text-slate-400">TOTP code</span>
           <input
@@ -127,6 +172,8 @@
             stage = 'creds';
             totp = '';
             error = '';
+            enrollQr = '';
+            enrollSecret = '';
           }}
         >
           Back

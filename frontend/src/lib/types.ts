@@ -92,7 +92,8 @@ export type Job = {
   command?: string;
   interpreter?: string;
   status?: string;
-  result?: { stdout: string; stderr: string; summary: string; exit_code?: number };
+  result?: { stdout: string; stderr: string; summary: string };
+  error?: string;
   created_by?: string;
   is_sudo?: boolean;
   cwd?: string;
@@ -129,9 +130,10 @@ export type ServerStatus = {
   pairing_url?: string;
   clients_connected?: number;
   clients_disconnected?: number;
-  clients_total?: number;
-  tunnels_total?: number;
   two_fa_enabled?: boolean;
-  totp_enabled?: boolean;
+  two_fa_delivery_method?: string;
+  clients_auth_source?: string;
+  clients_auth_mode?: string;
+  users_auth_source?: string;
   auth_provider_settings?: Record<string, unknown>;
 };

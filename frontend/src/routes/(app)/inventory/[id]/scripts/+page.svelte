@@ -48,7 +48,8 @@
         if (job.status === 'successful' || job.status === 'failed' || job.status === 'cancelled') {
           if (job.result?.stdout) stream = [...stream, job.result.stdout];
           if (job.result?.stderr) stream = [...stream, `[stderr] ${job.result.stderr}`];
-          stream = [...stream, `\n--- exit_code=${job.result?.exit_code ?? '?'} status=${job.status} ---`];
+          if (job.error) stream = [...stream, `[error] ${job.error}`];
+          stream = [...stream, `\n--- status=${job.status} ---`];
           running = false;
           return;
         }

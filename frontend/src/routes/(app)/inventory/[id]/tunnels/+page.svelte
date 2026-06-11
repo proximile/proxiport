@@ -84,6 +84,11 @@
   let destroyHours = $state(2);
   let destroyMinutes = $state(30);
 
+  // The server normally refuses TCP tunnels to a remote port nothing is
+  // listening on. check_port=0 skips that probe — needed when the target
+  // service starts later or only listens once traffic arrives.
+  let skipPortCheck = $state(false);
+
   // ---- Library ------------------------------------------------------------
   let storeInLibrary = $state(false);
   let libraryName = $state('');
@@ -197,6 +202,7 @@
         params.set('http_proxy', 'true');
         if (tlsHostname.trim()) params.set('host_header', tlsHostname.trim());
       }
+      if (skipPortCheck) params.set('check_port', '0');
 
       await apiPut(`/clients/${id}/tunnels?${params}`);
 
@@ -428,6 +434,10 @@
               <input type="number" min="0" max="59" bind:value={destroyMinutes} disabled={!destroyEnabled} class="font-mono" />
             </label>
           </div>
+          <label class="text-xs flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" bind:checked={skipPortCheck} />
+            <span>Skip the remote port check (create the tunnel even if nothing is listening on the port yet)</span>
+          </label>
         </div>
       </div>
 

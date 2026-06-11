@@ -46,13 +46,14 @@
     <div class="card p-4 space-y-2">
       <KV k="Clients connected" v={String(status.clients_connected ?? 0)} />
       <KV k="Clients disconnected" v={String(status.clients_disconnected ?? 0)} />
-      <KV k="Clients total" v={String(status.clients_total ?? 0)} />
-      <KV k="Tunnels total" v={String(status.tunnels_total ?? 0)} />
+      <KV k="Clients total" v={String((status.clients_connected ?? 0) + (status.clients_disconnected ?? 0))} />
     </div>
     <div class="card p-4 space-y-2">
       <KV k="Auth provider" v={provider?.auth_provider ?? '—'} />
+      <KV k="User auth source" v={status.users_auth_source ?? '—'} />
+      <KV k="Client auth source" v={[status.clients_auth_source, status.clients_auth_mode].filter(Boolean).join(', ') || '—'} />
       <KV k="2FA enabled" v={status.two_fa_enabled ? 'yes' : 'no'} />
-      <KV k="TOTP enabled" v={status.totp_enabled ? 'yes' : 'no'} />
+      <KV k="2FA delivery" v={status.two_fa_delivery_method === 'totp_authenticator_app' ? 'TOTP authenticator app' : status.two_fa_delivery_method || '—'} />
     </div>
   {/if}
 </div>

@@ -75,8 +75,11 @@
         for (const j of jobs) {
           if (j.client_id) {
             statuses[j.client_id] = j.status;
-            if (j.result?.stdout) buffers[j.client_id] = [j.result.stdout];
-            if (j.result?.stderr) buffers[j.client_id] = [...(buffers[j.client_id] ?? []), `[stderr] ${j.result.stderr}`];
+            const buf: string[] = [];
+            if (j.result?.stdout) buf.push(j.result.stdout);
+            if (j.result?.stderr) buf.push(`[stderr] ${j.result.stderr}`);
+            if (j.error) buf.push(`[error] ${j.error}`);
+            buffers[j.client_id] = buf;
           }
         }
         statuses = { ...statuses };
@@ -86,6 +89,7 @@
           return;
         }
       } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
         running = false;
         return;
       }
@@ -160,15 +164,15 @@
     </div>
   </div>
 
-  {#if Object.keys(buffers).length}
+  {#if multiJobId}
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-      {#each [...selected] as id}
+      {#each Object.keys(statuses) as id}
         <div class="card overflow-hidden">
           <div class="px-3 py-2 border-b border-pp-border text-xs flex justify-between">
             <span class="font-medium text-slate-200 truncate">{nameFor(id)}</span>
             <span class="pill" class:pill-good={statuses[id] === 'successful'} class:pill-bad={statuses[id] === 'failed'} class:pill-warn={statuses[id] === 'running'} class:pill-muted={!statuses[id]}>{statuses[id] ?? '—'}</span>
           </div>
-          <pre class="p-3 font-mono text-xs text-emerald-200 whitespace-pre-wrap break-all overflow-auto max-h-64">{(buffers[id] ?? []).join('')}</pre>
+          <pre class="p-3 font-mono text-xs whitespace-pre-wrap break-all overflow-auto max-h-64" class:text-emerald-200={statuses[id] !== 'failed'} class:text-red-300={statuses[id] === 'failed'}>{(buffers[id] ?? []).length ? (buffers[id] ?? []).join('\n') : ['successful', 'failed', 'cancelled'].includes(statuses[id]) ? '(no output)' : '…'}</pre>
         </div>
       {/each}
     </div>
