@@ -75,10 +75,18 @@ sudo install -m 0644 proxiportd.example.conf /etc/proxiport/proxiportd.conf
 sudo install -m 0644 proxiportd.service /lib/systemd/system/proxiportd.service
 
 sudo useradd --system --home /var/lib/proxiport --shell /usr/sbin/nologin proxiport || true
+getent group ssl-cert >/dev/null || sudo groupadd --system ssl-cert
 sudo install -d -o proxiport -g proxiport -m 0750 /var/lib/proxiport
+sudo install -d -o proxiport -g proxiport -m 0750 /var/log/proxiport
 sudo setcap CAP_NET_BIND_SERVICE=+eip /usr/bin/proxiportd
 sudo systemctl daemon-reload
 ```
+
+The `ssl-cert` group is listed in the unit's `SupplementaryGroups` so
+the daemon can read certbot/manual TLS keys — systemd will not start
+the service if the group is missing. `setcap` ships in `libcap2-bin`
+(Debian/Ubuntu) or `libcap` (RHEL-family) if your base install lacks
+it.
 
 Tarball installs do not auto-generate secrets or seed the config; the
 **Configure** step below covers what to set by hand.

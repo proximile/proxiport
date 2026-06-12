@@ -87,6 +87,18 @@ if [ -x /usr/bin/proxiportd ] && command -v setcap >/dev/null 2>&1; then
     setcap CAP_NET_BIND_SERVICE=+eip /usr/bin/proxiportd 2>/dev/null || true
 fi
 
+# The server unit lists ssl-cert in SupplementaryGroups so the daemon can
+# read certbot/manual TLS keys. systemd refuses to start a unit whose
+# supplementary group does not resolve, and the group only exists where
+# Debian's ssl-cert package created it — never on RHEL-family systems.
+if [ -x /usr/bin/proxiportd ] && ! getent group ssl-cert >/dev/null 2>&1; then
+    if command -v groupadd >/dev/null 2>&1; then
+        groupadd --system ssl-cert
+    elif command -v addgroup >/dev/null 2>&1; then
+        addgroup --system ssl-cert
+    fi
+fi
+
 # ----------------------------------------------------------------------
 # proxiport (agent)
 # ----------------------------------------------------------------------
