@@ -2,6 +2,7 @@
   import { page } from '$app/stores';
   import { apiPost, apiGet, ApiException } from '$lib/api';
   import type { Job } from '$lib/types';
+  import { fmtRelative } from '$lib/format';
   import Spinner from '$lib/components/Spinner.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
   import { pushToast } from '$lib/stores';
@@ -155,7 +156,7 @@
         <tbody>
           {#each history as j}
             <tr>
-              <td class="text-xs text-slate-400">{j.finished_at ?? j.started_at ?? '—'}</td>
+              <td class="text-xs text-slate-400" title={j.finished_at ?? j.started_at ?? ''}>{fmtRelative(j.finished_at ?? j.started_at)}</td>
               <td class="text-xs">{j.created_by ?? '—'}</td>
               <td class="font-mono text-xs truncate max-w-[24rem]">{j.command ?? '—'}</td>
               <td class="text-xs text-red-300 truncate max-w-[14rem]" title={j.error ?? ''}>{j.error || '—'}</td>

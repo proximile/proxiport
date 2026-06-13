@@ -13,6 +13,7 @@ export type Client = {
   num_cpus?: number;
   mem_total?: number;
   cpu_model?: string;
+  cpu_model_name?: string;
   cpu_vendor?: string;
   cpu_family?: string;
   ipv4?: string[];

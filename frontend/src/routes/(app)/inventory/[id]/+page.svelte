@@ -68,7 +68,7 @@
     <div class="card p-4 space-y-2">
       <div class="text-xs uppercase tracking-wider text-slate-500">CPU / Memory</div>
       <KV k="CPUs" v={client.num_cpus != null ? String(client.num_cpus) : '—'} />
-      <KV k="CPU model" v={client.cpu_model} />
+      <KV k="CPU model" v={client.cpu_model_name || client.cpu_model} />
       <KV k="CPU vendor" v={client.cpu_vendor} />
       <KV k="RAM total" v={fmtBytes(client.mem_total)} />
       {#if metrics?.cpu_usage_percent != null}
