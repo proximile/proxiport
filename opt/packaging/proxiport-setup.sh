@@ -273,12 +273,27 @@ ask_for_fqdn() {
     done
 }
 
-# Resolves to true (0) if FQDN A/AAAA points at one of *this* host's
-# routable IPs.
+# Resolves the FQDN's public A record. Prefers an external resolver so a
+# local /etc/hosts entry can't shadow the real record: cloud images map the
+# box's own hostname to 127.0.1.1, and dig against the system stub resolver
+# (systemd-resolved) honours /etc/hosts, so a correct public DNS record would
+# otherwise look like it points at loopback. Falls back to the system resolver
+# only if no public resolver answers. The anchored grep keeps pure-IPv4 lines,
+# dropping any CNAME target dig +short prints ahead of the address.
+resolve_public_a() {
+    local fqdn="$1" resolver ip
+    for resolver in @1.1.1.1 @8.8.8.8 ''; do
+        ip=$(dig +short +time=3 +tries=1 $resolver "$fqdn" A 2>/dev/null \
+                 | grep -Eo '^[0-9]+(\.[0-9]+){3}$' | head -n1)
+        [ -n "$ip" ] && { printf '%s\n' "$ip"; return 0; }
+    done
+    return 1
+}
+
+# Resolves to true (0) if FQDN A points at one of *this* host's routable IPs.
 fqdn_points_here() {
     local fqdn_ip my_ip
-    fqdn_ip=$(dig +short +time=3 +tries=1 "$1" A | head -n1)
-    [ -z "$fqdn_ip" ] && return 1
+    fqdn_ip=$(resolve_public_a "$1") || return 1
     for my_ip in $(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1) \
                   $(curl -fsS --max-time 4 https://api.ipify.org 2>/dev/null); do
         [ "$fqdn_ip" = "$my_ip" ] && return 0
