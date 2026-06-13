@@ -458,11 +458,25 @@ else
     }" "$CONFIG_FILE"
 fi
 
-# [database] uncomment sqlite + path
-sed -i -E "/^\[database\]/,/^\[/ {
-    s|^[[:space:]]*#?[[:space:]]*db_type[[:space:]]*=.*|  db_type = \"sqlite\"|
-    s|^[[:space:]]*#?[[:space:]]*db_name[[:space:]]*=.*|  db_name = \"${DB_FILE}\"|
-}" "$CONFIG_FILE"
+# [database] — set sqlite type + path. The example config carries TWO
+# commented db_type candidates (mysql + sqlite) and two db_name candidates,
+# so a range substitution uncomments both and TOML rejects the duplicate key
+# ("key db_type is already defined"). Emit exactly one db_type and one
+# db_name, dropping the other commented candidates in the section.
+tmp_cfg=$(mktemp)
+awk -v dbfile="$DB_FILE" '
+    /^\[/ { in_db = ($0 ~ /^\[database\]/) }
+    in_db && /^[[:space:]]*#?[[:space:]]*db_type[[:space:]]*=/ {
+        if (!seen_type++) print "  db_type = \"sqlite\""
+        next
+    }
+    in_db && /^[[:space:]]*#?[[:space:]]*db_name[[:space:]]*=/ {
+        if (!seen_name++) print "  db_name = \"" dbfile "\""
+        next
+    }
+    { print }
+' "$CONFIG_FILE" > "$tmp_cfg" && cat "$tmp_cfg" > "$CONFIG_FILE"
+rm -f "$tmp_cfg"
 
 #======================================================================
 # Database
