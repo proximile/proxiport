@@ -4,6 +4,7 @@
   import type { Tunnel, Client } from '$lib/types';
   import { fmtRelative } from '$lib/format';
   import { pushToast } from '$lib/stores';
+  import { copyToClipboard, sshCommandFor } from '$lib/clipboard';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
   import Spinner from '$lib/components/Spinner.svelte';
@@ -13,6 +14,20 @@
   let loading = $state(true);
   let error = $state('');
   let filter = $state('');
+
+  // The server-side lhost is the bind address (typically 0.0.0.0, bind-all),
+  // which is useless to surface — users reach the tunnel at the host this SPA
+  // was loaded from. Mirrors the client-detail tunnels page.
+  const serverHost = typeof window !== 'undefined' ? window.location.hostname : '';
+
+  function publicAddr(r: Tunnel): string {
+    const host = serverHost || r.lhost || '';
+    return `${host}:${r.lport}`;
+  }
+
+  function isSsh(r: Tunnel): boolean {
+    return (r.scheme || r.protocol) === 'ssh';
+  }
 
   async function load() {
     loading = true;
@@ -75,7 +90,7 @@
     {:else}
       <table class="tbl">
         <thead>
-          <tr><th>Client</th><th>ID</th><th>Local</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Idle</th><th>Created</th><th></th></tr>
+          <tr><th>Client</th><th>ID</th><th>Public URL</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Idle</th><th>Created</th><th></th></tr>
         </thead>
         <tbody>
           {#each filtered as r}
@@ -84,13 +99,22 @@
                 <a href={`/inventory/${r.client_id}/tunnels`} class="text-indigo-300 hover:text-indigo-200">{r.client_name || r.client_id}</a>
               </td>
               <td class="font-mono">{r.id}</td>
-              <td class="font-mono text-emerald-300">{r.lhost ?? ''}:{r.lport}</td>
+              <td class="font-mono text-emerald-300">{publicAddr(r)}</td>
               <td class="font-mono text-slate-300">{r.rhost ?? ''}:{r.rport}</td>
               <td><span class="pill pill-info">{r.scheme || r.protocol || '—'}</span></td>
               <td class="font-mono text-xs text-slate-400">{r.acl || '—'}</td>
               <td>{r.idle_timeout_minutes ?? '—'}m</td>
               <td class="text-slate-400">{fmtRelative(r.created_at)}</td>
-              <td><button class="btn btn-danger" onclick={() => deleteTunnel(r.client_id ?? '', String(r.id))}>Delete</button></td>
+              <td class="whitespace-nowrap">
+                {#if isSsh(r)}
+                  <button class="btn btn-ghost" title="Copy ssh command"
+                    onclick={() => copyToClipboard(sshCommandFor(serverHost || r.lhost || '', r.lport), 'SSH command copied.')}>Copy SSH</button>
+                {:else}
+                  <button class="btn btn-ghost" title="Copy public address"
+                    onclick={() => copyToClipboard(publicAddr(r), 'Address copied.')}>Copy</button>
+                {/if}
+                <button class="btn btn-danger" onclick={() => deleteTunnel(r.client_id ?? '', String(r.id))}>Delete</button>
+              </td>
             </tr>
           {/each}
         </tbody>

@@ -7,6 +7,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
   import { pushToast } from '$lib/stores';
+  import { copyToClipboard, sshCommandFor } from '$lib/clipboard';
 
   let client: Client | null = $state(null);
   let stored: any[] = $state([]);
@@ -161,6 +162,10 @@
   function localUrl(t: Tunnel): string {
     const host = serverHost || t.lhost || '';
     return `${host}:${t.lport}`;
+  }
+
+  function isSsh(t: Tunnel): boolean {
+    return (t.scheme || t.protocol) === 'ssh';
   }
 
   // The remote endpoint the tunnel forwards to on the client side.
@@ -490,7 +495,16 @@
               <td class="font-mono text-xs text-slate-400">{t.acl || '—'}</td>
               <td class="text-slate-400">{t.idle_timeout_minutes ?? '—'}m</td>
               <td class="text-slate-400">{fmtRelative(t.created_at)}</td>
-              <td><button class="btn btn-danger" onclick={() => deleteTunnel(String(t.id))}>Delete</button></td>
+              <td class="whitespace-nowrap">
+                {#if isSsh(t)}
+                  <button class="btn btn-ghost" title="Copy ssh command"
+                    onclick={() => copyToClipboard(sshCommandFor(serverHost || t.lhost || '', t.lport), 'SSH command copied.')}>Copy SSH</button>
+                {:else}
+                  <button class="btn btn-ghost" title="Copy public address"
+                    onclick={() => copyToClipboard(localUrl(t), 'Address copied.')}>Copy</button>
+                {/if}
+                <button class="btn btn-danger" onclick={() => deleteTunnel(String(t.id))}>Delete</button>
+              </td>
             </tr>
           {/each}
         </tbody>
