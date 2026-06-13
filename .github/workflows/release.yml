@@ -25,6 +25,21 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # goreleaser bundles frontend/build into the proxiportd package and
+      # tarball, so the SPA must be built before goreleaser runs.
+      - name: Build SPA
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
       # The proxiportd build is CGO=1 (sqlite). The runner is x86_64; the
       # aarch64 cross toolchain (gcc-aarch64-linux-gnu) is required to
       # build the linux/arm64 server binary. .goreleaser.yml selects

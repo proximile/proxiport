@@ -428,6 +428,7 @@ sed -i -E "/^\[api\]/,/^\[/ {
     s|^[[:space:]]*#[[:space:]]*auth_group_details_table[[:space:]]*=|  auth_group_details_table =|
     s|^[[:space:]]*#?[[:space:]]*jwt_secret[[:space:]]*=.*|  jwt_secret = \"${JWT_SECRET}\"|
     s|^[[:space:]]*#[[:space:]]*totp_account_name[[:space:]]*=.*|  totp_account_name = \"${FQDN}\"|
+    s|^[[:space:]]*#?[[:space:]]*doc_root[[:space:]]*=.*|  doc_root = \"/var/lib/proxiport/docroot\"|
 }" "$CONFIG_FILE"
 
 if [ "$USE_ACME" -eq 1 ]; then

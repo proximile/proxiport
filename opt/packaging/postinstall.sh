@@ -81,6 +81,16 @@ if [ -f /etc/proxiport/proxiportd.example.conf ] \
     chmod 0640 /etc/proxiport/proxiportd.conf
     chown root:proxiport /etc/proxiport/proxiportd.conf
     seed_server_secrets /etc/proxiport/proxiportd.conf
+    # The package ships the SPA at /var/lib/proxiport/docroot, so enable
+    # doc_root in the seeded config: any install that starts proxiportd
+    # then serves the web UI, whether or not proxiport-setup is run.
+    sed -i -E '/^\[api\]/,/^\[/ s|^[[:space:]]*#?[[:space:]]*doc_root[[:space:]]*=.*|  doc_root = "/var/lib/proxiport/docroot"|' \
+        /etc/proxiport/proxiportd.conf
+fi
+
+# Own the shipped SPA tree so the proxiport daemon can read it.
+if [ -d /var/lib/proxiport/docroot ]; then
+    chown -R proxiport:proxiport /var/lib/proxiport/docroot
 fi
 
 if [ -x /usr/bin/proxiportd ] && command -v setcap >/dev/null 2>&1; then

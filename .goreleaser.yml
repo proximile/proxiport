@@ -100,6 +100,8 @@ archives:
         dst: proxiportd.service
       - src: opt/packaging/proxiport-setup.sh
         dst: proxiport-setup
+      - src: frontend/build
+        dst: docroot
       - LICENSE
       - LICENSE-MIT
       - NOTICE
@@ -191,6 +193,13 @@ nfpms:
         dst: /usr/bin/proxiport-setup
         file_info:
           mode: 0755
+      # Bundle the built SPA so the server serves a web UI out of the box.
+      # postinstall enables doc_root in the seeded config and chowns this
+      # tree to the proxiport user. Built by the release workflow before
+      # goreleaser runs.
+      - src: ./frontend/build
+        dst: /var/lib/proxiport/docroot
+        type: tree
       - src: ./LICENSE
         dst: /usr/share/doc/proxiportd/LICENSE
       - src: ./LICENSE-MIT
