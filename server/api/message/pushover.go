@@ -94,7 +94,6 @@ var pushover400Errs = []error{
 	pushover.ErrEmptyURL,
 	pushover.ErrEmptyRecipientToken,
 	pushover.ErrInvalidRecipientToken,
-	pushover.ErrInvalidRecipient,
 	pushover.ErrInvalidPriority,
 	pushover.ErrInvalidToken,
 	pushover.ErrMessageEmpty,

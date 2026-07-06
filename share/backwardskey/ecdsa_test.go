@@ -72,3 +72,37 @@ func testECDSALegacy(t *testing.T, c elliptic.Curve) {
 		t.Error("Go 1.19's GenerateKey disagrees with ECDSALegacy")
 	}
 }
+
+// TestECDSADeterministic exercises the bigmod-based ECDSA derivation directly
+// (TestECDSALegacy is skipped off go1.19). It asserts the two properties the
+// derivation must hold: a fixed secret yields the identical scalar, and that
+// scalar lies in (0, N). This also confirms bigmod.NewModulus accepts each
+// curve's order at runtime.
+func TestECDSADeterministic(t *testing.T) {
+	testAllCurves(t, func(t *testing.T, c elliptic.Curve) {
+		secret := []byte("backwardskey deterministic test secret")
+
+		k1, err := backwardskey.ECDSA(c, secret)
+		if err != nil {
+			t.Fatal(err)
+		}
+		k2, err := backwardskey.ECDSA(c, secret)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if k1.D.Cmp(k2.D) != 0 {
+			t.Error("ECDSA is not deterministic for a fixed secret")
+		}
+		if k1.D.Sign() <= 0 || k1.D.Cmp(c.Params().N) >= 0 {
+			t.Error("derived scalar is not in the range (0, N)")
+		}
+
+		other, err := backwardskey.ECDSA(c, append([]byte("x"), secret...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if k1.D.Cmp(other.D) == 0 {
+			t.Error("distinct secrets produced the same key")
+		}
+	})
+}
