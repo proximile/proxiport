@@ -20,7 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      # Full history: golangci-lint's `issues.new` mode needs a git base to
+      # diff against. A shallow (depth-1) clone has none, so the new-issue
+      # filter is unreliable and can surface the whole pre-existing backlog.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
