@@ -55,7 +55,10 @@ func ECDSA(c elliptic.Curve, secret []byte) (*ecdsa.PrivateKey, error) {
 	prk := hkdf.Extract(sha512.New, secret, []byte(salt))
 	r := hkdf.Expand(sha512.New, prk, nil)
 
-	N := bigmod.NewModulusFromBig(c.Params().N)
+	N, err := bigmod.NewModulus(c.Params().N.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("invalid curve order: %w", err)
+	}
 
 	b := make([]byte, N.Size())
 	if _, err := io.ReadFull(r, b); err != nil {
