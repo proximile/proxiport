@@ -57,6 +57,10 @@ proxiport-*.conf
 proxiportd-*.conf
 proxiport.conf
 proxiportd.conf
+# ...except the committed BDD test-fixture configs under bdd/, which the
+# `go test ./bdd/...` harness loads from each package's working directory.
+!bdd/**/proxiport.conf
+!bdd/**/proxiportd.conf
 cheat-sheet.txt
 
 # Package builds
