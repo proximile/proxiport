@@ -21,9 +21,12 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
+        # Build released binaries with the latest 1.25.x PATCH (not the exact
+        # `go 1.25.0` floor in go.mod) so shipped artifacts don't carry known
+        # stdlib CVEs. Mirrors ci.yml's govulncheck-gated setup.
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.25"
 
       - name: Set up Node
         uses: actions/setup-node@v6
