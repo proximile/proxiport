@@ -318,6 +318,11 @@
                   {/each}
                 </select>
               </label>
+            {:else}
+              <label class="text-xs">
+                <span class="block text-slate-400 mb-1">Port</span>
+                <input type="number" min="1" max="65535" bind:value={remotePort} class="font-mono" required />
+              </label>
             {/if}
           </div>
 
@@ -328,13 +333,6 @@
                 <input bind:value={destHost} placeholder="192.168.178.1" class="font-mono" />
               </label>
               <label class="text-xs">
-                <span class="block text-slate-400 mb-1">Port</span>
-                <input type="number" min="1" max="65535" bind:value={remotePort} class="font-mono" required />
-              </label>
-            </div>
-          {:else}
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3">
-              <label class="text-xs md:col-start-3">
                 <span class="block text-slate-400 mb-1">Port</span>
                 <input type="number" min="1" max="65535" bind:value={remotePort} class="font-mono" required />
               </label>
