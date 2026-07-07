@@ -70,6 +70,7 @@ type APIConfig struct {
 	MaxRequestBytes        int64    `mapstructure:"max_request_bytes"`
 	MaxFilePushSize        int64    `mapstructure:"max_filepush_size"`
 	CORS                   []string `mapstructure:"cors"`
+	TrustedProxies         []string `mapstructure:"trusted_proxies"`
 
 	TwoFATokenDelivery       string                 `mapstructure:"two_fa_token_delivery"`
 	TwoFATokenTTLSeconds     int                    `mapstructure:"two_fa_token_ttl_seconds"`
@@ -327,10 +328,10 @@ func (n *NotificationsConfig) parseAndValidateCleanup() error {
 }
 
 type Config struct {
-	Server        ServerConfig         `mapstructure:"server"`
-	Caddy         caddy.Config         `mapstructure:"caddy-integration"`
-	Logging       LogConfig            `mapstructure:"logging"`
-	API           APIConfig            `mapstructure:"api"`
+	Server        ServerConfig        `mapstructure:"server"`
+	Caddy         caddy.Config        `mapstructure:"caddy-integration"`
+	Logging       LogConfig           `mapstructure:"logging"`
+	API           APIConfig           `mapstructure:"api"`
 	Database      DatabaseConfig      `mapstructure:"database"`
 	Pushover      PushoverConfig      `mapstructure:"pushover"`
 	SMTP          SMTPConfig          `mapstructure:"smtp"`
@@ -395,6 +396,14 @@ func (c *Config) ParseAndValidate(mLog *logger.MemLogger) error {
 
 	if err := c.Server.parseAndValidatePorts(); err != nil {
 		return err
+	}
+
+	// Install the trusted-proxy policy that governs X-Forwarded-For handling in
+	// share.RemoteIP. Empty (the default) means X-Forwarded-For is not trusted,
+	// so ban/rate-limit/ACL/audit decisions use the socket peer and cannot be
+	// spoofed by a client-supplied header.
+	if err := chshare.SetTrustedProxies(c.API.TrustedProxies); err != nil {
+		return fmt.Errorf("invalid 'trusted_proxies': %w", err)
 	}
 
 	if err := c.Server.InternalTunnelProxyConfig.ParseAndValidate(); err != nil {
