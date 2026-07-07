@@ -6,6 +6,7 @@
   import { get } from 'svelte/store';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
+  import { sidebarMobileOpen } from '$lib/stores';
 
   let { children } = $props();
   let ready = $state(false);
@@ -32,6 +33,13 @@
 {#if ready}
   <div class="h-screen flex">
     <Sidebar />
+    {#if $sidebarMobileOpen}
+      <button
+        class="fixed inset-0 z-30 bg-black/50 md:hidden"
+        onclick={() => sidebarMobileOpen.set(false)}
+        aria-label="Close menu"
+      ></button>
+    {/if}
     <div class="flex-1 flex flex-col min-w-0">
       <TopBar />
       <main class="flex-1 overflow-auto">

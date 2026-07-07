@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { apiGet } from '../api';
+  import { sidebarMobileOpen, sidebarCollapsed } from '../stores';
   import type { User } from '../types';
 
   let me: User | null = $state(null);
@@ -24,6 +25,15 @@
 
 <header class="h-14 flex items-center justify-between px-5 border-b border-pp-border bg-pp-surface flex-shrink-0">
   <div class="flex items-center gap-3 text-sm text-slate-400">
+    <button
+      class="md:hidden -ml-1 p-1.5 rounded text-slate-300 hover:text-slate-100 hover:bg-pp-surface-2 cursor-pointer"
+      onclick={() => { sidebarCollapsed.set(false); sidebarMobileOpen.set(true); }}
+      aria-label="Open menu"
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 6h16M4 12h16M4 18h16" />
+      </svg>
+    </button>
     <span class="text-slate-500">Server:</span>
     <span class="font-mono text-slate-300">{location.host}</span>
   </div>

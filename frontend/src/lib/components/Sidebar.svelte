@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { sidebarCollapsed } from '../stores';
+  import { sidebarCollapsed, sidebarMobileOpen } from '../stores';
 
   type Item = { href: string; label: string; icon: string; matchPrefix?: string };
   type Section = { title?: string; items: Item[] };
@@ -60,9 +60,7 @@
 </script>
 
 <aside
-  class="bg-pp-surface border-r border-pp-border flex-shrink-0 flex flex-col h-full transition-all duration-150"
-  class:w-56={!$sidebarCollapsed}
-  class:w-14={$sidebarCollapsed}
+  class="bg-pp-surface border-r border-pp-border flex flex-col h-full w-56 fixed inset-y-0 left-0 z-40 transition-transform duration-200 md:static md:z-auto md:flex-shrink-0 md:translate-x-0 md:transition-all {$sidebarMobileOpen ? 'translate-x-0' : '-translate-x-full'} {$sidebarCollapsed ? 'md:w-14' : ''}"
 >
   <div class="h-14 flex items-center justify-between px-3 border-b border-pp-border">
     {#if !$sidebarCollapsed}
@@ -70,13 +68,24 @@
     {:else}
       <div class="text-base font-semibold text-indigo-300 mx-auto">PP</div>
     {/if}
+    <!-- Desktop: collapse to icon rail. Hidden on mobile (the drawer uses the close button below). -->
     <button
-      class="text-slate-400 hover:text-slate-100 cursor-pointer p-1 rounded hover:bg-pp-surface-2"
+      class="hidden md:block text-slate-400 hover:text-slate-100 cursor-pointer p-1 rounded hover:bg-pp-surface-2"
       onclick={() => sidebarCollapsed.update((v) => !v)}
       aria-label="Toggle sidebar"
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d={$sidebarCollapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'} />
+      </svg>
+    </button>
+    <!-- Mobile: close the drawer. -->
+    <button
+      class="md:hidden text-slate-400 hover:text-slate-100 cursor-pointer p-1 rounded hover:bg-pp-surface-2"
+      onclick={() => sidebarMobileOpen.set(false)}
+      aria-label="Close menu"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M6 6l12 12M18 6L6 18" />
       </svg>
     </button>
   </div>
@@ -93,6 +102,7 @@
           <li>
             <a
               href={item.href}
+              onclick={() => sidebarMobileOpen.set(false)}
               class="flex items-center gap-3 px-3 py-2 mx-2 my-0.5 rounded-md text-sm transition-colors"
               class:bg-pp-surface-2={active(item, $page.url.pathname)}
               class:text-indigo-300={active(item, $page.url.pathname)}

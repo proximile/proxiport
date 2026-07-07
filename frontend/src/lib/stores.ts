@@ -42,6 +42,8 @@ function sessionVault(): Writable<string | null> {
 export const tokenStore = persistedToken();
 export const vaultPassphrase = sessionVault();
 export const sidebarCollapsed = writable<boolean>(false);
+// Mobile-only: whether the off-canvas sidebar drawer is open. Desktop ignores this.
+export const sidebarMobileOpen = writable<boolean>(false);
 
 // Authoritative server-side vault status. The settings/vault page and the
 // (app) layout populate this; gates around vault-backed pages should derive
