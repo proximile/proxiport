@@ -530,6 +530,68 @@ func TestHandleGetCommands(t *testing.T) {
 	}
 }
 
+func TestHandleGetMultiClientCommandJobs(t *testing.T) {
+	owner := &users.User{Username: "owner"}
+	other := &users.User{Username: "other"}
+	admin := &users.User{Username: "admin", Groups: []string{users.Administrators}}
+
+	testCases := []struct {
+		name           string
+		user           string
+		multiJobID     string
+		wantStatusCode int
+	}{
+		{name: "owner can read own multi-job child jobs", user: "owner", multiJobID: "mjid-1", wantStatusCode: http.StatusOK},
+		{name: "admin can read any multi-job child jobs", user: "admin", multiJobID: "mjid-1", wantStatusCode: http.StatusOK},
+		{name: "non-owner non-admin is forbidden", user: "other", multiJobID: "mjid-1", wantStatusCode: http.StatusForbidden},
+		{name: "unknown multi-job is not found", user: "owner", multiJobID: "nope", wantStatusCode: http.StatusNotFound},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jobsDB, err := sqlite.New(":memory:", jobsmigration.AssetNames(), jobsmigration.Asset, DataSourceOptions)
+			require.NoError(t, err)
+			jp := jobs.NewSqliteProvider(jobsDB, testLog)
+			defer func() { _ = jp.Close() }()
+
+			require.NoError(t, jp.SaveMultiJob(&models.MultiJob{
+				MultiJobSummary: models.MultiJobSummary{
+					JID:       "mjid-1",
+					StartedAt: time.Date(2020, 10, 10, 10, 10, 10, 0, time.UTC),
+					CreatedBy: "owner",
+				},
+				Command: "cat /etc/shadow",
+			}))
+			require.NoError(t, jp.SaveJob(jb.New(t).JID("j1").MultiJobID("mjid-1").Build()))
+
+			al := APIListener{
+				insecureForTests: true,
+				Logger:           testLog,
+				Server: &Server{
+					config: &chconfig.Config{
+						API: chconfig.APIConfig{MaxRequestBytes: 1024 * 1024},
+					},
+				},
+				userService: users.NewAPIService(users.NewStaticProvider([]*users.User{owner, other, admin}), false, 0, -1),
+			}
+			al.initRouter()
+			al.jobProvider = jp
+
+			ctx := api.WithUser(context.Background(), tc.user)
+			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/commands/%s/jobs", tc.multiJobID), nil)
+			req = req.WithContext(ctx)
+
+			w := httptest.NewRecorder()
+			al.router.ServeHTTP(w, req)
+
+			assert.Equal(t, tc.wantStatusCode, w.Code)
+			if tc.wantStatusCode == http.StatusOK {
+				assert.Contains(t, w.Body.String(), "j1")
+			}
+		})
+	}
+}
+
 func TestHandlePostMultiClientCommand(t *testing.T) {
 	testUser := "test-user"
 	curUser := &users.User{

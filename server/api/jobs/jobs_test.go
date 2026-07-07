@@ -57,6 +57,13 @@ func TestJobsSqliteProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, gotJob4)
 
+	// verify a job is not returned when the client_id does not match its own
+	// (guards against reading another client's job via GET /clients/{client_id}/commands/{job_id})
+	require.NotEqual(t, job1.ClientID, job3.ClientID)
+	gotJobMismatch, err := p.GetByJID(job1.ClientID, job3.JID)
+	require.NoError(t, err)
+	require.Nil(t, gotJobMismatch)
+
 	// verify job summaries
 	gotJSc1, err := p.List(ctx, &query.ListOptions{Filters: []query.FilterOption{{Column: []string{"client_id"}, Values: []string{job1.ClientID}}}})
 	require.NoError(t, err)
