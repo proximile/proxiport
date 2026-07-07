@@ -314,6 +314,24 @@ func TestHandleFileUploads(t *testing.T) {
 			wantErrTitle:        "upload denied",
 			wantErrDetail:       "uploads to /proc/ are forbidden",
 		},
+		{
+			name:          "send file denied, path traversal in id",
+			wantStatus:    http.StatusBadRequest,
+			user:          "admin",
+			group:         users.Administrators,
+			wantResp:      &models.UploadResponseShort{},
+			useFsCallback: true,
+			fileName:      "file.txt",
+			fileContent:   "some content",
+			cl:            clients.New(t).ID("22114341234").Logger(testLog).Build(),
+			formParts: map[string][]string{
+				"client_id": {"22114341234"},
+				"dest":      {"/destination/myfile.txt"},
+				"id":        {"../../../../etc/cron.d/pwn"},
+			},
+			wantClientInputFile: &models.UploadedFile{},
+			wantErrTitle:        `invalid file id "../../../../etc/cron.d/pwn": must not contain path separators`,
+		},
 	}
 
 	for _, tc := range testCases {

@@ -75,6 +75,13 @@ func (al *APIListener) handleFileUploads(w http.ResponseWriter, req *http.Reques
 		al.Infof("created directory %s", al.config.GetUploadDir())
 	}
 
+	// The file id is used to build the server-side temp path; reject any value with
+	// path separators so it cannot be used for path traversal / arbitrary file write.
+	if strings.ContainsAny(uploadRequest.ID, `/\`) {
+		al.jsonErrorResponseWithTitle(w, http.StatusBadRequest, fmt.Sprintf("invalid file id %q: must not contain path separators", uploadRequest.ID))
+		return
+	}
+
 	uploadRequest.SourceFilePath = al.genFilePath(uploadRequest.ID)
 
 	err = uploadRequest.Validate()
@@ -176,7 +183,9 @@ func (al *APIListener) handleUploadsWS(w http.ResponseWriter, req *http.Request)
 }
 
 func (al *APIListener) genFilePath(uuid string) string {
-	uniqueFilename := fmt.Sprintf("%s_proxiport_filepush", uuid)
+	// uuid may originate from the caller-supplied multipart "id" field; use only the
+	// base name so a value containing path separators cannot escape the upload dir.
+	uniqueFilename := fmt.Sprintf("%s_proxiport_filepush", filepath.Base(uuid))
 
 	return filepath.Join(al.config.GetUploadDir(), uniqueFilename)
 }
