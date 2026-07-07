@@ -81,6 +81,19 @@ jobs:
           version: v2.12.2
           args: --timeout=5m
 
+      # Known-vulnerability scan of the module (deps + the Go stdlib version in
+      # go.mod). govulncheck is call-graph aware, so it only fails on vulns
+      # actually reachable from our code — low false-positive rate. @latest
+      # tracks the newest scanner + Go vuln DB, which is what a security gate
+      # wants. CGO=1 so the sqlite-linked server packages analyze as they build.
+      # Note: because it queries a live vuln DB, a newly-disclosed reachable vuln
+      # can turn main red with no code change — that's intended (you want to
+      # know); if it ever proves disruptive, move it to a scheduled run.
+      - name: govulncheck (dependency vulnerability scan)
+        env:
+          CGO_ENABLED: "1"
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
   frontend:
     name: Frontend type-check and build
     runs-on: ubuntu-latest
