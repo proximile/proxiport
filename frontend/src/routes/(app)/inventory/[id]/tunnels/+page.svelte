@@ -299,7 +299,7 @@
         <div class="flex-1 space-y-3">
           <div class="text-sm">Service to access on the remote site</div>
 
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3">
             <label class="text-xs md:col-span-2">
               <span class="block text-slate-400 mb-1">Service</span>
               <select bind:value={service}>
@@ -322,7 +322,7 @@
           </div>
 
           {#if service === 'forwarding'}
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3">
               <label class="text-xs md:col-span-2">
                 <span class="block text-slate-400 mb-1">Destination IP / Hostname</span>
                 <input bind:value={destHost} placeholder="192.168.178.1" class="font-mono" />
@@ -333,7 +333,7 @@
               </label>
             </div>
           {:else}
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3">
               <label class="text-xs md:col-start-3">
                 <span class="block text-slate-400 mb-1">Port</span>
                 <input type="number" min="1" max="65535" bind:value={remotePort} class="font-mono" required />
@@ -363,7 +363,7 @@
         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm text-white">2</div>
         <div class="flex-1">
           <div class="text-sm">Public port</div>
-          <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3">
             <label class="text-xs md:col-span-2">
               <span class="block text-slate-400 mb-1">Mode</span>
               <select bind:value={publicPortMode}>
@@ -386,7 +386,7 @@
         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm text-white">3</div>
         <div class="flex-1">
           <div class="text-sm">ACL — who is allowed to use the tunnel</div>
-          <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3">
             <label class="text-xs md:col-span-2">
               <span class="block text-slate-400 mb-1">Mode</span>
               <select bind:value={aclMode}>
@@ -415,17 +415,17 @@
         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm text-white">4</div>
         <div class="flex-1 space-y-3">
           <div class="text-sm">Timeouts</div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-x-6 gap-y-3 items-end">
             <label class="text-xs md:col-span-2 flex items-center gap-2 cursor-pointer">
               <input type="checkbox" bind:checked={idleEnabled} />
               <span>Close tunnel after inactivity of</span>
             </label>
-            <label class="text-xs" class:opacity-50={!idleEnabled}>
+            <label class="text-xs md:col-start-4" class:opacity-50={!idleEnabled}>
               <span class="block text-slate-400 mb-1">Minutes</span>
               <input type="number" min="1" bind:value={idleMinutes} disabled={!idleEnabled} class="font-mono" />
             </label>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-x-6 gap-y-3 items-end">
             <label class="text-xs md:col-span-2 flex items-center gap-2 cursor-pointer">
               <input type="checkbox" bind:checked={destroyEnabled} />
               <span>Destroy tunnel after</span>
@@ -450,7 +450,7 @@
       <div class="flex items-start gap-3 pt-2 border-t border-pp-border">
         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-700 text-sm text-slate-300">★</div>
         <div class="flex-1">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 items-end">
             <label class="text-xs md:col-span-2 flex items-center gap-2 cursor-pointer">
               <input type="checkbox" bind:checked={storeInLibrary} />
               <span>Also save these settings to the stored-tunnels library</span>
