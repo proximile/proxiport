@@ -27,9 +27,9 @@ require (
 	github.com/jpillora/backoff v1.0.0
 	github.com/jpillora/requestlog v1.0.0
 	github.com/jpillora/sizestr v1.0.0
-	github.com/kardianos/service v1.2.4
+	github.com/kardianos/service v1.3.0
 	github.com/kr/fs v0.1.0 // indirect
-	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/mattn/go-sqlite3 v1.14.47
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/mocktools/go-smtp-mock v1.10.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -53,10 +53,10 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/crypto v0.53.0
 	golang.org/x/net v0.56.0
-	golang.org/x/sync v0.21.0
-	golang.org/x/sys v0.46.0
+	golang.org/x/sync v0.22.0
+	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.44.0
-	golang.org/x/text v0.38.0
+	golang.org/x/text v0.39.0
 	gopkg.in/h2non/gock.v1 v1.1.2
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
