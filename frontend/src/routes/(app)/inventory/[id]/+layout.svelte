@@ -48,14 +48,24 @@
     const path = current.replace(baseHref, '').replace(/^\//, '');
     return slug === '' ? path === '' : path === slug || path.startsWith(slug + '/');
   }
+
+  // Bring the active tab into view within the horizontally-scrolling strip so
+  // there is always a visible active-tab indicator on narrow viewports.
+  function scrollActiveIntoView(el: HTMLElement, active: boolean) {
+    const reveal = (isActive: boolean) => {
+      if (isActive) el.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+    };
+    reveal(active);
+    return { update: reveal };
+  }
 </script>
 
 <div class="p-6 space-y-4">
-  <div class="flex items-baseline gap-3">
-    <a href="/inventory" class="text-slate-500 hover:text-slate-300 text-sm">← Inventory</a>
+  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+    <a href="/inventory" class="text-slate-500 hover:text-slate-300 text-sm whitespace-nowrap">← Inventory</a>
     {#if client}
-      <h1 class="text-2xl font-semibold tracking-tight">{client.name || client.id}</h1>
-      <span class="font-mono text-xs text-slate-500">{client.id}</span>
+      <h1 class="text-2xl font-semibold tracking-tight whitespace-nowrap">{client.name || client.id}</h1>
+      <span class="font-mono text-xs text-slate-500 break-all min-w-0">{client.id}</span>
       {#if client.connection_state === 'connected'}
         <span class="pill pill-good">connected</span>
       {:else}
@@ -74,6 +84,7 @@
       {@const active = isActive(tab.slug, $page.url.pathname)}
       <a
         {href}
+        use:scrollActiveIntoView={active}
         class="px-4 py-2 text-sm whitespace-nowrap border-b-2 -mb-px"
         class:border-indigo-400={active}
         class:text-indigo-300={active}

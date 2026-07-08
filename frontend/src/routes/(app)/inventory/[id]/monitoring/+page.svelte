@@ -170,7 +170,7 @@
   </div>
 
   <div class="card overflow-x-auto">
-    <div class="px-4 py-2 border-b border-pp-border text-sm text-slate-400 flex justify-between">
+    <div class="px-4 py-2 border-b border-pp-border text-sm text-slate-400 flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-center">
       <span>Processes at {processTimestamp ? fmtDate(processTimestamp) : '—'}</span>
       <span class="text-xs">click a point on the chart above to time-travel</span>
     </div>

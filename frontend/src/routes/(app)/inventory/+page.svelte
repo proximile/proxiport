@@ -101,15 +101,15 @@
           <tr>
             <th>State</th>
             <th>Name</th>
-            <th>Hostname</th>
+            <th class="hidden md:table-cell">Hostname</th>
             <th>OS</th>
-            <th>CPU</th>
-            <th>RAM</th>
-            <th>IP</th>
-            <th>Tags</th>
-            <th>Groups</th>
-            <th>Last heartbeat</th>
-            <th>Version</th>
+            <th class="hidden md:table-cell">CPU</th>
+            <th class="hidden md:table-cell">RAM</th>
+            <th class="hidden md:table-cell">IP</th>
+            <th class="hidden md:table-cell">Tags</th>
+            <th class="hidden md:table-cell">Groups</th>
+            <th class="hidden md:table-cell">Last heartbeat</th>
+            <th class="hidden md:table-cell">Version</th>
           </tr>
         </thead>
         <tbody>
@@ -133,23 +133,23 @@
                   {c.name || c.id}
                 </a>
               </td>
-              <td class="font-mono text-xs text-slate-400">{c.hostname || '—'}</td>
+              <td class="hidden md:table-cell font-mono text-xs text-slate-400">{c.hostname || '—'}</td>
               <td class="text-slate-300">{c.os_full_name || c.os || '—'}</td>
-              <td class="text-slate-400">{c.num_cpus ?? '—'}</td>
-              <td class="text-slate-400">{fmtBytes(c.mem_total)}</td>
-              <td class="font-mono text-xs text-slate-400">{c.address || (c.ipv4?.[0] ?? '—')}</td>
-              <td>
+              <td class="hidden md:table-cell text-slate-400">{c.num_cpus ?? '—'}</td>
+              <td class="hidden md:table-cell text-slate-400">{fmtBytes(c.mem_total)}</td>
+              <td class="hidden md:table-cell font-mono text-xs text-slate-400">{c.address || (c.ipv4?.[0] ?? '—')}</td>
+              <td class="hidden md:table-cell">
                 <div class="flex flex-wrap gap-1">
                   {#each c.tags ?? [] as t}<span class="pill pill-info">{t}</span>{/each}
                 </div>
               </td>
-              <td>
+              <td class="hidden md:table-cell">
                 <div class="flex flex-wrap gap-1">
                   {#each c.groups ?? [] as g}<span class="pill pill-muted">{g}</span>{/each}
                 </div>
               </td>
-              <td class="text-slate-400">{fmtRelative(c.last_heartbeat_at)}</td>
-              <td class="font-mono text-xs text-slate-500">{c.version || '—'}</td>
+              <td class="hidden md:table-cell text-slate-400">{fmtRelative(c.last_heartbeat_at)}</td>
+              <td class="hidden md:table-cell font-mono text-xs text-slate-500">{c.version || '—'}</td>
             </tr>
           {/each}
         </tbody>
