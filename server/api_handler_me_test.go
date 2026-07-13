@@ -105,6 +105,7 @@ func TestHandleMeDBAuth(t *testing.T) {
 		"group_details",
 		false,
 		false,
+		nil,
 		logger)
 	require.NoError(t, err)
 

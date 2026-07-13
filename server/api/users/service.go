@@ -14,6 +14,7 @@ import (
 	"github.com/proximile/proxiport/server/api/message"
 	"github.com/proximile/proxiport/server/chconfig"
 	chshare "github.com/proximile/proxiport/share"
+	"github.com/proximile/proxiport/share/enc"
 	"github.com/proximile/proxiport/share/enums"
 	"github.com/proximile/proxiport/share/logger"
 )
@@ -401,6 +402,7 @@ func newAPIAuthDatabase(authDB *sqlx.DB, config *chconfig.Config, logger *logger
 		config.API.AuthGroupDetailsTable,
 		config.API.IsTwoFAOn(),
 		config.API.TotPEnabled,
+		enc.NewEnvelope(config.KeyProvider.DEK()),
 		logger,
 	)
 	return usersProvider, err
