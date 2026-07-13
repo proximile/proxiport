@@ -230,10 +230,20 @@ export async function refreshVaultStatus(): Promise<VaultStatusShape> {
   return next;
 }
 
-/** Build a websocket URL with the JWT in the access_token query parameter. */
+/** Base websocket URL for an API path. Carries no auth material in the URL. */
 export function wsUrl(path: string): string {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const t = get(tokenStore);
+  return `${proto}//${location.host}/api/v1${path}`;
+}
+
+/**
+ * Open an authenticated WebSocket. Browsers can't attach an Authorization header
+ * to a WS handshake, so we first exchange the bearer token for a single-use,
+ * short-lived ticket (GET /ws-ticket) and put only that ephemeral ticket on the
+ * URL. The long-lived JWT never appears in a URL, access log, or browser history.
+ */
+export async function openAuthedSocket(path: string): Promise<WebSocket> {
+  const { ticket } = await apiGet<{ ticket: string }>('/ws-ticket');
   const sep = path.includes('?') ? '&' : '?';
-  return `${proto}//${location.host}/api/v1${path}${sep}access_token=${encodeURIComponent(t || '')}`;
+  return new WebSocket(`${wsUrl(path)}${sep}ticket=${encodeURIComponent(ticket)}`);
 }

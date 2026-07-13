@@ -70,6 +70,7 @@ type APIListener struct {
 	bannedUsers       *security.BanList
 	bannedIPs         *security.MaxBadAttemptsBanList
 	twoFASrv          TwoFAService
+	wsTickets         *wsTicketStore
 
 	testDone chan bool // is used only in tests to be able to wait until async task is done
 
@@ -239,6 +240,7 @@ func NewAPIListener(
 		httpServer:             chshare.NewHTTPServer(int(config.API.MaxRequestBytes), allog, HTTPServerOptions...),
 		requestLogOptions:      config.InitRequestLogOptions(),
 		bannedUsers:            security.NewBanList(time.Duration(config.API.UserLoginWait) * time.Second),
+		wsTickets:              newWSTicketStore(),
 		userService:            userService,
 		vaultManager:           vault.NewManager(vaultDBProviderFactory, &vault.Aes256PassManager{}, vaultLogger),
 		scriptManager:          scriptManager,
@@ -402,7 +404,7 @@ func (al *APIListener) lookupUser(r *http.Request, isBearerOnly bool) (authorize
 
 	if bearerToken, bearerAuthProvided := bearer.GetBearerToken(r); bearerAuthProvided {
 		isAuthorized, token, err := al.checkBearerToken(r.Context(), bearerToken, r.URL.Path, r.Method)
-		if err != nil {
+		if err != nil || !isAuthorized || token == nil {
 			return isAuthorized, "", err
 		}
 
@@ -489,8 +491,12 @@ func (al *APIListener) handleBasicAuth(ctx context.Context, httpverb, urlpath, u
 func (al *APIListener) checkBearerToken(ctx context.Context, bearerToken, uri, method string) (bool, *bearer.TokenContext, error) {
 	tokenCtx, err := bearer.ParseToken(bearerToken, al.config.API.JWTSecret)
 	if err != nil {
+		// An unparseable / bad-algorithm / expired / tampered token is the
+		// caller's problem, not ours: report it as unauthenticated (401) rather
+		// than a server error (500). Genuine infrastructure failures below still
+		// propagate as errors.
 		al.Debugf("failed to parse jwt token: %v", err)
-		return false, nil, err
+		return false, nil, nil
 	}
 
 	if al.bannedUsers.IsBanned(tokenCtx.AppClaims.Username) {
@@ -597,21 +603,26 @@ func verifyPassword(saved, provided string) bool {
 	return subtle.ConstantTimeCompare([]byte(saved), []byte(provided)) == 1
 }
 
-const WebSocketAccessTokenQueryParam = "access_token"
-
 var (
-	errUnauthorized        = errors.New("unauthorized")
-	errAccessTokenRequired = errors.New("token required")
+	errUnauthorized     = errors.New("unauthorized")
+	errWSTicketRequired = errors.New("ticket required")
 )
 
+// wsAuth authenticates a WebSocket upgrade. Browsers cannot attach an
+// Authorization header to a WebSocket handshake, so instead of leaking the
+// long-lived bearer JWT in the URL query (where it lands in access logs, proxy
+// logs, and browser history) we accept a single-use, short-lived ticket the
+// client first obtained from GET /ws-ticket over a normal bearer-authed request.
+// Non-browser clients that can set headers may still use HTTP basic auth.
 func (al *APIListener) wsAuth(f http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var authorized bool
 		var username string
 		var err error
 
-		tokenStr := r.URL.Query().Get(WebSocketAccessTokenQueryParam)
-		if tokenStr == "" {
+		if ticket := r.URL.Query().Get(WebSocketTicketQueryParam); ticket != "" {
+			username, authorized = al.wsTickets.redeem(ticket)
+		} else {
 			basicUser, basicPwd, basicAuthProvided := r.BasicAuth()
 
 			if basicAuthProvided {
@@ -620,14 +631,8 @@ func (al *APIListener) wsAuth(f http.Handler) http.HandlerFunc {
 				if !al.handleBannedIPs(r, false) {
 					return
 				}
-				al.jsonErrorResponse(w, http.StatusUnauthorized, errAccessTokenRequired)
+				al.jsonErrorResponse(w, http.StatusUnauthorized, errWSTicketRequired)
 				return
-			}
-		} else {
-			var token *bearer.TokenContext
-			authorized, token, err = al.checkBearerToken(r.Context(), tokenStr, r.URL.Path, r.Method)
-			if authorized && err == nil {
-				username = token.AppClaims.Username
 			}
 		}
 

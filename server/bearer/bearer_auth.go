@@ -3,6 +3,7 @@ package bearer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -107,6 +108,12 @@ func CreateAuthToken(
 		SessionID: sessionID,
 		StandardClaims: jwt.StandardClaims{
 			Id: strconv.FormatUint(rand.Uint64(), 10),
+			// A real expiry in the token itself, so it is self-limiting even if
+			// the server-side session check is ever bypassed. Equals the minted
+			// lifetime (already capped at DefaultMaxTokenLifetime), giving an
+			// absolute session cap rather than an indefinitely slideable one.
+			IssuedAt:  time.Now().Unix(),
+			ExpiresAt: expiresAt.Unix(),
 		},
 		Scopes: scopes,
 	}
@@ -162,8 +169,16 @@ func currentURIMatchesTokenScopes(currentURI, currentMethod string, tokenScopes 
 func ParseToken(tokenStr string, JWTSecret string) (tokCtx *TokenContext, err error) {
 	appClaims := &AppTokenClaims{}
 	bearerToken, err := jwt.ParseWithClaims(tokenStr, appClaims, func(token *jwt.Token) (i interface{}, err error) {
+		// Pin the algorithm to the one we mint with. Without this the parser
+		// accepts whatever `alg` the token header declares and hands it our
+		// secret bytes, which is the classic JWT algorithm-confusion footgun
+		// (e.g. an attacker-chosen alg, or "none"). Belt-and-suspenders with the
+		// WithValidMethods option below.
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method %q", token.Header["alg"])
+		}
 		return []byte(JWTSecret), nil
-	})
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil {
 		// do not return error since it should respond with 401 instead of 500, just log it
 		return nil, err
