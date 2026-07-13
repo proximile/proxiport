@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/proximile/proxiport/share/enc"
 	"github.com/proximile/proxiport/share/logger"
 	"github.com/proximile/proxiport/share/query"
 
@@ -30,9 +31,14 @@ type SqliteProvider struct {
 	db        *sqlx.DB
 	logger    *logger.Logger
 	converter *query.SQLConverter
+	// enc wraps the secret-bearing columns (enc_check and each values.value) under
+	// the server DEK at rest — a second layer on top of the passphrase-derived
+	// encryption that removes the offline passphrase-guessing oracle a disk thief
+	// would otherwise have. Always non-nil; a disabled envelope is passthrough.
+	enc *enc.Envelope
 }
 
-func NewSqliteProvider(c Config, logger *logger.Logger) (*SqliteProvider, error) {
+func NewSqliteProvider(c Config, envelope *enc.Envelope, logger *logger.Logger) (*SqliteProvider, error) {
 	dbPath := c.GetVaultDBPath()
 
 	db, err := sqlite.New(dbPath, vaults.AssetNames(), vaults.Asset, DataSourceOptions)
@@ -42,11 +48,115 @@ func NewSqliteProvider(c Config, logger *logger.Logger) (*SqliteProvider, error)
 
 	logger.Infof("initialized database at %s", dbPath)
 
-	return &SqliteProvider{
+	if envelope == nil {
+		envelope = enc.NewEnvelope(nil)
+	}
+	p := &SqliteProvider{
 		logger:    logger,
 		db:        db,
 		converter: query.NewSQLConverter(db.DriverName()),
-	}, nil
+		enc:       envelope,
+	}
+	if err := p.wrapExistingSecrets(context.Background()); err != nil {
+		_ = p.db.Close()
+		return nil, err
+	}
+	return p, nil
+}
+
+// wrap is the encrypt-on-write path for a secret-bearing vault column. An empty
+// value is stored verbatim (nothing to protect); everything else is wrapped
+// under the DEK when a key provider is configured, and passed through unchanged
+// otherwise.
+func (p *SqliteProvider) wrap(v string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	return p.enc.Encrypt(v)
+}
+
+// unwrap is the decrypt-on-read path. Legacy (unwrapped) values pass through; a
+// DEK-wrapped value that cannot be decrypted under the current key errors so the
+// caller fails closed rather than surfacing ciphertext.
+func (p *SqliteProvider) unwrap(v string) (string, error) {
+	return p.enc.Decrypt(v)
+}
+
+// wrapExistingSecrets is the at-rest DEK migration for the vault: when a key
+// provider is configured it wraps any not-yet-wrapped enc_check and values.value
+// in place at startup. It operates purely on the DEK layer over the already
+// passphrase-encrypted ciphertext, so it needs no passphrase and runs whether the
+// vault is locked or not. Idempotent — wrapped values are skipped.
+func (p *SqliteProvider) wrapExistingSecrets(ctx context.Context) error {
+	if !p.enc.Enabled() {
+		return nil
+	}
+
+	tx, err := p.db.Beginx()
+	if err != nil {
+		return err
+	}
+
+	var encCheck string
+	var statusID int
+	err = tx.GetContext(ctx, &statusID, "SELECT id FROM `status` LIMIT 1")
+	switch {
+	case err == sql.ErrNoRows:
+		// no status row yet — nothing to wrap
+	case err != nil:
+		p.handleRollback(tx)
+		return err
+	default:
+		if err = tx.GetContext(ctx, &encCheck, "SELECT `enc_check` FROM `status` WHERE id = ?", statusID); err != nil {
+			p.handleRollback(tx)
+			return err
+		}
+		if encCheck != "" && !enc.IsEncrypted(encCheck) {
+			wrapped, werr := p.enc.Encrypt(encCheck)
+			if werr != nil {
+				p.handleRollback(tx)
+				return werr
+			}
+			if _, err = tx.ExecContext(ctx, "UPDATE `status` SET `enc_check` = ? WHERE id = ?", wrapped, statusID); err != nil {
+				p.handleRollback(tx)
+				return err
+			}
+		}
+	}
+
+	type row struct {
+		ID    int    `db:"id"`
+		Value string `db:"value"`
+	}
+	var rows []row
+	if err = tx.SelectContext(ctx, &rows, "SELECT `id`, `value` FROM `values`"); err != nil {
+		p.handleRollback(tx)
+		return err
+	}
+	wrapped := 0
+	for i := range rows {
+		if rows[i].Value == "" || enc.IsEncrypted(rows[i].Value) {
+			continue
+		}
+		w, werr := p.enc.Encrypt(rows[i].Value)
+		if werr != nil {
+			p.handleRollback(tx)
+			return werr
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE `values` SET `value` = ? WHERE id = ?", w, rows[i].ID); err != nil {
+			p.handleRollback(tx)
+			return err
+		}
+		wrapped++
+	}
+
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	if wrapped > 0 {
+		p.logger.Infof("wrapped %d vault value(s) under the key provider at rest", wrapped)
+	}
+	return nil
 }
 
 func (p *SqliteProvider) Close() error {
@@ -67,10 +177,19 @@ func (p *SqliteProvider) GetStatus(ctx context.Context) (DbStatus, error) {
 		return res, err
 	}
 
+	if res.EncCheckValue, err = p.unwrap(res.EncCheckValue); err != nil {
+		return DbStatus{}, err
+	}
+
 	return res, nil
 }
 
 func (p *SqliteProvider) SetStatus(ctx context.Context, newStatus DbStatus) error {
+	encCheck, err := p.wrap(newStatus.EncCheckValue)
+	if err != nil {
+		return err
+	}
+
 	tx, err := p.db.Beginx()
 	if err != nil {
 		return err
@@ -92,7 +211,7 @@ func (p *SqliteProvider) SetStatus(ctx context.Context, newStatus DbStatus) erro
 			ctx,
 			"INSERT INTO `status` (`db_status`, `enc_check`, `kdf`) VALUES (?, ?, ?)",
 			newStatus.StatusName,
-			newStatus.EncCheckValue,
+			encCheck,
 			newStatus.KDF,
 		)
 
@@ -104,7 +223,7 @@ func (p *SqliteProvider) SetStatus(ctx context.Context, newStatus DbStatus) erro
 		q := "UPDATE `status` SET db_status=?, enc_check = ?, kdf = ? WHERE id = ?"
 		params := []interface{}{
 			newStatus.StatusName,
-			newStatus.EncCheckValue,
+			encCheck,
 			newStatus.KDF,
 			idToUpdate,
 		}
@@ -131,6 +250,10 @@ func (p *SqliteProvider) GetByID(ctx context.Context, id int) (val StoredValue, 
 		}
 
 		return val, false, err
+	}
+
+	if val.Value, err = p.unwrap(val.Value); err != nil {
+		return StoredValue{}, false, err
 	}
 
 	return val, true, nil
@@ -161,10 +284,19 @@ func (p *SqliteProvider) FindByKeyAndClientID(ctx context.Context, key, clientID
 		return val, false, err
 	}
 
+	if val.Value, err = p.unwrap(val.Value); err != nil {
+		return StoredValue{}, false, err
+	}
+
 	return val, true, nil
 }
 
 func (p *SqliteProvider) Save(ctx context.Context, user string, idToUpdate int64, val *InputValue, nowDate time.Time) (int64, error) {
+	storedValue, err := p.wrap(val.Value)
+	if err != nil {
+		return 0, err
+	}
+
 	if idToUpdate == 0 {
 		res, err := p.db.ExecContext(
 			ctx,
@@ -176,7 +308,7 @@ func (p *SqliteProvider) Save(ctx context.Context, user string, idToUpdate int64
 			nowDate.Format(time.RFC3339),
 			user,
 			val.Key,
-			val.Value,
+			storedValue,
 			val.Type,
 		)
 
@@ -195,7 +327,7 @@ func (p *SqliteProvider) Save(ctx context.Context, user string, idToUpdate int64
 			nowDate.Format(time.RFC3339),
 			user,
 			val.Key,
-			val.Value,
+			storedValue,
 			val.Type,
 			idToUpdate,
 		}
@@ -247,18 +379,35 @@ func (p *SqliteProvider) ReKey(ctx context.Context, transform func(oldValue stri
 	}
 
 	for _, r := range rows {
-		newValue, terr := transform(r.Value)
+		// transform operates on the passphrase-encryption layer, so peel the DEK
+		// wrap off first and re-apply it after re-encrypting.
+		oldValue, uerr := p.unwrap(r.Value)
+		if uerr != nil {
+			p.handleRollback(tx)
+			return uerr
+		}
+		newValue, terr := transform(oldValue)
 		if terr != nil {
 			p.handleRollback(tx)
 			return terr
 		}
-		if _, err = tx.ExecContext(ctx, "UPDATE `values` SET `value` = ? WHERE `id` = ?", newValue, r.ID); err != nil {
+		storedValue, werr := p.wrap(newValue)
+		if werr != nil {
+			p.handleRollback(tx)
+			return werr
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE `values` SET `value` = ? WHERE `id` = ?", storedValue, r.ID); err != nil {
 			p.handleRollback(tx)
 			return err
 		}
 	}
 
-	res, err := tx.ExecContext(ctx, "UPDATE `status` SET `enc_check` = ?, `kdf` = ?", newEncCheck, newKDF)
+	wrappedEncCheck, err := p.wrap(newEncCheck)
+	if err != nil {
+		p.handleRollback(tx)
+		return err
+	}
+	res, err := tx.ExecContext(ctx, "UPDATE `status` SET `enc_check` = ?, `kdf` = ?", wrappedEncCheck, newKDF)
 	if err != nil {
 		p.handleRollback(tx)
 		return err

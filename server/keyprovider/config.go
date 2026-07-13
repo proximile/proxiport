@@ -3,6 +3,8 @@ package keyprovider
 import (
 	"fmt"
 	"strings"
+
+	"github.com/proximile/proxiport/share/enc"
 )
 
 // Config is the [key_provider] configuration section. It selects and builds the
@@ -69,4 +71,10 @@ func (c *Config) Provider() KeyProvider {
 // resolved provider's DEK (nil when disabled).
 func (c *Config) DEK() []byte {
 	return c.Provider().DEK()
+}
+
+// Envelope builds an at-rest field-encryption envelope over the resolved DEK.
+// A disabled provider yields a passthrough envelope.
+func (c *Config) Envelope() *enc.Envelope {
+	return enc.NewEnvelope(c.DEK())
 }
