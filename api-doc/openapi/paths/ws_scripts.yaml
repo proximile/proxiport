@@ -9,7 +9,7 @@ get:
  A new web socket is created for each new request to execute a script on
  proxiport client(s).
  Steps:
- 1. To pass authentication - include "access_token" param into the url. The value is a jwt token that is created by 'login' API endpoint.
+ 1. To pass authentication - first obtain a one-time ticket from the 'ws-ticket' endpoint (a normal bearer-authenticated GET), then include its value as the "ticket" query param on this URL. Browsers cannot set an Authorization header on a WebSocket handshake, so a short-lived, single-use ticket is used here instead of the bearer token, keeping the long-lived token out of URLs and logs. Non-browser clients may alternatively use HTTP basic auth.
  2. Upgrades the current connection to Web Socket.
  3. Then server waits for an inbound script message from UI client. It should be a JSON object `ExecuteScriptRequest`(see in 'Models'):
  For example,
@@ -37,11 +37,11 @@ get:
 
  There is a simple UI for testing. Try it out on http://127.0.0.1:3000/api/v1/test/scripts/ui. You can enable this api by setting `enable_ws_test_endpoints=true` in the configuration file.
  parameters:
- - name: access_token
+ - name: ticket
  in: query
  description: >-
- JWT token that is created by 'login' API endpoint. Required to pass the
- authentication.
+ One-time ticket obtained from the 'ws-ticket' endpoint. Required to pass
+ the authentication (unless HTTP basic auth is used).
  required: true
  schema:
  type: string

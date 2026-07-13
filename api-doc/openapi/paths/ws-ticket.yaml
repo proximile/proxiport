@@ -1,0 +1,25 @@
+get:
+ tags:
+ - Profile & Info
+ summary: Issue a one-time ticket for authenticating a WebSocket upgrade
+ operationId: WsTicketGet
+ description: One-time, short-lived ticket for authenticating a subsequent WebSocket upgrade (see /ws/commands, /ws/scripts, /ws/uploads). Passed as the "ticket" query param instead of the bearer token, so the long-lived token stays out of URLs and logs. The ticket is consumed on first use and expires within seconds.
+ responses:
+ '200':
+ description: A one-time WebSocket ticket
+ content:
+ application/json:
+ schema:
+ type: object
+ properties:
+ data:
+ type: object
+ properties:
+ ticket:
+ type: string
+ '400':
+ description: Invalid request parameters
+ content:
+ application/json:
+ schema:
+ $ref: ../components/schemas/ErrorPayload.yaml
