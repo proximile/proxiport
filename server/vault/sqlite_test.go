@@ -28,7 +28,7 @@ func (cm configMock) GetVaultDBPath() string {
 }
 
 func TestSetStatus(t *testing.T) {
-	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	dbProv, err := NewSqliteProvider(configMock{}, nil, testLog)
 	require.NoError(t, err)
 
 	defer dbProv.Close()
@@ -69,7 +69,7 @@ func TestSetStatus(t *testing.T) {
 }
 
 func TestGetStatus(t *testing.T) {
-	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	dbProv, err := NewSqliteProvider(configMock{}, nil, testLog)
 	require.NoError(t, err)
 	defer dbProv.Close()
 
@@ -105,7 +105,7 @@ func TestGetStatus(t *testing.T) {
 }
 
 func TestReKey(t *testing.T) {
-	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	dbProv, err := NewSqliteProvider(configMock{}, nil, testLog)
 	require.NoError(t, err)
 	defer func() { _ = dbProv.Close() }()
 
@@ -138,7 +138,7 @@ func TestReKey(t *testing.T) {
 }
 
 func TestReKeyTransformErrorRollsBack(t *testing.T) {
-	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	dbProv, err := NewSqliteProvider(configMock{}, nil, testLog)
 	require.NoError(t, err)
 	defer func() { _ = dbProv.Close() }()
 
@@ -167,7 +167,7 @@ func TestReKeyTransformErrorRollsBack(t *testing.T) {
 }
 
 func TestGetByID(t *testing.T) {
-	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	dbProv, err := NewSqliteProvider(configMock{}, nil, testLog)
 	require.NoError(t, err)
 	defer dbProv.Close()
 
@@ -207,7 +207,7 @@ func TestGetByID(t *testing.T) {
 }
 
 func TestList(t *testing.T) {
-	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	dbProv, err := NewSqliteProvider(configMock{}, nil, testLog)
 	require.NoError(t, err)
 	defer dbProv.Close()
 
@@ -381,7 +381,7 @@ func TestList(t *testing.T) {
 }
 
 func TestCreate(t *testing.T) {
-	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	dbProv, err := NewSqliteProvider(configMock{}, nil, testLog)
 	require.NoError(t, err)
 	defer dbProv.Close()
 
@@ -425,7 +425,7 @@ func TestCreate(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
-	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	dbProv, err := NewSqliteProvider(configMock{}, nil, testLog)
 	require.NoError(t, err)
 	defer dbProv.Close()
 
@@ -475,7 +475,7 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestFindByKeyAndClientID(t *testing.T) {
-	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	dbProv, err := NewSqliteProvider(configMock{}, nil, testLog)
 	require.NoError(t, err)
 	defer dbProv.Close()
 
@@ -520,7 +520,7 @@ func TestFindByKeyAndClientID(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	dbProv, err := NewSqliteProvider(configMock{}, nil, testLog)
 	require.NoError(t, err)
 	defer dbProv.Close()
 
