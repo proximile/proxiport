@@ -75,6 +75,11 @@ func (c *DatabaseProvider) Add(client *ClientAuth) (bool, error) {
 	return true, nil
 }
 
+func (c *DatabaseProvider) Update(client *ClientAuth) error {
+	_, err := c.db.NamedExec(fmt.Sprintf("UPDATE %s SET password = :password WHERE id = :id", c.tableName), client)
+	return err
+}
+
 func (c *DatabaseProvider) Delete(id string) error {
 	_, err := c.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE id = ?", c.tableName), id)
 	return err

@@ -2,7 +2,6 @@ package chserver
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +26,7 @@ import (
 	"github.com/proximile/proxiport/server/chconfig"
 	"github.com/proximile/proxiport/server/clients"
 	"github.com/proximile/proxiport/server/clients/clientdata"
+	"github.com/proximile/proxiport/server/clientsauth"
 	chshare "github.com/proximile/proxiport/share"
 	"github.com/proximile/proxiport/share/comm"
 	"github.com/proximile/proxiport/share/logger"
@@ -165,8 +165,9 @@ func (cl *ClientListener) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Pe
 	}
 
 	ip := cl.getIP(c.RemoteAddr())
-	// constant time compare is used for security reasons
-	if clientAuth == nil || subtle.ConstantTimeCompare([]byte(clientAuth.Password), password) != 1 {
+	// VerifyPassword bcrypt-compares a hashed credential and constant-time
+	// compares a legacy plaintext one.
+	if clientAuth == nil || !clientsauth.VerifyPassword(clientAuth.Password, password) {
 		cl.log().Debugf("Login failed for client auth id: %s", clientAuthID)
 		cl.bannedClientAuths.Add(clientAuthID)
 		if cl.bannedIPs != nil {
@@ -175,10 +176,32 @@ func (cl *ClientListener) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Pe
 		return nil, fmt.Errorf("invalid authentication for client auth id: %s", clientAuthID)
 	}
 
+	cl.maybeUpgradeClientAuthHash(clientAuthID, clientAuth)
+
 	if cl.bannedIPs != nil {
 		cl.bannedIPs.AddSuccessAttempt(ip)
 	}
 	return nil, nil
+}
+
+// maybeUpgradeClientAuthHash migrates a legacy plaintext client-auth credential
+// to a bcrypt hash at rest after it has authenticated successfully, provided the
+// backing provider is writeable. It is best-effort: any failure is logged and
+// the (already successful) authentication is unaffected.
+func (cl *ClientListener) maybeUpgradeClientAuthHash(id string, ca *clientsauth.ClientAuth) {
+	if ca == nil || clientsauth.IsHashed(ca.Password) || !cl.server.clientAuthProvider.IsWriteable() {
+		return
+	}
+	hashed, err := clientsauth.HashPassword(ca.Password)
+	if err != nil {
+		cl.log().Errorf("could not hash client auth %q for at-rest upgrade: %v", id, err)
+		return
+	}
+	if err := cl.server.clientAuthProvider.Update(&clientsauth.ClientAuth{ID: id, Password: hashed}); err != nil {
+		cl.log().Errorf("could not upgrade client auth %q to a hash at rest: %v", id, err)
+		return
+	}
+	cl.log().Debugf("Upgraded client auth %q to a hashed credential at rest", id)
 }
 
 func (cl *ClientListener) getIP(addr net.Addr) string {

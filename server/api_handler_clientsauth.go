@@ -36,6 +36,9 @@ func (al *APIListener) handleGetClientAuth(w http.ResponseWriter, req *http.Requ
 		al.jsonErrorResponseWithTitle(w, http.StatusNotFound, fmt.Sprintf("Client Auth with ID %q not found", clientAuthID))
 		return
 	}
+	// Never expose the stored credential: it is a bcrypt hash (or a legacy
+	// plaintext value pending upgrade), and neither should leave the server.
+	clientAuth.Password = ""
 	al.writeJSONResponse(w, http.StatusOK, api.NewSuccessPayload(clientAuth))
 }
 func (al *APIListener) handleGetClientsAuth(w http.ResponseWriter, req *http.Request) {
@@ -52,6 +55,12 @@ func (al *APIListener) handleGetClientsAuth(w http.ResponseWriter, req *http.Req
 	if err != nil {
 		al.jsonErrorResponse(w, http.StatusInternalServerError, err)
 		return
+	}
+
+	// Redact the stored credential from the listing: it is a bcrypt hash (or a
+	// legacy plaintext value pending upgrade), and the API never returns either.
+	for _, c := range rClients {
+		c.Password = ""
 	}
 
 	al.writeJSONResponse(w, http.StatusOK, &api.SuccessPayload{
@@ -81,6 +90,16 @@ func (al *APIListener) handlePostClientsAuth(w http.ResponseWriter, req *http.Re
 		al.jsonErrorResponseWithDetail(w, http.StatusBadRequest, ErrCodeInvalidRequest, "Invalid or missing password.", fmt.Sprintf("Min size is %d.", MinCredentialsLength))
 		return
 	}
+
+	// Store a bcrypt hash, never the plaintext. HashPassword passes an
+	// already-hashed value through unchanged, so an operator may also POST a
+	// pre-hashed credential.
+	hashed, err := clientsauth.HashPassword(newClient.Password)
+	if err != nil {
+		al.jsonErrorResponse(w, http.StatusInternalServerError, err)
+		return
+	}
+	newClient.Password = hashed
 
 	added, err := al.clientAuthProvider.Add(&newClient)
 	if err != nil {

@@ -142,8 +142,14 @@ func TestHandleGetClientsAuth(t *testing.T) {
 			if tc.wantErrTitle == "" {
 				// success case
 				if tc.wantCount > 0 {
+					// The listing redacts the stored credential (Password is
+					// blanked and omitted), so the expected payload carries id only.
+					redacted := make([]*clientsauth.ClientAuth, len(tc.wantClientsAuth))
+					for i, c := range tc.wantClientsAuth {
+						redacted[i] = &clientsauth.ClientAuth{ID: c.ID}
+					}
 					wantResp = &api.SuccessPayload{
-						Data: tc.wantClientsAuth,
+						Data: redacted,
 						Meta: api.NewMeta(tc.wantCount),
 					}
 				} else {
@@ -366,6 +372,18 @@ func TestHandlePostClientsAuth(t *testing.T) {
 			}
 			clients, _, err := al.clientAuthProvider.GetFiltered(filter)
 			require.NoError(err)
+			// A successfully added credential is stored hashed, not in plaintext.
+			// Verify the hash against the submitted password, then normalize it
+			// back to the plaintext so the set comparison below is stable.
+			if tc.wantStatusCode == http.StatusCreated {
+				for _, c := range clients {
+					if c.ID == cl4.ID {
+						assert.True(clientsauth.IsHashed(c.Password), "new credential should be stored as a bcrypt hash")
+						assert.True(clientsauth.VerifyPassword(c.Password, []byte(cl4.Password)), "stored hash should verify against the submitted password")
+						c.Password = cl4.Password
+					}
+				}
+			}
 			assert.ElementsMatch(tc.wantClientsAuth, clients)
 		})
 	}
