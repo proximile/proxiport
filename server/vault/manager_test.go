@@ -19,6 +19,10 @@ import (
 	errors2 "github.com/proximile/proxiport/server/api/errors"
 )
 
+// testVaultKey is a fixed 32-byte AES key standing in for a derived vault key in
+// tests that unlock the manager directly (bypassing the PassManager).
+var testVaultKey = []byte("0123456789abcdef0123456789abcdef")
+
 type DbProviderMock struct {
 	isInit  bool
 	initErr error
@@ -27,6 +31,12 @@ type DbProviderMock struct {
 	statusToGiveErr  error
 	statusToStore    DbStatus
 	statusToStoreErr error
+
+	ReKeyCalled    bool
+	ReKeyKDFGiven  string
+	ReKeyEncGiven  string
+	ReKeyTransform func(oldValue string) (string, error)
+	ReKeyErr       error
 
 	getByID            int
 	getByIDStoredValue StoredValue
@@ -103,6 +113,15 @@ func (dpm *DbProviderMock) Delete(ctx context.Context, id int) error {
 	return dpm.DeleteErrorToGive
 }
 
+func (dpm *DbProviderMock) ReKey(ctx context.Context, transform func(oldValue string) (string, error), newKDF, newEncCheck string) error {
+	dpm.ReKeyCalled = true
+	dpm.ReKeyTransform = transform
+	dpm.ReKeyKDFGiven = newKDF
+	dpm.ReKeyEncGiven = newEncCheck
+
+	return dpm.ReKeyErr
+}
+
 func (dpm *DbProviderMock) GetDbProvider() DbProvider {
 	return dpm
 }
@@ -111,15 +130,20 @@ type PassManagerMock struct {
 	ValidatePassError error
 	ValidatePassGiven string
 
-	PassMatchDbStatusGiven DbStatus
-	PassMatchPassGiven     string
-	PassMatchToGive        bool
-	PassMatchErr           error
+	DeriveKeyDbStatusGiven DbStatus
+	DeriveKeyPassGiven     string
+	DeriveKeyKeyToGive     []byte
+	DeriveKeyLegacyToGive  bool
+	DeriveKeyErr           error
 
-	GetEncRandValuePassGiven      string
-	GetEncRandValueEncValueToGive string
-	GetEncRandValueDecValueToGive string
-	GetEncRandValueErr            error
+	VerifyKeyGiven []byte
+	VerifyToGive   bool
+
+	NewStatusForPassGiven string
+	NewStatusForKDFToGive string
+	NewStatusForEncToGive string
+	NewStatusForKeyToGive []byte
+	NewStatusForErr       error
 }
 
 type UserDataProviderMock struct {
@@ -140,35 +164,43 @@ func (pmm *PassManagerMock) ValidatePass(passToCheck string) error {
 	return pmm.ValidatePassError
 }
 
-func (pmm *PassManagerMock) PassMatch(dbStatus DbStatus, passToCheck string) (bool, error) {
-	pmm.PassMatchDbStatusGiven = dbStatus
-	pmm.PassMatchPassGiven = passToCheck
+func (pmm *PassManagerMock) DeriveKey(dbStatus DbStatus, pass string) ([]byte, bool, error) {
+	pmm.DeriveKeyDbStatusGiven = dbStatus
+	pmm.DeriveKeyPassGiven = pass
 
-	return pmm.PassMatchToGive, pmm.PassMatchErr
+	return pmm.DeriveKeyKeyToGive, pmm.DeriveKeyLegacyToGive, pmm.DeriveKeyErr
 }
 
-func (pmm *PassManagerMock) GetEncRandValue(pass string) (encValue, decValue string, err error) {
-	pmm.GetEncRandValuePassGiven = pass
+func (pmm *PassManagerMock) Verify(dbStatus DbStatus, key []byte) bool {
+	pmm.VerifyKeyGiven = key
 
-	return pmm.GetEncRandValueEncValueToGive, pmm.GetEncRandValueDecValueToGive, pmm.GetEncRandValueErr
+	return pmm.VerifyToGive
+}
+
+func (pmm *PassManagerMock) NewStatusFor(pass string) (kdf, encCheck string, key []byte, err error) {
+	pmm.NewStatusForPassGiven = pass
+
+	return pmm.NewStatusForKDFToGive, pmm.NewStatusForEncToGive, pmm.NewStatusForKeyToGive, pmm.NewStatusForErr
 }
 
 func TestManagerInit(t *testing.T) {
 	dbProv := &DbProviderMock{}
 	passManagerProv := &PassManagerMock{
-		GetEncRandValueEncValueToGive: "123",
-		GetEncRandValueDecValueToGive: "345",
+		NewStatusForKDFToGive: "argon2id$m=1,t=1,p=1$c2FsdA==",
+		NewStatusForEncToGive: "enc-check",
+		NewStatusForKeyToGive: testVaultKey,
 	}
 	mngr := NewManager(dbProv, passManagerProv, testLog)
 
-	const passToGive = "1234"
+	const passToGive = "12345678"
 	err := mngr.Init(context.Background(), passToGive)
 	require.NoError(t, err)
 
 	assert.True(t, dbProv.isInit)
-	assert.Equal(t, dbProv.statusToStore.StatusName, DbStatusInit)
-	assert.Equal(t, dbProv.statusToStore.EncCheckValue, "123")
-	assert.Equal(t, dbProv.statusToStore.DecCheckValue, "345")
+	assert.Equal(t, DbStatusInit, dbProv.statusToStore.StatusName)
+	assert.Equal(t, "enc-check", dbProv.statusToStore.EncCheckValue)
+	assert.Equal(t, "argon2id$m=1,t=1,p=1$c2FsdA==", dbProv.statusToStore.KDF)
+	assert.Equal(t, passToGive, passManagerProv.NewStatusForPassGiven)
 	assert.False(t, mngr.IsLocked())
 }
 
@@ -221,7 +253,7 @@ func TestManagerAlreadyInitError(t *testing.T) {
 func TestManagerReadEncValueErr(t *testing.T) {
 	dbProv := &DbProviderMock{}
 	passManagerProv := &PassManagerMock{
-		GetEncRandValueErr: errors.New("cannot enc pass"),
+		NewStatusForErr: errors.New("cannot enc pass"),
 	}
 	mngr := NewManager(dbProv, passManagerProv, testLog)
 
@@ -245,13 +277,14 @@ func TestUnlock(t *testing.T) {
 		ID:            1,
 		StatusName:    DbStatusInit,
 		EncCheckValue: "123",
-		DecCheckValue: "345",
+		KDF:           "argon2id$m=1,t=1,p=1$c2FsdA==",
 	}
 	dbProv := &DbProviderMock{
 		statusToGive: dbStatus,
 	}
 	passManagerProv := &PassManagerMock{
-		PassMatchToGive: true,
+		DeriveKeyKeyToGive: testVaultKey,
+		VerifyToGive:       true,
 	}
 	mngr := NewManager(dbProv, passManagerProv, testLog)
 
@@ -260,7 +293,8 @@ func TestUnlock(t *testing.T) {
 	err := mngr.UnLock(context.Background(), "12")
 	require.NoError(t, err)
 	assert.False(t, mngr.IsLocked())
-	assert.Equal(t, dbStatus, passManagerProv.PassMatchDbStatusGiven)
+	assert.Equal(t, dbStatus, passManagerProv.DeriveKeyDbStatusGiven)
+	assert.False(t, dbProv.ReKeyCalled)
 }
 
 func TestUnlockWhenAlreadyUnlocked(t *testing.T) {
@@ -271,7 +305,8 @@ func TestUnlockWhenAlreadyUnlocked(t *testing.T) {
 		statusToGive: dbStatus,
 	}
 	passManagerProv := &PassManagerMock{
-		PassMatchToGive: true,
+		DeriveKeyKeyToGive: testVaultKey,
+		VerifyToGive:       true,
 	}
 	mngr := NewManager(dbProv, passManagerProv, testLog)
 
@@ -317,12 +352,12 @@ func TestUnlockPasswordCheckError(t *testing.T) {
 		},
 	}
 	passManagerProv := &PassManagerMock{
-		PassMatchErr: errors.New("pass match error"),
+		DeriveKeyErr: errors.New("derive key error"),
 	}
 	mngr := NewManager(dbProv, passManagerProv, testLog)
 
 	err := mngr.UnLock(context.Background(), "12")
-	require.EqualError(t, err, "pass match error")
+	require.EqualError(t, err, "derive key error")
 }
 
 func TestUnlockWithWrongPassword(t *testing.T) {
@@ -332,7 +367,8 @@ func TestUnlockWithWrongPassword(t *testing.T) {
 		},
 	}
 	passManagerProv := &PassManagerMock{
-		PassMatchToGive: false,
+		DeriveKeyKeyToGive: testVaultKey,
+		VerifyToGive:       false,
 	}
 	mngr := NewManager(dbProv, passManagerProv, testLog)
 
@@ -352,7 +388,8 @@ func TestLock(t *testing.T) {
 		statusToGive: dbStatus,
 	}
 	passManagerProv := &PassManagerMock{
-		PassMatchToGive: true,
+		DeriveKeyKeyToGive: testVaultKey,
+		VerifyToGive:       true,
 	}
 	mngr := NewManager(dbProv, passManagerProv, testLog)
 	err := mngr.UnLock(context.Background(), "123")
@@ -361,6 +398,64 @@ func TestLock(t *testing.T) {
 
 	err = mngr.Lock(context.Background())
 	require.NoError(t, err)
+	assert.True(t, mngr.IsLocked())
+}
+
+func TestUnlockLegacyVaultReKeys(t *testing.T) {
+	// A legacy vault (empty KDF) verifies with the legacy key, then transparently
+	// re-keys to Argon2id: ReKey is invoked with the fresh descriptor/verifier and
+	// the newly derived key is what ends up cached.
+	dbStatus := DbStatus{
+		ID:            1,
+		StatusName:    DbStatusInit,
+		EncCheckValue: "legacy-enc",
+		KDF:           "",
+	}
+	dbProv := &DbProviderMock{
+		statusToGive: dbStatus,
+	}
+	newKey := []byte("fedcba9876543210fedcba9876543210")
+	passManagerProv := &PassManagerMock{
+		DeriveKeyKeyToGive:    testVaultKey,
+		DeriveKeyLegacyToGive: true,
+		VerifyToGive:          true,
+		NewStatusForKDFToGive: "argon2id$m=65536,t=3,p=4$c2FsdA==",
+		NewStatusForEncToGive: "new-enc",
+		NewStatusForKeyToGive: newKey,
+	}
+	mngr := NewManager(dbProv, passManagerProv, testLog)
+
+	err := mngr.UnLock(context.Background(), "legacypass")
+	require.NoError(t, err)
+	assert.False(t, mngr.IsLocked())
+
+	assert.True(t, dbProv.ReKeyCalled)
+	assert.Equal(t, "argon2id$m=65536,t=3,p=4$c2FsdA==", dbProv.ReKeyKDFGiven)
+	assert.Equal(t, "new-enc", dbProv.ReKeyEncGiven)
+	assert.Equal(t, "legacypass", passManagerProv.NewStatusForPassGiven)
+}
+
+func TestUnlockLegacyReKeyErrorKeepsLocked(t *testing.T) {
+	dbStatus := DbStatus{
+		ID:            1,
+		StatusName:    DbStatusInit,
+		EncCheckValue: "legacy-enc",
+		KDF:           "",
+	}
+	dbProv := &DbProviderMock{
+		statusToGive: dbStatus,
+		ReKeyErr:     errors.New("rekey failed"),
+	}
+	passManagerProv := &PassManagerMock{
+		DeriveKeyKeyToGive:    testVaultKey,
+		DeriveKeyLegacyToGive: true,
+		VerifyToGive:          true,
+		NewStatusForKeyToGive: []byte("fedcba9876543210fedcba9876543210"),
+	}
+	mngr := NewManager(dbProv, passManagerProv, testLog)
+
+	err := mngr.UnLock(context.Background(), "legacypass")
+	require.EqualError(t, err, "rekey failed")
 	assert.True(t, mngr.IsLocked())
 }
 
@@ -384,7 +479,7 @@ func TestLockWithReadStatusError(t *testing.T) {
 	passManagerProv := &PassManagerMock{}
 
 	mngr := NewManager(dbProv, passManagerProv, testLog)
-	mngr.pass = "123"
+	mngr.key = testVaultKey
 
 	err := mngr.Lock(context.Background())
 	require.EqualError(t, err, "failed to read db status")
@@ -399,7 +494,7 @@ func TestLockWhenDBIsNotInitialized(t *testing.T) {
 	passManagerProv := &PassManagerMock{}
 
 	mngr := NewManager(dbProv, passManagerProv, testLog)
-	mngr.pass = "123"
+	mngr.key = testVaultKey
 
 	err := mngr.Lock(context.Background())
 	require.EqualError(t, err, "vault is not yet initialized")
@@ -489,7 +584,7 @@ func TestReadStatusUnLocked(t *testing.T) {
 	}
 
 	mngr := NewManager(dbProv, &PassManagerMock{}, testLog)
-	mngr.pass = "123"
+	mngr.key = testVaultKey
 	st, err := mngr.Status(context.Background())
 	require.NoError(t, err)
 
@@ -542,7 +637,7 @@ func TestManagerList(t *testing.T) {
 	_, err = mngr.List(context.Background(), req)
 	require.EqualError(t, err, "vault is locked")
 
-	mngr.pass = "123"
+	mngr.key = testVaultKey
 
 	_, err = mngr.List(context.Background(), req)
 	require.EqualError(t, err, "vault is not initialized")
@@ -586,7 +681,7 @@ func TestManagerList(t *testing.T) {
 	}
 
 	mngr = NewManager(dbProv, &PassManagerMock{}, testLog)
-	mngr.pass = "123"
+	mngr.key = testVaultKey
 
 	_, err = mngr.List(context.Background(), req)
 	require.EqualError(t, err, "list error")
@@ -601,7 +696,7 @@ func TestListWithUnsupportedFilterAndSort(t *testing.T) {
 	}
 
 	mngr := NewManager(dbProv, &PassManagerMock{}, testLog)
-	mngr.pass = "123"
+	mngr.key = testVaultKey
 
 	inputURL, err := url.Parse("/someu?sort=unsupportedSortField&filter[unsupportedFilter]=val1")
 	require.NoError(t, err)
@@ -616,7 +711,7 @@ func TestListWithUnsupportedFilterAndSort(t *testing.T) {
 
 func TestGetOne(t *testing.T) {
 	const pass = "1234"
-	encValue, err := enc.Aes256EncryptByPassToBase64String([]byte("some val"), pass)
+	encValue, err := enc.Aes256EncryptByKeyToBase64String([]byte("some val"), testVaultKey)
 	require.NoError(t, err)
 
 	givenStoredValue := StoredValue{
@@ -652,7 +747,7 @@ func TestGetOne(t *testing.T) {
 	_, _, err = mngr.GetOne(context.Background(), 1, user)
 	require.EqualError(t, err, "vault is locked")
 
-	mngr.pass = pass
+	mngr.key = testVaultKey
 
 	_, _, err = mngr.GetOne(context.Background(), 1, user)
 	require.EqualError(t, err, "vault is not initialized")
@@ -676,7 +771,7 @@ func TestGetOne(t *testing.T) {
 	}
 
 	mngr = NewManager(dbProv, &PassManagerMock{}, testLog)
-	mngr.pass = "123"
+	mngr.key = testVaultKey
 
 	_, found, err = mngr.GetOne(context.Background(), 1, user)
 	require.NoError(t, err)
@@ -692,7 +787,7 @@ func TestGetOne(t *testing.T) {
 	}
 
 	mngr = NewManager(dbProv, &PassManagerMock{}, testLog)
-	mngr.pass = pass
+	mngr.key = testVaultKey
 
 	_, _, err = mngr.GetOne(context.Background(), 1, user)
 	require.EqualError(t, err, "some get id error")
@@ -700,7 +795,7 @@ func TestGetOne(t *testing.T) {
 
 func TestGetOneWithLimitedAccess(t *testing.T) {
 	const pass = "1234"
-	encValue, err := enc.Aes256EncryptByPassToBase64String([]byte("some val"), pass)
+	encValue, err := enc.Aes256EncryptByKeyToBase64String([]byte("some val"), testVaultKey)
 	require.NoError(t, err)
 
 	givenStoredValue := StoredValue{
@@ -718,7 +813,7 @@ func TestGetOneWithLimitedAccess(t *testing.T) {
 	}
 
 	mngr := NewManager(dbProv, &PassManagerMock{}, testLog)
-	mngr.pass = pass
+	mngr.key = testVaultKey
 
 	user := &UserDataProviderMock{
 		GroupsToGive: []string{},
@@ -771,7 +866,7 @@ func TestStore(t *testing.T) {
 		require.EqualError(t, err, "vault is locked")
 	})
 
-	mngr.pass = pass
+	mngr.key = testVaultKey
 
 	t.Run("vault_not_init", func(t *testing.T) {
 		_, err := mngr.Store(context.Background(), 1, inputValue, user)
@@ -797,7 +892,7 @@ func TestStore(t *testing.T) {
 		assert.Equal(t, "someKey", actualInputValue.Key)
 		assert.Equal(t, SecretType, actualInputValue.Type)
 
-		actualDecryptedValue, err := enc.Aes256DecryptByPassFromBase64String(actualInputValue.Value, pass)
+		actualDecryptedValue, err := enc.Aes256DecryptByKeyFromBase64String(actualInputValue.Value, testVaultKey)
 		require.NoError(t, err)
 		assert.Equal(t, "someValue", string(actualDecryptedValue))
 	})
@@ -861,7 +956,7 @@ func TestStoreWithLimitedGroupAccess(t *testing.T) {
 	}
 
 	mngr := NewManager(dbProv, &PassManagerMock{}, testLog)
-	mngr.pass = "12345"
+	mngr.key = testVaultKey
 
 	user := UserDataProviderMock{
 		UsernameToGive: "someuser",
@@ -910,7 +1005,7 @@ func TestDeleteKey(t *testing.T) {
 		require.EqualError(t, err, "vault is locked")
 	})
 
-	mngr.pass = "1234"
+	mngr.key = testVaultKey
 
 	t.Run("vault_not_init", func(t *testing.T) {
 		err := mngr.Delete(context.Background(), 1, user)
@@ -971,7 +1066,7 @@ func TestDeleteKeyWithNoGroupAccess(t *testing.T) {
 
 	mngr := NewManager(dbProv, &PassManagerMock{}, testLog)
 
-	mngr.pass = pass
+	mngr.key = testVaultKey
 
 	t.Run("user_no_key_access", func(t *testing.T) {
 		user := UserDataProviderMock{

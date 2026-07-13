@@ -90,10 +90,10 @@ func (p *SqliteProvider) SetStatus(ctx context.Context, newStatus DbStatus) erro
 	if idToUpdate == 0 {
 		_, err = tx.ExecContext(
 			ctx,
-			"INSERT INTO `status` (`db_status`, `enc_check`, `dec_check`) VALUES (?, ?, ?)",
+			"INSERT INTO `status` (`db_status`, `enc_check`, `kdf`) VALUES (?, ?, ?)",
 			newStatus.StatusName,
 			newStatus.EncCheckValue,
-			newStatus.DecCheckValue,
+			newStatus.KDF,
 		)
 
 		if err != nil {
@@ -101,11 +101,11 @@ func (p *SqliteProvider) SetStatus(ctx context.Context, newStatus DbStatus) erro
 			return err
 		}
 	} else {
-		q := "UPDATE `status` SET db_status=?, enc_check = ?, dec_check = ? WHERE id = ?"
+		q := "UPDATE `status` SET db_status=?, enc_check = ?, kdf = ? WHERE id = ?"
 		params := []interface{}{
 			newStatus.StatusName,
 			newStatus.EncCheckValue,
-			newStatus.DecCheckValue,
+			newStatus.KDF,
 			idToUpdate,
 		}
 		_, err = tx.ExecContext(ctx, q, params...)
@@ -227,6 +227,66 @@ func (p *SqliteProvider) Delete(ctx context.Context, id int) error {
 	return nil
 }
 
+// ReKey re-encrypts every stored value via transform and updates the status
+// row's KDF descriptor and enc_check verifier, all inside a single transaction
+// so a legacy vault is never left half-migrated.
+func (p *SqliteProvider) ReKey(ctx context.Context, transform func(oldValue string) (string, error), newKDF, newEncCheck string) error {
+	tx, err := p.db.Beginx()
+	if err != nil {
+		return err
+	}
+
+	type row struct {
+		ID    int    `db:"id"`
+		Value string `db:"value"`
+	}
+	var rows []row
+	if err = tx.SelectContext(ctx, &rows, "SELECT `id`, `value` FROM `values`"); err != nil {
+		p.handleRollback(tx)
+		return err
+	}
+
+	for _, r := range rows {
+		newValue, terr := transform(r.Value)
+		if terr != nil {
+			p.handleRollback(tx)
+			return terr
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE `values` SET `value` = ? WHERE `id` = ?", newValue, r.ID); err != nil {
+			p.handleRollback(tx)
+			return err
+		}
+	}
+
+	res, err := tx.ExecContext(ctx, "UPDATE `status` SET `enc_check` = ?, `kdf` = ?", newEncCheck, newKDF)
+	if err != nil {
+		p.handleRollback(tx)
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		p.handleRollback(tx)
+		return err
+	}
+	if affected == 0 {
+		p.handleRollback(tx)
+		return errors.New("re-key: vault status row is missing")
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// Scrub freed pages so the legacy ciphertext and the dropped dec_check oracle
+	// no longer linger in the file for a host adversary. Best-effort: the re-key
+	// is already durable, so a VACUUM failure must not fail the unlock.
+	if _, err := p.db.ExecContext(ctx, "VACUUM"); err != nil {
+		p.logger.Errorf("vault re-key: VACUUM after re-key failed: %v", err)
+	}
+
+	return nil
+}
+
 func (p *SqliteProvider) handleRollback(tx *sqlx.Tx) {
 	err := tx.Rollback()
 	if err != nil {
@@ -267,6 +327,10 @@ func (nidp *NotInitDbProvider) Save(ctx context.Context, user string, idToUpdate
 }
 
 func (nidp *NotInitDbProvider) Delete(ctx context.Context, id int) error {
+	return ErrDatabaseNotInitialised
+}
+
+func (nidp *NotInitDbProvider) ReKey(ctx context.Context, transform func(oldValue string) (string, error), newKDF, newEncCheck string) error {
 	return ErrDatabaseNotInitialised
 }
 

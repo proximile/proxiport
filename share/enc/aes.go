@@ -8,24 +8,46 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+
+	"golang.org/x/crypto/argon2"
 )
 
-// AesEncryptStringToBase64String a user friendly wrapper of AesEncrypt which converts a password of any length to 32byte aes256 key
-// and returns a base64 encoded encrypted data
-func Aes256EncryptByPassToBase64String(payload []byte, password string) (encryptedBase64Data string, err error) {
-	aes32Key, err := convertPasswordToFixedLength32ByteAesKey(password)
-	if err != nil {
-		return encryptedBase64Data, err
-	}
+// DeriveKeyArgon2id derives a 32-byte AES-256 key from a passphrase using
+// Argon2id with a caller-supplied per-vault salt and cost parameters. This is
+// the key-derivation function for the vault; the salt and parameters are stored
+// alongside the ciphertext so the same key can be re-derived on unlock.
+func DeriveKeyArgon2id(password string, salt []byte, timeCost, memoryKiB uint32, threads uint8) []byte {
+	return argon2.IDKey([]byte(password), salt, timeCost, memoryKiB, threads, 32)
+}
 
-	var encryptedBytes []byte
-	encryptedBytes, err = Aes256Encrypt(payload, aes32Key)
-	if err != nil {
-		return
-	}
+// DeriveKeyLegacySHA256 reproduces the original (weak, unsalted) key derivation.
+// It exists only so a vault written by the old code can be read once during the
+// transparent re-key to Argon2id; never use it to write new data.
+func DeriveKeyLegacySHA256(password string) []byte {
+	sum := sha256.Sum256([]byte(password))
+	return sum[:]
+}
 
-	encryptedBase64Data = base64.StdEncoding.EncodeToString(encryptedBytes)
-	return
+// Aes256EncryptByKeyToBase64String encrypts payload with a 32-byte AES-256 key
+// (AES-GCM) and returns base64-encoded ciphertext.
+func Aes256EncryptByKeyToBase64String(payload, key []byte) (string, error) {
+	encryptedBytes, err := Aes256Encrypt(payload, key)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(encryptedBytes), nil
+}
+
+// Aes256DecryptByKeyFromBase64String is the reverse of
+// Aes256EncryptByKeyToBase64String: it base64-decodes and AES-GCM-decrypts with
+// the given 32-byte key. A wrong key fails the GCM authentication tag and
+// returns an error.
+func Aes256DecryptByKeyFromBase64String(encryptedBase64Data string, key []byte) ([]byte, error) {
+	encryptedBytesData, err := base64.StdEncoding.DecodeString(encryptedBase64Data)
+	if err != nil {
+		return nil, err
+	}
+	return AesDecrypt(encryptedBytesData, key)
 }
 
 func Aes256Encrypt(payload, aes32Key []byte) (encryptedData []byte, err error) {
@@ -60,22 +82,6 @@ func Aes256Encrypt(payload, aes32Key []byte) (encryptedData []byte, err error) {
 	return ciphertext, nil
 }
 
-// Aes256DecryptByPassFromBase64String a user friendly wrapper of AesDecrypt and the reverse operation of AesEncryptStringToBase64String:
-// it accepts base64 encrypted string and a password and returns a decrypted data
-func Aes256DecryptByPassFromBase64String(encryptedBase64Data, password string) (decryptedBytes []byte, err error) {
-	aes32Key, err := convertPasswordToFixedLength32ByteAesKey(password)
-	if err != nil {
-		return decryptedBytes, err
-	}
-
-	encryptedBytesData, err := base64.StdEncoding.DecodeString(encryptedBase64Data)
-	if err != nil {
-		return decryptedBytes, err
-	}
-
-	return AesDecrypt(encryptedBytesData, aes32Key)
-}
-
 func AesDecrypt(encryptedData, key []byte) (decryptedData []byte, err error) {
 	//Create a new Cipher Block from the key
 	block, err := aes.NewCipher(key)
@@ -106,13 +112,4 @@ func AesDecrypt(encryptedData, key []byte) (decryptedData []byte, err error) {
 	}
 
 	return plaintext, nil
-}
-
-func convertPasswordToFixedLength32ByteAesKey(password string) ([]byte, error) {
-	hasher := sha256.New()
-	_, err := hasher.Write([]byte(password))
-	if err != nil {
-		return []byte{}, err
-	}
-	return hasher.Sum(nil), nil
 }

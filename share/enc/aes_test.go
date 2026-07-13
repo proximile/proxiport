@@ -41,15 +41,24 @@ func TestAesEncryptDecrypt(t *testing.T) {
 		},
 	}
 
+	salt := []byte("0123456789abcdef")
 	for i := range testCases {
 		t.Run(testCases[i].name, func(t *testing.T) {
-			encData, err := Aes256EncryptByPassToBase64String([]byte(testCases[i].payload), testCases[i].pass)
+			key := DeriveKeyArgon2id(testCases[i].pass, salt, 1, 8*1024, 1)
+			require.Len(t, key, 32)
+
+			encData, err := Aes256EncryptByKeyToBase64String([]byte(testCases[i].payload), key)
 			require.NoError(t, err)
 			assert.NotEqual(t, testCases[i].payload, encData)
 
-			decData, err := Aes256DecryptByPassFromBase64String(encData, testCases[i].pass)
+			decData, err := Aes256DecryptByKeyFromBase64String(encData, key)
 			require.NoError(t, err)
 			assert.Equal(t, testCases[i].payload, string(decData))
+
+			// A different passphrase derives a different key and fails the GCM tag.
+			wrongKey := DeriveKeyArgon2id(testCases[i].pass+"x", salt, 1, 8*1024, 1)
+			_, err = Aes256DecryptByKeyFromBase64String(encData, wrongKey)
+			assert.Error(t, err)
 		})
 	}
 }
