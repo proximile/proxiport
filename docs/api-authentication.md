@@ -193,6 +193,12 @@ code; scan it with any RFC 6238 app (Aegis, Google Authenticator,
 1Password, etc.). The secret stays in the database; the QR is
 rendered client-side.
 
+When users live in the **database** (`auth_user_table`) and a
+`[key_provider]` is configured, the `totp_secret` column is encrypted
+at rest under the server DEK (`enc:v1:…` on disk), and any existing
+plaintext secret is re-encrypted on the next boot. Secrets stored via
+the JSON `auth_file` are not covered by this — that file is read as-is.
+
 ```toml
 [api]
   totp_enabled = true

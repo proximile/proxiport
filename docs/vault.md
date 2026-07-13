@@ -3,7 +3,10 @@
 The vault is ProxiPort's encrypted key-value store for documents and
 per-client secrets. It is a separate SQLite database
 (`{data_dir}/vault.sqlite.db` by default) sealed with a passphrase
-that lives only in the server process's memory — never on disk.
+that lives only in the server process's memory — never on disk. If a
+`[key_provider]` is configured, every stored value is additionally
+envelope-encrypted at rest under a server-held key — see
+[At-rest encryption](#at-rest-encryption-optional).
 
 A server restart **always re-locks the vault**, regardless of what is
 stored inside. An operator with the passphrase has to unlock it again
@@ -83,8 +86,11 @@ curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
 
 If the wrong passphrase is supplied to unlock, the request is
 rejected and the vault stays locked. If the passphrase is **lost**,
-the data is unrecoverable — there is no master key, no backup
-escrow, and no support recovery path.
+the data is unrecoverable — the passphrase is the only key that can
+recover the contents; there is no backup escrow and no support
+recovery path. (The optional [key provider](#at-rest-encryption-optional)
+adds a second at-rest layer, but it is not a passphrase-recovery
+mechanism — a configured server still requires the passphrase to unlock.)
 
 ## User API
 
@@ -184,18 +190,40 @@ curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
   uses the type to decide how to render the body — `secret` is
   masked behind a reveal toggle, `markdown` is rendered, etc.
 
+## At-rest encryption (optional)
+
+By default the vault contents are protected only by the passphrase
+described above. If a `[key_provider]` is configured (see the `[key_provider]` section
+of `proxiportd.example.conf`), the server adds a **second at-rest layer**: a
+data-encryption key (DEK) held only in RAM wraps the vault's
+verification marker and every stored value, so on disk they become
+`enc:v1:…` ciphertext on top of the passphrase-derived encryption. An
+existing vault is wrapped in place the next time the server boots.
+
+This closes the offline-guessing path: with the DEK the attacker does
+not have, a stolen copy of `vault.sqlite.db` cannot be used to test
+passphrase guesses at all. The DEK is **not** a passphrase-recovery
+mechanism — unlock still requires the passphrase — and a `type = file`
+key stored on the same disk as the database gives no protection against
+whole-disk theft.
+
 ## Backups
 
 `vault.sqlite.db` belongs in the same backup schedule as the other
 SQLite files (see
 [operator runbook — backups](operator-runbook.md#backups)). The
 encrypted file is safe to copy — the cipher text is useless without
-the passphrase.
+the passphrase (and, if a `[key_provider]` is configured, without the
+DEK as well). Back up the DEK/key file separately, and never inside the
+same `data_dir` tarball as the database.
 
 **Restoring a vault backup requires re-entering the passphrase on the
 restored server.** The marker the new server checks against is part
 of the database, so the same passphrase used at init time will
-unlock the restored copy.
+unlock the restored copy. If the backup was written with a
+`[key_provider]` enabled, the restored server must also present the
+**same DEK** (`key_file`/`env_var`); without it the vault fails closed
+and cannot be read.
 
 ### Clear-text backups
 
@@ -234,8 +262,9 @@ Encrypt `vault-backup.tar.gz` before storing it anywhere external.
   script the unlock with a credential pulled from your password
   manager.
 - **A wrong passphrase only fails — it does not damage the data.**
-  Brute-forcing is the only attack path against the data on disk.
-  Use a strong passphrase.
+  Brute-forcing the passphrase is the only attack path against the
+  data on disk — and a configured `[key_provider]` closes even that
+  for a disk thief who lacks the DEK. Use a strong passphrase.
 - **`required_group` is checked at every read.** Removing a user
   from the required group immediately revokes their access to the
   entries that name it.
