@@ -62,7 +62,8 @@ export type Group = {
 
 export type ClientAuthEntry = {
   id: string;
-  password: string;
+  // The server stores a salted bcrypt hash and never returns the credential,
+  // so the listing carries the id only.
 };
 
 export type ClientGroup = {

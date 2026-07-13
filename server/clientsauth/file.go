@@ -113,6 +113,26 @@ func (c *FileProvider) Add(clientAuth *ClientAuth) (bool, error) {
 	return true, nil
 }
 
+func (c *FileProvider) Update(clientAuth *ClientAuth) error {
+	idPswdPairs, err := c.load()
+	if err != nil {
+		return fmt.Errorf("failed to decode proxiport clients auth file: %v", err)
+	}
+
+	if _, ok := idPswdPairs[clientAuth.ID]; !ok {
+		return fmt.Errorf("client auth with ID %q not found", clientAuth.ID)
+	}
+
+	idPswdPairs[clientAuth.ID] = clientAuth.Password
+	c.cache.Delete(c.CacheKey(clientAuth.ID))
+
+	if err := c.save(idPswdPairs); err != nil {
+		return fmt.Errorf("failed to encode proxiport clients auth file: %v", err)
+	}
+
+	return nil
+}
+
 func (c *FileProvider) Delete(id string) error {
 	idPswdPairs, err := c.load()
 	if err != nil {

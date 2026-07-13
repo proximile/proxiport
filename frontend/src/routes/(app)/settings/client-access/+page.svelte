@@ -8,7 +8,6 @@
   let rows: ClientAuthEntry[] = $state([]);
   let loading = $state(true);
   let error = $state('');
-  let revealed: Record<string, boolean> = $state({});
 
   // server-status-derived state
   let authMode = $state<string>('');
@@ -125,21 +124,6 @@
   }
   function closeAddModal() {
     modalOpen = false;
-  }
-
-  /** Open the pairing popup for an existing row (skips the form stage). */
-  async function openPairingFor(id: string, password: string) {
-    if (!pairingUrl) return; // no-op when no pairing service is configured
-    newId = id;
-    newPassword = password;
-    modalStage = 'pairing';
-    pairingCode = '';
-    pairingLinux = '';
-    pairingWindows = '';
-    pairingError = '';
-    copied = null;
-    modalOpen = true;
-    await depositPairing();
   }
 
   async function submitAdd(e: Event) {
@@ -287,8 +271,9 @@
     <div>
       <h1 class="text-2xl font-semibold tracking-tight">Client access credentials</h1>
       <p class="text-sm text-slate-400 mt-1">
-        Agent-side <code class="text-xs">auth=user:password</code> credentials. The server stores these in
-        plaintext by design — agents need them to authenticate on connect.
+        Agent-side <code class="text-xs">auth=user:password</code> credentials. The server stores only a
+        salted <code class="text-xs">bcrypt</code> hash of each secret — the password is shown once, when you
+        create it, and cannot be retrieved afterward.
       </p>
     </div>
     {#if !loading && canWrite}
@@ -334,21 +319,13 @@
           {:else}
             {#each rows as r}
               <tr>
-                <td class="font-mono">
-                  {#if pairingUrl}
-                    <button class="hover:text-indigo-300 cursor-pointer underline decoration-dotted decoration-slate-600 underline-offset-4"
-                            onclick={() => openPairingFor(r.id, r.password)}
-                            title="Get a pairing one-liner for this credential">{r.id}</button>
-                  {:else}
-                    {r.id}
-                  {/if}
-                </td>
+                <td class="font-mono">{r.id}</td>
                 <td>
-                  <button class="font-mono text-xs hover:text-indigo-300 cursor-pointer"
-                          onclick={() => (revealed[r.id] = !revealed[r.id])}
-                          title={revealed[r.id] ? 'Click to hide' : 'Click to reveal'}>
-                    {revealed[r.id] ? r.password : '••••••••••'}
-                  </button>
+                  <span class="font-mono text-xs text-slate-500"
+                        title="Stored as a salted bcrypt hash; not retrievable">
+                    ••••••••••
+                    <span class="ml-1 text-[10px] uppercase tracking-wide text-slate-600">hashed</span>
+                  </span>
                 </td>
                 {#if canWrite}
                   <td class="text-right">
@@ -367,6 +344,13 @@
       </table>
     {/if}
   </div>
+
+  {#if !loading && rows.length > 0}
+    <p class="text-xs text-slate-500">
+      The installer one-liner is generated when a credential is created — the secret can't be read back later.
+      To pair a new agent, add a fresh credential{#if canWrite} with <span class="text-slate-400">+ Add credential</span>{/if}.
+    </p>
+  {/if}
 </div>
 
 <!-- Add-credential modal -->

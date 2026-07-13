@@ -52,6 +52,10 @@ func (c *SingleProvider) Add(*ClientAuth) (bool, error) {
 	return false, errors.New("not implemented")
 }
 
+func (c *SingleProvider) Update(*ClientAuth) error {
+	return errors.New("not implemented")
+}
+
 func (c *SingleProvider) Delete(string) error {
 	return errors.New("not implemented")
 }
