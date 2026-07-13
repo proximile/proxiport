@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	errors2 "github.com/proximile/proxiport/server/api/errors"
+	"github.com/proximile/proxiport/share/enc"
 	"github.com/proximile/proxiport/share/enums"
 	"github.com/proximile/proxiport/share/logger"
 
@@ -23,15 +24,22 @@ type UserDatabase struct {
 
 	twoFAOn bool
 	totPOn  bool
-	logger  *logger.Logger
+	// enc encrypts the recoverable totp_secret column at rest. It is always
+	// non-nil; a disabled envelope (no key provider) passes values through.
+	enc    *enc.Envelope
+	logger *logger.Logger
 }
 
 func NewUserDatabase(
 	DB *sqlx.DB,
 	usersTableName, groupsTableName, groupDetailsTableName string,
 	twoFAOn, totPOn bool,
+	envelope *enc.Envelope,
 	logger *logger.Logger,
 ) (*UserDatabase, error) {
+	if envelope == nil {
+		envelope = enc.NewEnvelope(nil)
+	}
 	d := &UserDatabase{
 		db: DB,
 
@@ -41,12 +49,77 @@ func NewUserDatabase(
 
 		twoFAOn: twoFAOn,
 		totPOn:  totPOn,
+		enc:     envelope,
 		logger:  logger,
 	}
 	if err := d.checkDatabaseTables(); err != nil {
 		return nil, err
 	}
+	if err := d.encryptExistingTotP(); err != nil {
+		return nil, err
+	}
 	return d, nil
+}
+
+// encryptTotP is the encrypt-on-write path for the totp_secret column. Empty
+// and whitespace-only values (including the " " sentinel the delete path
+// writes to clear a secret) are stored verbatim so they round-trip and are
+// still recognized as "no secret" on read.
+func (d *UserDatabase) encryptTotP(v string) (string, error) {
+	if strings.TrimSpace(v) == "" {
+		return v, nil
+	}
+	return d.enc.Encrypt(v)
+}
+
+// decryptTotP is the decrypt-on-read path. Legacy plaintext (no prefix) passes
+// through unchanged; an encrypted value that cannot be decrypted under the
+// current key returns an error so the caller fails closed rather than exposing
+// ciphertext.
+func (d *UserDatabase) decryptTotP(v string) (string, error) {
+	return d.enc.Decrypt(v)
+}
+
+// encryptExistingTotP is the at-rest migration for the totp_secret column: when
+// a key provider is configured it walks the users table once at startup and
+// encrypts any legacy plaintext secret in place. It is idempotent — values that
+// are already encrypted (or empty) are skipped — so it is safe on every boot.
+func (d *UserDatabase) encryptExistingTotP() error {
+	if !d.totPOn || !d.enc.Enabled() {
+		return nil
+	}
+
+	var rows []struct {
+		Username string `db:"username"`
+		TotP     string `db:"totp_secret"`
+	}
+	err := d.db.Select(&rows, fmt.Sprintf("SELECT username, totp_secret FROM `%s`", d.usersTableName))
+	if err != nil {
+		return fmt.Errorf("totp_secret migration: read users: %w", err)
+	}
+
+	migrated := 0
+	for i := range rows {
+		if strings.TrimSpace(rows[i].TotP) == "" || enc.IsEncrypted(rows[i].TotP) {
+			continue
+		}
+		ciphertext, err := d.enc.Encrypt(rows[i].TotP)
+		if err != nil {
+			return fmt.Errorf("totp_secret migration: encrypt %q: %w", rows[i].Username, err)
+		}
+		_, err = d.db.Exec(
+			fmt.Sprintf("UPDATE `%s` SET `totp_secret` = ? WHERE username = ?", d.usersTableName),
+			ciphertext, rows[i].Username,
+		)
+		if err != nil {
+			return fmt.Errorf("totp_secret migration: update %q: %w", rows[i].Username, err)
+		}
+		migrated++
+	}
+	if migrated > 0 && d.logger != nil {
+		d.logger.Infof("encrypted %d plaintext totp_secret value(s) at rest", migrated)
+	}
+	return nil
 }
 
 func (d *UserDatabase) getSelectClause() string {
@@ -100,6 +173,10 @@ func (d *UserDatabase) GetByUsername(username string) (*User, error) {
 		return nil, err
 	}
 
+	if user.TotP, err = d.decryptTotP(user.TotP); err != nil {
+		return nil, err
+	}
+
 	return user, nil
 }
 
@@ -112,6 +189,12 @@ func (d *UserDatabase) GetAll() ([]*User, error) {
 			return nil, nil
 		}
 		return nil, err
+	}
+
+	for i := range usrs {
+		if usrs[i].TotP, err = d.decryptTotP(usrs[i].TotP); err != nil {
+			return nil, err
+		}
 	}
 
 	var groups []struct {
@@ -282,8 +365,13 @@ func (d *UserDatabase) Add(usr *User) error {
 	}
 
 	if d.totPOn {
+		totp, encErr := d.encryptTotP(usr.TotP)
+		if encErr != nil {
+			d.handleRollback(tx)
+			return encErr
+		}
 		columns = append(columns, "`totp_secret`")
-		params = append(params, usr.TotP)
+		params = append(params, totp)
 	}
 
 	_, err = tx.Exec(
@@ -345,8 +433,12 @@ func (d *UserDatabase) Update(usr *User, usernameToUpdate string) error {
 	}
 
 	if usr.TotP != "" {
+		totp, err := d.encryptTotP(usr.TotP)
+		if err != nil {
+			return err
+		}
 		statements = append(statements, "`totp_secret` = ?")
-		params = append(params, usr.TotP)
+		params = append(params, totp)
 	}
 
 	if usr.Username != "" && usr.Username != usernameToUpdate {

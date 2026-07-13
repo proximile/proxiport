@@ -35,6 +35,7 @@ import (
 	auditlog "github.com/proximile/proxiport/server/auditlog/config"
 	"github.com/proximile/proxiport/server/bearer"
 	"github.com/proximile/proxiport/server/clients/clienttunnel"
+	"github.com/proximile/proxiport/server/keyprovider"
 	"github.com/proximile/proxiport/server/ports"
 	chshare "github.com/proximile/proxiport/share"
 	"github.com/proximile/proxiport/share/email"
@@ -337,6 +338,7 @@ type Config struct {
 	SMTP          SMTPConfig          `mapstructure:"smtp"`
 	Monitoring    MonitoringConfig    `mapstructure:"monitoring"`
 	Notifications NotificationsConfig `mapstructure:"notifications"`
+	KeyProvider   keyprovider.Config  `mapstructure:"key_provider"`
 }
 
 var (
@@ -421,6 +423,13 @@ func (c *Config) ParseAndValidate(mLog *logger.MemLogger) error {
 
 	if c.Server.DataDir == "" {
 		return errors.New("'data directory path' cannot be empty")
+	}
+
+	// Resolve the at-rest encryption key provider. A misconfigured or
+	// unavailable key is fatal so the server fails closed rather than starting
+	// without the encryption the operator configured.
+	if err := c.KeyProvider.ParseAndValidate(); err != nil {
+		return err
 	}
 
 	if c.Server.PurgeDisconnectedClients && c.Server.KeepDisconnectedClients != 0 && (c.Server.KeepDisconnectedClients.Nanoseconds() < MinKeepDisconnectedClients.Nanoseconds() ||
