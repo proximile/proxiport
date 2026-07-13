@@ -190,7 +190,10 @@ Rotating one credential out of many does not affect other agents.
 - Issue one credential per agent. Long random passwords (32+ chars).
 - Pin `[server] key_seed` so the host-key fingerprint stays stable
   across server restarts; otherwise every agent fails the next
-  fingerprint check.
+  fingerprint check. The seed *is* the host identity — store it
+  encrypted so a copy of the config cannot be used to impersonate the
+  server. See
+  [encrypting the config secrets](operator-runbook.md#encrypting-the-config-secrets).
 - Serve `proxiportd`'s client-listener over TLS — either built-in
   (`cert_file`/`key_file` or `enable_acme` under `[server]`) or
   behind a reverse proxy. See [HTTPS](https.md).

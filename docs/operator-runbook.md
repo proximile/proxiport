@@ -44,12 +44,15 @@ The server keeps everything that matters in two places:
   with a stop-the-world snapshot or with the SQLite `.backup`
   command for hot backups.
 - **`/etc/proxiport/proxiportd.conf`** — the config with the
-  pinned `key_seed`, `jwt_secret`, and admin credentials.
+  pinned `key_seed`, `jwt_secret`, and admin credentials. Treat it as
+  a secret in its own right, or encrypt those settings — see
+  [encrypting the config secrets](#encrypting-the-config-secrets).
 - **The at-rest DEK key file** (if `[key_provider] type = "file"`
   is configured) — losing it makes the encrypted `totp_secret`
-  column and the entire vault unreadable. Back it up **out-of-band**,
-  not only inside the `data_dir` tarball, and ideally keep it off the
-  disk that holds the databases.
+  column, the entire vault, and any encrypted config setting
+  unreadable. Back it up **out-of-band**, not only inside the
+  `data_dir` tarball, and ideally keep it off the disk that holds
+  the databases.
 
 User auth lives either in a JSON file (`[api] auth_file = "..."`)
 or in a table inside the main database (`[api] auth_user_table =
@@ -79,6 +82,52 @@ restart, regardless of what is stored inside.](screenshots/16-vault-locked-empty
 banner — documents that live inside the vault stay opaque until the
 passphrase is supplied.](screenshots/30-documentation-vault-locked.png)
 
+## Encrypting the config secrets
+
+`proxiportd.conf` holds the two most valuable secrets on the box:
+`key_seed`, from which the SSH host key every agent pins is derived,
+and `jwt_secret`, which signs every API session. Anyone who reads the
+file in the clear can stand up a server your agents will trust and mint
+admin tokens for your API — from a copy, off your machine, without
+touching the running service.
+
+Configure a key provider (the `[key_provider]` section of
+`proxiportd.example.conf`) and those settings can live in the config as
+ciphertext instead. Encrypt a value with:
+
+```bash
+proxiportd -c /etc/proxiport/proxiportd.conf secret encrypt
+```
+
+It prompts for the value without echoing it (or reads it from a pipe),
+and prints an `enc:v1:…` string. Paste that in place of the plaintext:
+
+```toml
+[server]
+  key_seed = "enc:v1:0nQxk2…"
+
+[api]
+  jwt_secret = "enc:v1:kZ0m9y…"
+```
+
+The same works for `[server] auth`, `[api] auth`,
+`[database] db_password`, `[smtp] auth_password`, and the `[pushover]`
+credentials. Settings without the `enc:v1:` prefix are still read as
+plaintext, so a config can be migrated one value at a time, and nothing
+breaks if you encrypt none of them.
+
+Two things follow from the DEK being the only way back:
+
+- **Keep the DEK off the machine.** A `type = "file"` key sitting next
+  to the config it protects stops nobody who steals the disk. Prefer
+  `type = "env"` with the key injected at start (systemd
+  `EnvironmentFile` on a `tmpfs`, a secrets manager, your orchestrator).
+- **A value the server cannot decrypt stops the server.** Wrong DEK,
+  missing DEK, corrupted ciphertext — `proxiportd` refuses to start
+  rather than run with a regenerated `jwt_secret` (which would silently
+  invalidate every session) or a different host key (which would break
+  every agent's fingerprint check). Fix the key, don't work around it.
+
 ## Rotating credentials
 
 - **Admin password.** Edit `/etc/proxiport/proxiportd.conf`,
@@ -98,6 +147,9 @@ passphrase is supplied.](screenshots/30-documentation-vault-locked.png)
   key. Every connected agent will fail the fingerprint check
   until its `proxiport.conf` is updated. Avoid rotating unless the
   seed is compromised; coordinate with all agent operators.
+
+  Both of these can be stored encrypted — rotate by writing the new
+  value's `enc:v1:…` form into the config, exactly as above.
 - **client-auth credentials.** Used by agents to register. Change
   via `[server] auth = "<id>:<password>"` (single credential), or
   via the JSON file pointed at by `[server] auth_file`, or via the
