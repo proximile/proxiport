@@ -47,13 +47,18 @@ type DbProvider interface {
 	FindByKeyAndClientID(ctx context.Context, key, clientID string) (val StoredValue, found bool, err error)
 	Save(ctx context.Context, user string, idToUpdate int64, val *InputValue, nowDate time.Time) (int64, error)
 	Delete(ctx context.Context, id int) error
+	// ReKey re-encrypts every stored value with transform and updates the status
+	// row's KDF descriptor and enc_check verifier, all in one transaction. Used
+	// to migrate a legacy (unsalted-SHA256) vault to Argon2id on unlock.
+	ReKey(ctx context.Context, transform func(oldValue string) (string, error), newKDF, newEncCheck string) error
 	io.Closer
 }
 
 type PassManager interface {
 	ValidatePass(passToCheck string) error
-	PassMatch(dbStatus DbStatus, passToCheck string) (bool, error)
-	GetEncRandValue(pass string) (encValue, decValue string, err error)
+	DeriveKey(dbStatus DbStatus, pass string) (key []byte, legacy bool, err error)
+	Verify(dbStatus DbStatus, key []byte) bool
+	NewStatusFor(pass string) (kdf, encCheck string, key []byte, err error)
 }
 
 type DbProviderFactory interface {
@@ -62,8 +67,10 @@ type DbProviderFactory interface {
 }
 
 type Manager struct {
-	passLock  sync.RWMutex
-	pass      string
+	passLock sync.RWMutex
+	// key is the derived AES-256 key held only in RAM while the vault is
+	// unlocked; it is nil when locked. The passphrase itself is never retained.
+	key       []byte
 	dbFactory DbProviderFactory
 	pm        PassManager
 	logger    *logger.Logger
@@ -101,12 +108,15 @@ func (m *Manager) Init(ctx context.Context, pass string) error {
 	}
 	m.logger.Infof("initialized vault")
 
-	dbStatus := DbStatus{
-		StatusName: DbStatusInit,
-	}
-	dbStatus.EncCheckValue, dbStatus.DecCheckValue, err = m.pm.GetEncRandValue(pass)
+	kdf, encCheck, key, err := m.pm.NewStatusFor(pass)
 	if err != nil {
 		return err
+	}
+
+	dbStatus := DbStatus{
+		StatusName:    DbStatusInit,
+		EncCheckValue: encCheck,
+		KDF:           kdf,
 	}
 
 	db := m.dbFactory.GetDbProvider()
@@ -118,7 +128,7 @@ func (m *Manager) Init(ctx context.Context, pass string) error {
 
 	m.passLock.Lock()
 	defer m.passLock.Unlock()
-	m.pass = pass
+	m.key = key
 	m.logger.Infof("unlocked vault")
 
 	return nil
@@ -163,13 +173,20 @@ func (m *Manager) UnLock(ctx context.Context, pass string) error {
 		}
 	}
 
-	passMatch, err := m.pm.PassMatch(dbStatus, pass)
+	key, legacy, err := m.pm.DeriveKey(dbStatus, pass)
 	if err != nil {
 		return err
 	}
 
-	if !passMatch {
+	if !m.pm.Verify(dbStatus, key) {
 		return WrongPasswordError
+	}
+
+	if legacy {
+		key, err = m.rekeyLegacyVault(ctx, db, key, pass)
+		if err != nil {
+			return err
+		}
 	}
 
 	m.logger.Infof("unlocked vault")
@@ -177,9 +194,39 @@ func (m *Manager) UnLock(ctx context.Context, pass string) error {
 	m.passLock.Lock()
 	defer m.passLock.Unlock()
 
-	m.pass = pass
+	m.key = key
 
 	return nil
+}
+
+// rekeyLegacyVault upgrades a vault whose values were encrypted under the legacy
+// unsalted-SHA256 key (oldKey) to Argon2id: it derives a fresh salted key,
+// re-encrypts every stored value and the enc_check verifier under it, and
+// records the new KDF descriptor — atomically, in one transaction. On success
+// the new key is returned for caching.
+func (m *Manager) rekeyLegacyVault(ctx context.Context, db DbProvider, oldKey []byte, pass string) ([]byte, error) {
+	newKDF, newEncCheck, newKey, err := m.pm.NewStatusFor(pass)
+	if err != nil {
+		return nil, err
+	}
+
+	transform := func(oldValue string) (string, error) {
+		if oldValue == "" {
+			return "", nil
+		}
+		plain, err := enc.Aes256DecryptByKeyFromBase64String(oldValue, oldKey)
+		if err != nil {
+			return "", fmt.Errorf("re-key: failed to decrypt a stored value: %w", err)
+		}
+		return enc.Aes256EncryptByKeyToBase64String(plain, newKey)
+	}
+
+	if err := db.ReKey(ctx, transform, newKDF, newEncCheck); err != nil {
+		return nil, err
+	}
+
+	m.logger.Infof("re-keyed vault key-derivation to argon2id")
+	return newKey, nil
 }
 
 func (m *Manager) Lock(ctx context.Context) error {
@@ -206,7 +253,7 @@ func (m *Manager) Lock(ctx context.Context) error {
 	m.passLock.Lock()
 	defer m.passLock.Unlock()
 
-	m.pass = ""
+	m.key = nil
 
 	return nil
 }
@@ -215,7 +262,7 @@ func (m *Manager) IsLocked() bool {
 	m.passLock.RLock()
 	defer m.passLock.RUnlock()
 
-	return m.pass == ""
+	return len(m.key) == 0
 }
 
 func (m *Manager) Status(ctx context.Context) (StatusReport, error) {
@@ -311,7 +358,7 @@ func (m *Manager) GetOne(ctx context.Context, id int, user UserDataProvider) (St
 	m.passLock.RLock()
 	defer m.passLock.RUnlock()
 
-	decryptedValue, err := enc.Aes256DecryptByPassFromBase64String(val.Value, m.pass)
+	decryptedValue, err := enc.Aes256DecryptByKeyFromBase64String(val.Value, m.key)
 	if err != nil {
 		return StoredValue{}, false, err
 	}
@@ -367,7 +414,7 @@ func (m *Manager) Store(ctx context.Context, existingID int64, valueToStore *Inp
 	m.passLock.RLock()
 	defer m.passLock.RUnlock()
 
-	encValue, err := enc.Aes256EncryptByPassToBase64String([]byte(valueToStore.Value), m.pass)
+	encValue, err := enc.Aes256EncryptByKeyToBase64String([]byte(valueToStore.Value), m.key)
 	if err != nil {
 		return StoredValueID{}, err
 	}

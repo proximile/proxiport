@@ -13,7 +13,11 @@ type DbStatus struct {
 	ID            int    `db:"id"`
 	StatusName    string `db:"db_status"`
 	EncCheckValue string `db:"enc_check"`
-	DecCheckValue string `db:"dec_check"`
+	// KDF is a self-describing descriptor of the key-derivation function used to
+	// turn the master passphrase into the AES key (algorithm, cost params, and
+	// salt). Empty means a legacy vault whose key was the unsalted SHA-256 of the
+	// passphrase; such a vault is transparently re-keyed to Argon2id on unlock.
+	KDF string `db:"kdf"`
 }
 
 type StatusReport struct {

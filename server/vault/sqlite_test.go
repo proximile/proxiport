@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -35,7 +36,7 @@ func TestSetStatus(t *testing.T) {
 	statusToSet := DbStatus{
 		StatusName:    DbStatusInit,
 		EncCheckValue: "123",
-		DecCheckValue: "345",
+		KDF:           "argon2id$m=1,t=1,p=1$c2FsdA==",
 	}
 	err = dbProv.SetStatus(context.Background(), statusToSet)
 	require.NoError(t, err)
@@ -44,14 +45,14 @@ func TestSetStatus(t *testing.T) {
 		{
 			"db_status": DbStatusInit,
 			"enc_check": "123",
-			"dec_check": "345",
+			"kdf":       "argon2id$m=1,t=1,p=1$c2FsdA==",
 		},
 	}
-	query := "SELECT `db_status`, `enc_check`, `dec_check` FROM `status`"
+	query := "SELECT `db_status`, `enc_check`, `kdf` FROM `status`"
 	test.AssertRowsEqual(t, dbProv.db, expectedRows, query, []interface{}{})
 
 	statusToSet.EncCheckValue = "678"
-	statusToSet.DecCheckValue = "91011"
+	statusToSet.KDF = "argon2id$m=2,t=2,p=2$c2FsdA=="
 	statusToSet.StatusName = DbStatusNotInit
 
 	err = dbProv.SetStatus(context.Background(), statusToSet)
@@ -61,7 +62,7 @@ func TestSetStatus(t *testing.T) {
 		{
 			"db_status": DbStatusNotInit,
 			"enc_check": "678",
-			"dec_check": "91011",
+			"kdf":       "argon2id$m=2,t=2,p=2$c2FsdA==",
 		},
 	}
 	test.AssertRowsEqual(t, dbProv.db, expectedRows2, query, []interface{}{})
@@ -80,12 +81,12 @@ func TestGetStatus(t *testing.T) {
 			ID:            0,
 			StatusName:    "",
 			EncCheckValue: "",
-			DecCheckValue: "",
+			KDF:           "",
 		},
 		dbStatus,
 	)
 
-	_, err = dbProv.db.Exec("INSERT INTO `status` (`db_status`, `enc_check`, `dec_check`) VALUES ('someStatus', 'someEnc', 'someDec')")
+	_, err = dbProv.db.Exec("INSERT INTO `status` (`db_status`, `enc_check`, `kdf`) VALUES ('someStatus', 'someEnc', 'someKdf')")
 	require.NoError(t, err)
 
 	dbStatus, err = dbProv.GetStatus(context.Background())
@@ -97,10 +98,72 @@ func TestGetStatus(t *testing.T) {
 			ID:            1,
 			StatusName:    "someStatus",
 			EncCheckValue: "someEnc",
-			DecCheckValue: "someDec",
+			KDF:           "someKdf",
 		},
 		dbStatus,
 	)
+}
+
+func TestReKey(t *testing.T) {
+	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	require.NoError(t, err)
+	defer func() { _ = dbProv.Close() }()
+
+	ctx := context.Background()
+
+	require.NoError(t, dbProv.SetStatus(ctx, DbStatus{
+		StatusName:    DbStatusInit,
+		EncCheckValue: "old-enc",
+		KDF:           "",
+	}))
+	require.NoError(t, addDemoData(dbProv.db))
+
+	const newKDF = "argon2id$m=65536,t=3,p=4$c2FsdA=="
+	transform := func(old string) (string, error) { return "reenc:" + old, nil }
+
+	require.NoError(t, dbProv.ReKey(ctx, transform, newKDF, "new-enc"))
+
+	v1, _, err := dbProv.GetByID(ctx, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "reenc:val1", v1.Value)
+	v2, _, err := dbProv.GetByID(ctx, 2)
+	require.NoError(t, err)
+	assert.Equal(t, "reenc:val2", v2.Value)
+
+	st, err := dbProv.GetStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, newKDF, st.KDF)
+	assert.Equal(t, "new-enc", st.EncCheckValue)
+	assert.Equal(t, DbStatusInit, st.StatusName)
+}
+
+func TestReKeyTransformErrorRollsBack(t *testing.T) {
+	dbProv, err := NewSqliteProvider(configMock{}, testLog)
+	require.NoError(t, err)
+	defer func() { _ = dbProv.Close() }()
+
+	ctx := context.Background()
+
+	require.NoError(t, dbProv.SetStatus(ctx, DbStatus{
+		StatusName:    DbStatusInit,
+		EncCheckValue: "old-enc",
+		KDF:           "",
+	}))
+	require.NoError(t, addDemoData(dbProv.db))
+
+	transform := func(old string) (string, error) { return "", errors.New("boom") }
+	err = dbProv.ReKey(ctx, transform, "some-kdf", "new-enc")
+	require.EqualError(t, err, "boom")
+
+	// The transaction must have rolled back: values and status are unchanged.
+	v1, _, err := dbProv.GetByID(ctx, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "val1", v1.Value)
+
+	st, err := dbProv.GetStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "", st.KDF)
+	assert.Equal(t, "old-enc", st.EncCheckValue)
 }
 
 func TestGetByID(t *testing.T) {
