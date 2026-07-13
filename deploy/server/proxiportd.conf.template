@@ -54,6 +54,15 @@
   cert_file = "/etc/letsencrypt/live/__HOST__/fullchain.pem"
   key_file = "/etc/letsencrypt/live/__HOST__/privkey.pem"
 
+[key_provider]
+  # Optional at-rest encryption of recoverable secrets (the vault's stored
+  # values + verifier; and database-backed API users' totp_secret). Off by
+  # default. Point at a 32-byte key (openssl rand -base64 32) kept OFF this
+  # host's data disk and backed up out-of-band; losing it makes the wrapped
+  # data unreadable, and a missing/short key aborts startup.
+  #type = "file"
+  #key_file = "/etc/proxiport/dek.key"
+
 [database]
   db_type = "sqlite"
   db_name = "/var/lib/proxiport/user-auth.db"

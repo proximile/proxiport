@@ -45,6 +45,11 @@ The server keeps everything that matters in two places:
   command for hot backups.
 - **`/etc/proxiport/proxiportd.conf`** — the config with the
   pinned `key_seed`, `jwt_secret`, and admin credentials.
+- **The at-rest DEK key file** (if `[key_provider] type = "file"`
+  is configured) — losing it makes the encrypted `totp_secret`
+  column and the entire vault unreadable. Back it up **out-of-band**,
+  not only inside the `data_dir` tarball, and ideally keep it off the
+  disk that holds the databases.
 
 User auth lives either in a JSON file (`[api] auth_file = "..."`)
 or in a table inside the main database (`[api] auth_user_table =
@@ -59,11 +64,13 @@ in proxiportd.conf), back up the database with your usual MySQL
 tooling.
 
 The **vault** is a special case. It is encrypted at rest with a
-passphrase that is never written to disk, so a server restart always
-re-locks it — back up `vault.sqlite.db` alongside the other databases
-and remember that restoring it requires re-entering the passphrase
-through the SPA before the documents and per-client secrets are
-readable again.
+passphrase that is never written to disk (and, when a `[key_provider]`
+is configured, additionally wrapped under the server DEK), so a server
+restart always re-locks it — back up `vault.sqlite.db` alongside the
+other databases and remember that restoring it requires re-entering the
+passphrase through the SPA before the documents and per-client secrets
+are readable again. If a key provider was enabled, the restored server
+must also present the **same DEK**, or the vault fails closed.
 
 ![Vault locked — the empty state every operator sees after a server
 restart, regardless of what is stored inside.](screenshots/16-vault-locked-empty-state.png)

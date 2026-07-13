@@ -155,6 +155,12 @@ The server is **not yet enabled**. The seeded config binds the API to
 next step (or until you run `proxiport-setup`, which handles all of
 this in one shot).
 
+At-rest field encryption is **off by default**, so the seeded
+`totp_secret` column (and the vault) are stored unencrypted. To wrap
+them under a server-held key, configure a `[key_provider]` — see the
+`[key_provider]` section of `proxiportd.example.conf` and
+[Two-factor authentication](api-authentication.md#two-factor-authentication).
+
 ### Pick a public listener
 
 The seeded config leaves `[api] address = "127.0.0.1:3000"` so nothing
