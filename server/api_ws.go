@@ -39,23 +39,29 @@ window.addEventListener("load", function(evt) {
        if (ws) {
            return false;
        }
-
-       var wsURL = "{{.}}"+"?access_token=" + token.value;
-       print("WS url: " + wsURL);
-       ws = new WebSocket(wsURL);
-       ws.onopen = function(evt) {
-           print("OPEN");
-       }
-       ws.onclose = function(evt) {
-           print("CLOSE");
-           ws = null;
-       }
-       ws.onmessage = function(evt) {
-           print("RESPONSE: " + evt.data);
-       }
-       ws.onerror = function(evt) {
-           print("ERROR: " + evt.data);
-       }
+       // Trade the bearer token for a single-use ticket, then open the socket
+       // with the ticket on the URL (the token never touches the URL).
+       fetch("/api/v1/ws-ticket", { headers: { "Authorization": "Bearer " + token.value } })
+           .then(function(r) { return r.json(); })
+           .then(function(j) {
+               var wsURL = "{{.}}"+"?ticket=" + encodeURIComponent(j.data.ticket);
+               print("WS url: " + wsURL);
+               ws = new WebSocket(wsURL);
+               ws.onopen = function(evt) {
+                   print("OPEN");
+               }
+               ws.onclose = function(evt) {
+                   print("CLOSE");
+                   ws = null;
+               }
+               ws.onmessage = function(evt) {
+                   print("RESPONSE: " + evt.data);
+               }
+               ws.onerror = function(evt) {
+                   print("ERROR: " + evt.data);
+               }
+           })
+           .catch(function(e) { print("TICKET ERROR: " + e); });
        return false;
    };
    document.getElementById("send").onclick = function(evt) {
@@ -124,17 +130,14 @@ window.addEventListener("load", function(evt) {
    };
    document.getElementById("open").onclick = function(evt) {
 	   var token = document.getElementById("token");
-	   var params = {
-			access_token: token.value,
-      };
        if (ws) {
            return false;
        }
-		var queryString = Object.keys(params).map(function(key) {
-			return key + '=' + params[key]
-		}).join('&');
-		
-       var wsURL = "{{.}}"+"?" + queryString;
+       // Trade the bearer token for a single-use ticket, then open the socket.
+       fetch("/api/v1/ws-ticket", { headers: { "Authorization": "Bearer " + token.value } })
+           .then(function(r) { return r.json(); })
+           .then(function(j) {
+       var wsURL = "{{.}}"+"?ticket=" + encodeURIComponent(j.data.ticket);
 
        print("WS url: " + wsURL);
        ws = new WebSocket(wsURL);
@@ -154,6 +157,8 @@ window.addEventListener("load", function(evt) {
        ws.onerror = function(evt) {
            print("ERROR: " + evt.data);
        }
+           })
+           .catch(function(e) { print("TICKET ERROR: " + e); });
        return false;
    };
    document.getElementById("send").onclick = function(evt) {
@@ -240,17 +245,14 @@ window.addEventListener("load", function(evt) {
    };
    document.getElementById("open").onclick = function(evt) {
 	   var token = document.getElementById("token");
-	   var params = {
-			access_token: token.value,
-      };
        if (ws) {
            return false;
        }
-		var queryString = Object.keys(params).map(function(key) {
-			return key + '=' + params[key]
-		}).join('&');
-		
-       var wsURL = "{{.}}"+"?" + queryString;
+       // Trade the bearer token for a single-use ticket, then open the socket.
+       fetch("/api/v1/ws-ticket", { headers: { "Authorization": "Bearer " + token.value } })
+           .then(function(r) { return r.json(); })
+           .then(function(j) {
+       var wsURL = "{{.}}"+"?ticket=" + encodeURIComponent(j.data.ticket);
 
        print("WS url: " + wsURL);
        ws = new WebSocket(wsURL);
@@ -270,6 +272,8 @@ window.addEventListener("load", function(evt) {
        ws.onerror = function(evt) {
            print("ERROR: " + evt.data);
        }
+           })
+           .catch(function(e) { print("TICKET ERROR: " + e); });
        return false;
    };
    document.getElementById("close").onclick = function(evt) {

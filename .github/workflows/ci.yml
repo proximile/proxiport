@@ -28,14 +28,15 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        # Pin the 1.25 line so setup-go installs the latest 1.25.x PATCH.
-        # go.mod's `go 1.25.0` directive is only a floor; building with the
-        # newest patch keeps fixed stdlib CVEs (crypto/x509, net/textproto,
-        # net/mail, html/template) out of the binary — which the govulncheck
-        # step below enforces. Tracks new patches automatically as they ship.
+        # Pin to the 1.25.x patch that clears the called stdlib CVEs the
+        # govulncheck step below enforces (go.mod's `go 1.25.0` is only a floor).
+        # A bare "1.25" resolves against setup-go's version manifest, which lags
+        # a fresh release — it installed the still-vulnerable 1.25.11 while
+        # GO-2026-5856 (crypto/tls) was fixed in 1.25.12. Bump this as new
+        # stdlib fixes ship.
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.25.12"
           cache: true
 
       - name: go vet

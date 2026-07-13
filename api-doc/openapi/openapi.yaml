@@ -83,6 +83,8 @@ paths:
  $ref: paths/commands_{job_id}.yaml
  /commands/{job_id}/jobs:
  $ref: paths/commands_{job_id}_jobs.yaml
+ /ws-ticket:
+ $ref: paths/ws-ticket.yaml
  /ws/commands:
  $ref: paths/ws_commands.yaml
  /ws/scripts:

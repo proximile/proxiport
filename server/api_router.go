@@ -69,6 +69,10 @@ func (al *APIListener) initRouter() {
 	secureAPI.HandleFunc("/me/tokens/{prefix}", al.handlePutToken).Methods(http.MethodPut)
 	secureAPI.HandleFunc("/me/tokens/{prefix}", al.handleDeleteToken).Methods(http.MethodDelete)
 
+	// One-time ticket for authenticating a subsequent WebSocket upgrade without
+	// putting the bearer token in the URL. Bearer-authed like the rest of secureAPI.
+	secureAPI.HandleFunc("/ws-ticket", al.handleGetWSTicket).Methods(http.MethodGet)
+
 	secureAPI.HandleFunc("/clients", al.handleGetClients).Methods(http.MethodGet)
 	clientDetails := secureAPI.PathPrefix("/clients/{client_id}").Subrouter()
 	clientDetails.Use(al.wrapClientAccessMiddleware)
