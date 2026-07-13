@@ -3,6 +3,7 @@ package chserver
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -14,6 +15,14 @@ import (
 // Tickets are single-use, so this only needs to cover the round-trip between
 // asking for a ticket and opening the socket.
 const wsTicketTTL = 30 * time.Second
+
+// maxOutstandingTickets caps live tickets so that an authenticated caller
+// looping on the ticket endpoint cannot grow the store without bound. At a few
+// dozen bytes each this ceiling is trivially small, and every ticket self-expires
+// within wsTicketTTL, so a well-behaved fleet never approaches it.
+const maxOutstandingTickets = 8192
+
+var errTooManyTickets = errors.New("too many outstanding websocket tickets, retry shortly")
 
 // WebSocketTicketQueryParam carries a one-time ticket on the WebSocket upgrade
 // URL. Browsers cannot set request headers on a WebSocket handshake, so some
@@ -54,6 +63,9 @@ func (s *wsTicketStore) issue(username string) (string, error) {
 			delete(s.tickets, k)
 		}
 	}
+	if len(s.tickets) >= maxOutstandingTickets {
+		return "", errTooManyTickets
+	}
 	s.tickets[ticket] = wsTicketEntry{username: username, expiresAt: now.Add(wsTicketTTL)}
 	return ticket, nil
 }
@@ -88,7 +100,11 @@ func (al *APIListener) handleGetWSTicket(w http.ResponseWriter, req *http.Reques
 	}
 	ticket, err := al.wsTickets.issue(user.Username)
 	if err != nil {
-		al.jsonErrorResponse(w, http.StatusInternalServerError, err)
+		status := http.StatusInternalServerError
+		if errors.Is(err, errTooManyTickets) {
+			status = http.StatusServiceUnavailable
+		}
+		al.jsonErrorResponse(w, status, err)
 		return
 	}
 	al.writeJSONResponse(w, http.StatusOK, api.NewSuccessPayload(map[string]string{"ticket": ticket}))

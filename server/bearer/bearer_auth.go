@@ -112,7 +112,8 @@ func CreateAuthToken(
 			// the server-side session check is ever bypassed. Equals the minted
 			// lifetime (already capped at DefaultMaxTokenLifetime), giving an
 			// absolute session cap rather than an indefinitely slideable one.
-			IssuedAt:  time.Now().Unix(),
+			// (No iat claim: jwt validates it, and a trailing verifier clock in a
+			// multi-node setup would reject freshly minted tokens.)
 			ExpiresAt: expiresAt.Unix(),
 		},
 		Scopes: scopes,
