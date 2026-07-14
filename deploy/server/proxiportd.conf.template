@@ -56,7 +56,9 @@
 
 [key_provider]
   # Optional at-rest encryption of recoverable secrets (the vault's stored
-  # values + verifier; and database-backed API users' totp_secret). Off by
+  # values + verifier; database-backed API users' totp_secret; and the secret
+  # settings of this file, incl. key_seed and jwt_secret, which can be written
+  # as "enc:v1:..." values produced by `proxiportd secret encrypt`). Off by
   # default. Point at a 32-byte key (openssl rand -base64 32) kept OFF this
   # host's data disk and backed up out-of-band; losing it makes the wrapped
   # data unreadable, and a missing/short key aborts startup.

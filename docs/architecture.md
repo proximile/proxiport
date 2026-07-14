@@ -115,13 +115,17 @@ encryption. The passphrase is supplied at vault unlock time and is not
 persisted server-side.
 
 An optional `[key_provider]` adds **at-rest field encryption** for the
-recoverable secret columns the server must read back on its own: the
-vault's stored values and verifier, and the `totp_secret` of
-database-backed API users. A data-encryption key (DEK) held only in
-RAM (loaded from a file or env var; default: none) wraps those columns
-so they are `enc:v1:…` ciphertext on disk; reads fail closed if the DEK
-is absent or wrong. This is a second layer independent of the vault
-passphrase, aimed at a stolen disk/snapshot.
+recoverable secrets the server must read back on its own: the vault's
+stored values and verifier, the `totp_secret` of database-backed API
+users, and — in `proxiportd.conf` itself — `key_seed`, `jwt_secret`,
+and the stored credentials. A data-encryption key (DEK) held only in
+RAM (loaded from a file or env var; default: none) wraps them so they
+are `enc:v1:…` ciphertext on disk; reads fail closed if the DEK is
+absent or wrong, and the server refuses to start rather than run
+without a secret it cannot decrypt. This is a second layer independent
+of the vault passphrase, aimed at a stolen disk, snapshot, or config
+file. See
+[encrypting the config secrets](operator-runbook.md#encrypting-the-config-secrets).
 
 ![Vault unlock prompt. The passphrase is held in process memory only
 — a server restart re-locks the vault and every operator has to

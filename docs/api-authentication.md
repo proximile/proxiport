@@ -289,7 +289,10 @@ permissions will end up unreadable by the daemon.
 
 ## Hardening checklist
 
-- Pin `[api] jwt_secret` to a long random value.
+- Pin `[api] jwt_secret` to a long random value, and store it
+  encrypted — anyone who reads it in the clear can forge admin
+  sessions. See
+  [encrypting the config secrets](operator-runbook.md#encrypting-the-config-secrets).
 - Switch off the inline single-user mode as soon as you have more than
   one operator.
 - Enable `totp_enabled = true` if you can.

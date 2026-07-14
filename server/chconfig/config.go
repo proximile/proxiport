@@ -432,6 +432,14 @@ func (c *Config) ParseAndValidate(mLog *logger.MemLogger) error {
 		return err
 	}
 
+	// Unwrap any config secret written as an "enc:v1:" envelope (key_seed,
+	// jwt_secret, the auth credentials, ...) before the sections below consume
+	// them, so on disk they are ciphertext and only the running process holds
+	// the plaintext.
+	if err := c.decryptSecrets(); err != nil {
+		return err
+	}
+
 	if c.Server.PurgeDisconnectedClients && c.Server.KeepDisconnectedClients != 0 && (c.Server.KeepDisconnectedClients.Nanoseconds() < MinKeepDisconnectedClients.Nanoseconds() ||
 		c.Server.KeepDisconnectedClients.Nanoseconds() > MaxKeepDisconnectedClients.Nanoseconds()) {
 		return fmt.Errorf("expected 'Keep Lost Clients' can be in range [%v, %v], actual: %v", MinKeepDisconnectedClients, MaxKeepDisconnectedClients, c.Server.KeepDisconnectedClients)

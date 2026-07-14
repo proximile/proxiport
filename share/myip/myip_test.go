@@ -3,6 +3,7 @@ package myip
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -14,8 +15,14 @@ import (
 
 const port = 23985
 
+// startServer serves the stub endpoints on every loopback address — GetMyIPs
+// asks for the same URL over IPv4 and over IPv6 — and returns only once the
+// listener is bound, so a request cannot race the bind.
 func startServer(t *testing.T) {
-	http.HandleFunc("/good", func(w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/good", func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, userAgent, r.UserAgent())
 		if strings.HasPrefix(r.RemoteAddr, "127.0.0.1") {
 			// Handle the ipv4 request
@@ -25,22 +32,24 @@ func startServer(t *testing.T) {
 		// Handle the ipv6 request
 		fmt.Fprintf(w, `{"ip":"::1"}`)
 	})
-	http.HandleFunc("/bad", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/bad", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "something went wrong")
 	})
 
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	require.NoError(t, err)
+
 	server := &http.Server{
-		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           mux,
 		ReadHeaderTimeout: 3 * time.Second,
 	}
-
-	err := server.ListenAndServe()
-	require.NoError(t, err)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
 }
 
 func TestGetMyIps(t *testing.T) {
-	go startServer(t)
+	startServer(t)
 	ctx := context.Background()
 	ips, err := GetMyIPs(ctx, fmt.Sprintf("http://localhost:%d/good", port))
 
@@ -50,6 +59,7 @@ func TestGetMyIps(t *testing.T) {
 }
 
 func TestGetMyIpsFailing(t *testing.T) {
+	startServer(t)
 	ctx := context.Background()
 	_, err := GetMyIPs(ctx, fmt.Sprintf("http://localhost:%d/bad", port))
 
