@@ -356,7 +356,28 @@ one agent:
 log.](screenshots/15-audit-log-perclient.png)
 
 The global **Audit** page is for cross-cutting queries — who
-created which tunnel, who rotated which credential.
+created which tunnel, who rotated which credential. Reading a vault
+secret — the one high-value read worth tracking — is recorded too, as a
+`read` action (never the secret itself).
+
+### Tamper-evidence
+
+When a key provider is configured, each audit entry carries a keyed
+HMAC chained to the previous entry (the key is derived from the server
+DEK, so it is not on the audited box in usable form). Editing or
+deleting a row after the fact breaks the chain. Check it with:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  https://<server>/api/v1/auditlog/verify | jq
+```
+
+A `"Valid": true` response means every entry verifies; a break reports
+the sequence number and kind (`mac` — a row was edited, `link`/`gap` — a
+row was removed or reordered). This detects tampering **on the box**; it
+does not stop a host with the DEK from forging new entries — ship entries
+to an off-host, append-only sink for that. Rotation starts a fresh chain
+per `auditlog.<date>.db` file.
 
 ![Global audit log.](screenshots/24-audit-log-global.png)
 

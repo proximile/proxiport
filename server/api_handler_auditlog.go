@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/proximile/proxiport/server/api"
 	"github.com/proximile/proxiport/server/auditlog"
 )
 
@@ -25,4 +26,15 @@ func (al *APIListener) handleListAuditLog(w http.ResponseWriter, req *http.Reque
 		return
 	}
 	al.writeJSONResponse(w, http.StatusOK, result)
+}
+
+// handleVerifyAuditLog handles GET /auditlog/verify — it walks the tamper-evidence
+// chain and reports whether every entry's keyed HMAC and link are intact.
+func (al *APIListener) handleVerifyAuditLog(w http.ResponseWriter, req *http.Request) {
+	res, err := al.auditLog.Verify(req.Context())
+	if err != nil {
+		al.jsonError(w, err)
+		return
+	}
+	al.writeJSONResponse(w, http.StatusOK, api.NewSuccessPayload(res))
 }

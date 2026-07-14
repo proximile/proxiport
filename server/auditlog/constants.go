@@ -4,6 +4,7 @@ const (
 	ActionCreate       = "create"
 	ActionDelete       = "delete"
 	ActionUpdate       = "update"
+	ActionRead         = "read"
 	ActionExecuteStart = "execute.start"
 	ActionExecuteDone  = "execute.done"
 	ActionSuccess      = "success"

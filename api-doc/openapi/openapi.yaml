@@ -135,6 +135,8 @@ paths:
  $ref: paths/library_commands_{id}.yaml
  /auditlog:
  $ref: paths/auditlog.yaml
+ /auditlog/verify:
+ $ref: paths/auditlog_verify.yaml
  /me/totp-secret:
  $ref: paths/me_totp-secret.yaml
  /clients/{client_id}/graph-metrics:

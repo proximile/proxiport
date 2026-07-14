@@ -1,0 +1,48 @@
+get:
+ tags:
+ - Audit Log
+ summary: Verify audit-log tamper-evidence
+ operationId: AuditlogVerify
+ description: >-
+ Walks the audit log's tamper-evidence chain and reports whether every entry's
+ keyed HMAC and link to the previous entry are intact. Requires a key provider
+ to be configured (the chain's HMAC key is derived from the server DEK);
+ otherwise the chain is reported as disabled.
+ responses:
+ '200':
+ description: Successful Operation
+ content:
+ application/json:
+ schema:
+ type: object
+ properties:
+ data:
+ type: object
+ properties:
+ Enabled:
+ type: boolean
+ description: whether a key provider is configured (chain present)
+ Valid:
+ type: boolean
+ description: true if every chained entry verified
+ Checked:
+ type: integer
+ description: number of chained entries walked
+ BreakSeq:
+ type: integer
+ description: the sequence number at which the chain first failed (0 if valid)
+ BreakKind:
+ type: string
+ description: "'mac', 'link' or 'gap' — how the chain broke"
+ '401':
+ description: Unauthorized
+ content:
+ application/json:
+ schema:
+ $ref: ../components/schemas/ErrorPayload.yaml
+ '500':
+ description: Invalid Operation
+ content:
+ application/json:
+ schema:
+ $ref: ../components/schemas/ErrorPayload.yaml

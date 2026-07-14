@@ -2,6 +2,8 @@
 // sources:
 // 001_init.down.sql (23B)
 // 001_init.up.sql (928B)
+// 002_hmac_chain.down.sql (131B)
+// 002_hmac_chain.up.sql (651B)
 
 package auditlog
 
@@ -84,7 +86,7 @@ func _001_initDownSql() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "001_init.down.sql", size: 23, mode: os.FileMode(0644), modTime: time.Unix(1685339920, 0)}
+	info := bindataFileInfo{name: "001_init.down.sql", size: 23, mode: os.FileMode(0664), modTime: time.Unix(1783281795, 0)}
 	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0x3a, 0x31, 0x84, 0x43, 0xa, 0xf4, 0x17, 0x24, 0x32, 0x23, 0x9, 0xc7, 0xa6, 0xe2, 0xf2, 0xa7, 0x1a, 0x9c, 0xd1, 0x17, 0x3e, 0xfa, 0x32, 0xae, 0xb6, 0x46, 0xc2, 0xdb, 0xdd, 0x84, 0x71, 0x55}}
 	return a, nil
 }
@@ -104,8 +106,48 @@ func _001_initUpSql() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "001_init.up.sql", size: 928, mode: os.FileMode(0644), modTime: time.Unix(1685339920, 0)}
+	info := bindataFileInfo{name: "001_init.up.sql", size: 928, mode: os.FileMode(0664), modTime: time.Unix(1783281795, 0)}
 	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0x74, 0x4, 0x41, 0xd8, 0xd2, 0x5b, 0x68, 0x31, 0xce, 0xa5, 0xd, 0x34, 0xf6, 0x42, 0xf6, 0xe7, 0xde, 0xb8, 0xf4, 0x29, 0x1e, 0xf3, 0x42, 0x48, 0x35, 0x29, 0xb, 0x7b, 0xd8, 0x82, 0x79, 0xb4}}
+	return a, nil
+}
+
+var __002_hmac_chainDownSql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x72\xf4\x09\x71\x0d\x52\x08\x71\x74\xf2\x71\x55\x50\x4a\x2c\x4d\xc9\x2c\xc9\xc9\x4f\x57\x52\x70\x09\xf2\x0f\x50\x70\xf6\xf7\x09\xf5\xf5\x53\x50\x2a\x4e\x2d\x54\xb2\xe6\x22\x46\x65\x6e\x62\x32\x91\x2a\x0b\x8a\x52\xcb\xe2\x21\xca\x01\x01\x00\x00\xff\xff\x59\x55\xd4\x98\x83\x00\x00\x00")
+
+func _002_hmac_chainDownSqlBytes() ([]byte, error) {
+	return bindataRead(
+		__002_hmac_chainDownSql,
+		"002_hmac_chain.down.sql",
+	)
+}
+
+func _002_hmac_chainDownSql() (*asset, error) {
+	bytes, err := _002_hmac_chainDownSqlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "002_hmac_chain.down.sql", size: 131, mode: os.FileMode(0664), modTime: time.Unix(1784003403, 0)}
+	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0x59, 0xcc, 0x99, 0xf, 0x0, 0x4f, 0xd6, 0x75, 0xfa, 0x4c, 0xf5, 0x56, 0x89, 0x9d, 0x15, 0x31, 0xec, 0x76, 0x53, 0xbd, 0xd, 0x93, 0x5, 0x90, 0xbb, 0x33, 0x16, 0xb3, 0x2d, 0xdc, 0x81, 0xf1}}
+	return a, nil
+}
+
+var __002_hmac_chainUpSql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x8c\x90\x4f\x8b\xdb\x30\x10\xc5\xef\xfb\x29\x1e\xbe\x24\x81\x3a\xbb\xe7\x86\x1e\xdc\xc4\xfd\x03\x4e\x16\x16\xa7\xf4\x56\xa6\xf2\xd8\x19\x12\x49\x5e\x49\x49\x6a\xf0\x87\x2f\xe3\x74\x5b\x4a\xa1\xec\x51\x9a\x79\xbf\xf7\xde\xe4\x39\x6a\xb2\x3d\x87\x9c\x2f\xd2\xb0\x33\xfc\x16\x84\xe9\xed\x52\x18\x70\xe4\x81\x1b\x7c\xda\x16\x6b\x98\x03\x89\xe3\x06\xc9\x23\x1d\x18\x7d\x10\x1f\x10\xfc\x75\x16\xb1\x2d\xd6\xcb\xbb\x3c\x47\xe4\x67\x48\x04\xc1\x7a\xe7\x93\x77\x62\xf4\xeb\xac\x58\x50\x8c\xd2\xa9\x9e\x12\xae\x41\x12\x23\x89\xe5\x15\xfa\xc0\x97\x6f\x96\x8c\x0a\x95\xab\x56\xbe\x55\xda\xcd\x85\x2f\xe2\xcf\x51\x8d\x30\x67\xdb\xa7\x01\xad\x0f\xd3\xac\x63\xc7\x51\x22\xee\xd1\x4a\x88\x69\x5a\xa1\x36\xb1\x4e\x25\xc2\x4a\x17\x28\x89\x77\x8b\x95\xd2\x7e\x59\x68\x95\xf9\x91\x87\x37\x53\xd8\x71\xfc\xe3\x3f\x8e\x30\xe4\x34\x34\x9d\xe6\xca\x6a\x85\x4f\x4d\x5c\x2c\x96\xf8\xc2\x41\x5a\x31\x13\x0d\x57\x3a\x1d\xe3\x4b\xbe\xe9\x28\x20\xd7\x20\xb0\xf1\xb6\x3f\x27\x8e\x60\x32\x87\xe9\x26\x28\x7f\x48\x4c\xe2\x3a\xcd\x16\xd5\xaa\x21\x2d\xfe\x97\xd0\x50\x08\x83\xf2\x6e\xed\x2c\x99\xfb\xdf\x99\xe6\x96\xc2\x91\x1b\x55\xe6\x37\xc5\xf7\x61\x0a\xfe\x0e\x0f\x8b\xe5\x5d\x51\xd5\xe5\x13\xea\xe2\x7d\x55\x22\xa3\x73\x23\xe9\xe4\xbb\x0c\xc5\x66\x83\xf5\x63\xb5\xdf\xee\x90\x45\x7e\xce\xf0\x79\x57\x97\x1f\xcb\x27\xec\x1e\x6b\xec\xf6\x55\x85\x4d\xf9\xa1\xd8\x57\x35\x1e\x56\xaf\x61\x58\x32\x19\xea\xf2\x6b\xfd\x2f\x60\x36\x7b\x15\xe1\xa5\xd0\xff\x30\x3f\x03\x00\x00\xff\xff\xaa\xf3\x6e\xf7\x8b\x02\x00\x00")
+
+func _002_hmac_chainUpSqlBytes() ([]byte, error) {
+	return bindataRead(
+		__002_hmac_chainUpSql,
+		"002_hmac_chain.up.sql",
+	)
+}
+
+func _002_hmac_chainUpSql() (*asset, error) {
+	bytes, err := _002_hmac_chainUpSqlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "002_hmac_chain.up.sql", size: 651, mode: os.FileMode(0664), modTime: time.Unix(1784003403, 0)}
+	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0x8, 0xb3, 0xac, 0x9c, 0xb8, 0xc0, 0x80, 0x35, 0xdd, 0x0, 0x74, 0x35, 0xcd, 0xc7, 0xf0, 0xe0, 0x2f, 0x30, 0xaa, 0xc0, 0x9d, 0x7d, 0xa1, 0x40, 0xce, 0x3f, 0xe2, 0x2a, 0x24, 0xfa, 0x41, 0xbb}}
 	return a, nil
 }
 
@@ -200,8 +242,10 @@ func AssetNames() []string {
 
 // _bindata is a table, holding each asset generator, mapped to its name.
 var _bindata = map[string]func() (*asset, error){
-	"001_init.down.sql": _001_initDownSql,
-	"001_init.up.sql":   _001_initUpSql,
+	"001_init.down.sql":       _001_initDownSql,
+	"001_init.up.sql":         _001_initUpSql,
+	"002_hmac_chain.down.sql": _002_hmac_chainDownSql,
+	"002_hmac_chain.up.sql":   _002_hmac_chainUpSql,
 }
 
 // AssetDebug is true if the assets were built with the debug flag enabled.
@@ -250,8 +294,10 @@ type bintree struct {
 }
 
 var _bintree = &bintree{nil, map[string]*bintree{
-	"001_init.down.sql": {_001_initDownSql, map[string]*bintree{}},
-	"001_init.up.sql":   {_001_initUpSql, map[string]*bintree{}},
+	"001_init.down.sql":       {_001_initDownSql, map[string]*bintree{}},
+	"001_init.up.sql":         {_001_initUpSql, map[string]*bintree{}},
+	"002_hmac_chain.down.sql": {_002_hmac_chainDownSql, map[string]*bintree{}},
+	"002_hmac_chain.up.sql":   {_002_hmac_chainUpSql, map[string]*bintree{}},
 }}
 
 // RestoreAsset restores an asset under the given directory.

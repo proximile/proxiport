@@ -54,6 +54,7 @@ type Provider interface {
 	Save(e *Entry) error
 	List(context.Context, *query.ListOptions) ([]*Entry, error)
 	Count(context.Context, *query.ListOptions) (int, error)
+	Verify(context.Context) (ChainVerification, error)
 }
 
 type AuditLog struct {
@@ -71,7 +72,11 @@ func (e *NotAllowedError) Error() string {
 	return e.Msg
 }
 
-func New(l *logger.Logger, cg ClientGetter, dataDir string, cfg config.Config, dataSourceOptions sqlite.DataSourceOptions) (*AuditLog, error) {
+// New builds the audit log. dek is the server data-encryption key (or nil): when
+// present, the audit chain's HMAC key is derived from it so entries are
+// tamper-evident. With no key the log still records entries, but the chain is
+// inert and Verify reports it disabled.
+func New(l *logger.Logger, cg ClientGetter, dataDir string, cfg config.Config, dataSourceOptions sqlite.DataSourceOptions, dek []byte) (*AuditLog, error) {
 	a := &AuditLog{
 		logger:       l,
 		clientGetter: cg,
@@ -79,11 +84,19 @@ func New(l *logger.Logger, cg ClientGetter, dataDir string, cfg config.Config, d
 	}
 
 	if cfg.Enable {
+		hmacKey, err := deriveAuditHMACKey(dek)
+		if err != nil {
+			return nil, err
+		}
+		if len(hmacKey) == 0 {
+			l.Infof("audit log tamper-evidence is OFF: no key provider configured")
+		}
 		rotation, err := newRotationProvider(
 			l,
 			cfg.RotationPeriod(),
 			dataDir,
 			dataSourceOptions,
+			hmacKey,
 		)
 		if err != nil {
 			return nil, err
@@ -93,6 +106,15 @@ func New(l *logger.Logger, cg ClientGetter, dataDir string, cfg config.Config, d
 	}
 
 	return a, nil
+}
+
+// Verify walks the audit chain and reports whether it is intact. Returns a
+// disabled result when the log is off or no key provider is configured.
+func (a *AuditLog) Verify(ctx context.Context) (ChainVerification, error) {
+	if a == nil || a.provider == nil {
+		return ChainVerification{Enabled: false}, nil
+	}
+	return a.provider.Verify(ctx)
 }
 
 func (a *AuditLog) Entry(application, action string) *Entry {

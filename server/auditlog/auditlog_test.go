@@ -21,7 +21,7 @@ func TestNotEnabled(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 
 	mockProvider := &mockProvider{}
-	auditLog, err := New(nil, nil, "", config.Config{Enable: false}, DataSourceOptions)
+	auditLog, err := New(nil, nil, "", config.Config{Enable: false}, DataSourceOptions, nil)
 	require.NoError(t, err)
 	auditLog.provider = mockProvider
 

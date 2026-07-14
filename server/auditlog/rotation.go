@@ -25,13 +25,14 @@ type RotationProvider struct {
 	ticker            *time.Ticker
 	dataDir           string
 	dataSourceOptions sqlite.DataSourceOptions
+	hmacKey           []byte
 
 	mtx    sync.RWMutex
 	sqlite *SQLiteProvider
 }
 
-func newRotationProvider(l *logger.Logger, period time.Duration, dataDir string, dataSourceOptions sqlite.DataSourceOptions) (*RotationProvider, error) {
-	sqlite, err := newSQLiteProvider(dataDir, dataSourceOptions)
+func newRotationProvider(l *logger.Logger, period time.Duration, dataDir string, dataSourceOptions sqlite.DataSourceOptions, hmacKey []byte) (*RotationProvider, error) {
+	sqlite, err := newSQLiteProvider(dataDir, dataSourceOptions, hmacKey)
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +41,7 @@ func newRotationProvider(l *logger.Logger, period time.Duration, dataDir string,
 		logger:  l,
 		period:  period,
 		dataDir: dataDir,
+		hmacKey: hmacKey,
 		sqlite:  sqlite,
 		ticker:  time.NewTicker(period),
 	}
@@ -78,7 +80,7 @@ func (r *RotationProvider) rotate() error {
 		return err
 	}
 
-	r.sqlite, err = newSQLiteProvider(r.dataDir, r.dataSourceOptions)
+	r.sqlite, err = newSQLiteProvider(r.dataDir, r.dataSourceOptions, r.hmacKey)
 	if err != nil {
 		return err
 	}
@@ -116,6 +118,11 @@ func (r *RotationProvider) Count(ctx context.Context, l *query.ListOptions) (int
 	r.mtx.RLock()
 	defer r.mtx.RUnlock()
 	return r.sqlite.Count(ctx, l)
+}
+func (r *RotationProvider) Verify(ctx context.Context) (ChainVerification, error) {
+	r.mtx.RLock()
+	defer r.mtx.RUnlock()
+	return r.sqlite.Verify(ctx)
 }
 func (r *RotationProvider) Close() error {
 	r.mtx.Lock()
