@@ -24,7 +24,7 @@ properties:
  type: string
  description: >-
  how will the script be executed on the client, e.g. /bin/sh, cmd.exe,
- powershell, tacoscript
+ powershell
  cwd:
  type: string
  description: current working directory, where the script should be executed

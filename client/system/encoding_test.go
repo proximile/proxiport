@@ -95,11 +95,6 @@ func TestDetectEncodingCommand(t *testing.T) {
 			WantOutput:  nil,
 		},
 		{
-			Interpreter: chshare.Tacoscript,
-			WantInput:   nil,
-			WantOutput:  nil,
-		},
-		{
 			Interpreter: `C:\Program Files\PowerShell\7\pwsh.exe`,
 			WantInput:   detectEncodingPowershellInput,
 			WantOutput:  detectEncodingPowershellOutput,

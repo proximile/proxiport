@@ -6,17 +6,13 @@ import (
 	chshare "github.com/proximile/proxiport/share"
 )
 
-var validInputInterpreter = []string{chshare.CmdShell, chshare.PowerShell, chshare.Tacoscript}
+var validInputInterpreter = []string{chshare.CmdShell, chshare.PowerShell}
 
 func ValidateInterpreter(interpreter string, isScript bool) error {
 	// we skip validation for scripts because server is not able to detect invalid values as user might use
 	// interpreter aliases or full paths which are not accessible on the server
 	if interpreter == "" || isScript {
 		return nil
-	}
-
-	if interpreter == chshare.Tacoscript {
-		return fmt.Errorf("%s interpreter can't be used for commands execution", chshare.Tacoscript)
 	}
 
 	for _, v := range validInputInterpreter {

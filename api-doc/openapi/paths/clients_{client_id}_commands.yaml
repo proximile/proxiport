@@ -116,7 +116,6 @@ post:
  enum:
  - cmd
  - powershell
- - tacoscript
  cwd:
  type: string
  description: current working directory for the executable command
