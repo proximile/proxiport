@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
   packages: write
+  # Required for keyless Sigstore signing (cosign requests an OIDC token from
+  # the Actions provider to obtain a short-lived Fulcio certificate).
+  id-token: write
 
 jobs:
   goreleaser:
@@ -49,6 +52,13 @@ jobs:
       # `CC=aarch64-linux-gnu-gcc` for that target via build-time env.
       - name: Install build deps (incl. linux/arm64 cross toolchain)
         run: sudo apt-get update && sudo apt-get install -y build-essential gcc-aarch64-linux-gnu
+
+      # cosign signs the checksums file (keyless); syft generates the SBOMs.
+      # Both must be on PATH before goreleaser runs its `signs`/`sboms` steps.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
 
       - name: Run goreleaser
         uses: goreleaser/goreleaser-action@v7
