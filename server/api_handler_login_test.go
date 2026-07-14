@@ -258,6 +258,13 @@ func CommonAPITokenTestDb(t *testing.T, username, prefix, name string, scope aut
 	require.NoError(t, err)
 	dbProv := authorization.NewSqliteProvider(db)
 
+	// API tokens are stored bcrypt-hashed in production (the token handler runs
+	// GenerateTokenHash before saving), and the verifier is bcrypt-only, so the
+	// fixture must store the hash — not the raw secret — for basic-auth with the
+	// `<prefix>_<secret>` credential to verify.
+	hashedToken, err := users.GenerateTokenHash(token)
+	require.NoError(t, err)
+
 	ctx := context.Background()
 	itemToSave := authorization.APIToken{
 		Username:  username,
@@ -266,7 +273,7 @@ func CommonAPITokenTestDb(t *testing.T, username, prefix, name string, scope aut
 		CreatedAt: ptr.Time(time.Date(2001, 1, 1, 1, 0, 0, 0, time.UTC)),
 		ExpiresAt: ptr.Time(time.Date(2051, 1, 1, 2, 0, 0, 0, time.UTC)),
 		Scope:     scope,
-		Token:     token,
+		Token:     hashedToken,
 	}
 	err = dbProv.Save(ctx, &itemToSave)
 	require.NoError(t, err)
@@ -278,7 +285,7 @@ func CommonAPITokenTestDb(t *testing.T, username, prefix, name string, scope aut
 		CreatedAt: ptr.Time(time.Date(2001, 1, 1, 1, 0, 0, 0, time.UTC)),
 		ExpiresAt: ptr.Time(time.Date(2001, 1, 1, 2, 0, 0, 0, time.UTC)),
 		Scope:     scope,
-		Token:     token,
+		Token:     hashedToken,
 	}
 	err = dbProv.Save(ctx, &itemToSave)
 	require.NoError(t, err)

@@ -557,6 +557,9 @@ else
     TWO_FA_MSG="Two-factor authentication is disabled. Enable it in proxiportd.conf and re-login to enroll."
 fi
 
+# The summary file is persistent, so it deliberately does NOT contain the
+# cleartext passwords — those live only in the initial-* credential files, which
+# the server shreds from disk the first time an admin logs in with a password.
 mkdir -p "$(dirname "$SUMMARY_FILE")"
 umask 077
 cat > "$SUMMARY_FILE" <<EOF
@@ -564,10 +567,14 @@ proxiportd setup $(date -Iseconds)
 
 Admin URL:    https://${FQDN}:${API_PORT}
 Admin user:   admin
-Admin pass:   ${ADMIN_PASSWD}
-
 Agent dial:   ${FQDN}:${CLIENT_PORT}
-Agent auth:   client1:${CLIENT_PASSWD}
+Agent user:   client1
+
+The initial passwords are NOT stored here. Read them once from:
+  /var/lib/proxiport/initial-admin-password   (admin login)
+  /var/lib/proxiport/initial-client-auth      (first agent auth)
+These files are shredded automatically after the first successful admin
+login, so retrieve them now and store them in your password manager.
 
 ${TWO_FA_MSG}
 
@@ -588,6 +595,9 @@ ${BOLD}proxiport is up.${RESET}
 
   ${TWO_FA_MSG}
 
-  Credentials and config paths also saved to ${SUMMARY_FILE}
+  These passwords are shown once. They are also in
+  /var/lib/proxiport/initial-admin-password and initial-client-auth,
+  which are ${BOLD}shredded after your first admin login${RESET}. Save them now.
+  (${SUMMARY_FILE} records the non-secret details only.)
 ------------------------------------------------------------------------
 EOF

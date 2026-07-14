@@ -144,6 +144,9 @@ has to do manually:
     ```
 
     Both files are mode `0640 root:proxiport`. Read with `sudo cat`.
+    They are **shredded from disk the first time an admin logs in with a
+    password**, so retrieve them and store the credentials in a password
+    manager before that first login.
 
 - granted `CAP_NET_BIND_SERVICE` on `/usr/bin/proxiportd` so the
   unprivileged `proxiport` user can bind ports 80 and 443;

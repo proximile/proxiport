@@ -27,6 +27,18 @@ type UserAPISessionsResponse struct {
 	Data []session.APISession
 }
 
+// mustHashPassword returns the bcrypt hash of plain, matching how real
+// credentials are stored (config auth is hashed at load; the API/CLI hash on
+// write). The bcrypt-only verifier compares the sent plaintext against this
+// hash, so fixtures used for successful basic auth must store the hash while
+// the request sends the original plaintext.
+func mustHashPassword(t *testing.T, plain string) string {
+	t.Helper()
+	h, err := users.GenerateTokenHash(plain)
+	require.NoError(t, err)
+	return h
+}
+
 func TestShouldHandleGetAllUserAPISessions(t *testing.T) {
 	al, adminUser := setupTestAPIListenerUserAPISessions(t, nil)
 
@@ -171,9 +183,10 @@ func TestShouldErrorWhenNonAdminUser(t *testing.T) {
 
 	ctx := context.Background()
 
+	const nonAdminPwd = "pa55word"
 	nonAdminUser := &users.User{
 		Username: "user1",
-		Password: "pa55word",
+		Password: mustHashPassword(t, nonAdminPwd),
 		Groups:   []string{},
 	}
 
@@ -188,7 +201,7 @@ func TestShouldErrorWhenNonAdminUser(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	req := httptest.NewRequest("GET", "/api/v1/users/user1/sessions", nil)
-	req.SetBasicAuth(nonAdminUser.Username, nonAdminUser.Password)
+	req.SetBasicAuth(nonAdminUser.Username, nonAdminPwd)
 
 	al.router.ServeHTTP(w, req)
 
@@ -355,7 +368,7 @@ func setupTestAPIListenerUserAPISessions(t *testing.T, sessionCache *session.Cac
 
 	adminUser = &users.User{
 		Username: "admin",
-		Password: "foobaz",
+		Password: mustHashPassword(t, "foobaz"),
 		Groups:   []string{users.Administrators},
 	}
 

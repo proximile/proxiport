@@ -15,6 +15,17 @@ import (
 
 const HtpasswdBcryptPrefix = "$2y$"
 const HtpasswdBcryptAltPrefix = "$2a$"
+const HtpasswdBcryptAltPrefix2b = "$2b$"
+
+// IsBcryptHash reports whether a stored password is a bcrypt hash. htpasswd
+// writes "$2y$", Go's bcrypt writes "$2a$" and Python's bcrypt writes "$2b$" —
+// the same algorithm under three identifiers. A password that is not one of
+// these is plaintext (or some other unusable value) and must be rejected.
+func IsBcryptHash(s string) bool {
+	return strings.HasPrefix(s, HtpasswdBcryptPrefix) ||
+		strings.HasPrefix(s, HtpasswdBcryptAltPrefix) ||
+		strings.HasPrefix(s, HtpasswdBcryptAltPrefix2b)
+}
 
 type FileManager struct {
 	*logger.Logger
@@ -93,7 +104,7 @@ func parseUsers(r io.Reader) ([]*User, error) {
 		if p == "" {
 			return nil, errors.New("password can not be empty")
 		}
-		if !strings.HasPrefix(p, HtpasswdBcryptPrefix) {
+		if !IsBcryptHash(p) {
 			return nil, fmt.Errorf("username %q: require passwords to be bcrypt hashed and to be compatible with \"htpasswd -bnBC 10 \"\" <password> | tr -d ':'\" ", user.Username)
 		}
 		user.Password = p

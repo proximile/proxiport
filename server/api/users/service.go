@@ -65,6 +65,16 @@ func NewAPIServiceFromConfig(authDB *sqlx.DB, config *chconfig.Config) (*APIServ
 		if e != nil {
 			return nil, e
 		}
+		// The inline `auth = "user:password"` credential is plaintext in the
+		// config. Hash it at load so the running process holds only a bcrypt
+		// hash and the password verifier never has to compare plaintext.
+		if !IsBcryptHash(authUser.Password) {
+			hashed, herr := GenerateTokenHash(authUser.Password)
+			if herr != nil {
+				return nil, fmt.Errorf("failed to hash static API user password: %w", herr)
+			}
+			authUser.Password = hashed
+		}
 		// for static user set the admin group
 		authUser.Groups = []string{Administrators}
 		usersProvider = NewStaticProvider([]*User{authUser})
@@ -405,7 +415,16 @@ func newAPIAuthDatabase(authDB *sqlx.DB, config *chconfig.Config, logger *logger
 		enc.NewEnvelope(config.KeyProvider.DEK()),
 		logger,
 	)
-	return usersProvider, err
+	if err != nil {
+		return nil, err
+	}
+	// Enforce the bcrypt-only password policy on the configured auth database at
+	// boot: a plaintext row can never authenticate through the bcrypt-only
+	// verifier, so the server refuses to start rather than run with one.
+	if err := usersProvider.rejectPlaintextPasswords(); err != nil {
+		return nil, err
+	}
+	return usersProvider, nil
 }
 
 // parseHTTPAuthStr parses <user>:<password> string, returns (user, nil) or (nil, error)

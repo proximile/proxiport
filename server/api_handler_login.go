@@ -72,6 +72,14 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 		return
 	}
 
+	// A successful password login proves the operator has retrieved the
+	// installer's cleartext credential files, so remove them from disk. Skipped
+	// for token/2FA-check flows (skipPasswordValidation), which do not evidence
+	// a fresh password entry.
+	if !skipPasswordValidation {
+		al.shredConsumedInstallerCreds()
+	}
+
 	lifetime, err := parseTokenLifetime(req)
 	if err != nil {
 		al.jsonErrorResponse(w, http.StatusBadRequest, err)
