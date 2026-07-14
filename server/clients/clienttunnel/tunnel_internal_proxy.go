@@ -3,6 +3,7 @@ package clienttunnel
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"embed"
 	_ "embed" //to embed CSS
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"html/template"
 	"net"
 	"net/http"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -40,7 +42,14 @@ type InternalTunnelProxyConfig struct {
 	TLSMin       string   `mapstructure:"tls_min"`
 	GuacdAddress string   `mapstructure:"guacd_address"`
 	CORS         []string `mapstructure:"tunnel_cors"`
+	// TargetCAFile is an optional PEM bundle of CA certificates the offloading
+	// HTTP proxy trusts when re-originating TLS to a tunnel target. Empty means
+	// the system trust store is used. Lets an operator verify targets that use
+	// a private CA without disabling verification per tunnel.
+	TargetCAFile string `mapstructure:"tunnel_proxy_target_ca_file"`
 	Enabled      bool
+
+	targetCAPool *x509.CertPool
 }
 
 func (c *InternalTunnelProxyConfig) ParseAndValidate() error {
@@ -72,9 +81,29 @@ func (c *InternalTunnelProxyConfig) ParseAndValidate() error {
 	if c.TLSMin != "" && c.TLSMin != "1.2" && c.TLSMin != "1.3" {
 		return errors.New("TLS must be either 1.2 or 1.3")
 	}
+	if c.TargetCAFile != "" {
+		pem, err := os.ReadFile(c.TargetCAFile) //nolint:gosec // operator-configured CA bundle path
+		if err != nil {
+			return fmt.Errorf("read 'tunnel_proxy_target_ca_file': %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return fmt.Errorf("'tunnel_proxy_target_ca_file' %q contains no valid PEM certificates", c.TargetCAFile)
+		}
+		c.targetCAPool = pool
+	}
 	c.Enabled = true
 
 	return nil
+}
+
+// TargetCAPool returns the CA pool the offloading proxy trusts for tunnel
+// targets, or nil to fall back to the system trust store.
+func (c *InternalTunnelProxyConfig) TargetCAPool() *x509.CertPool {
+	if c == nil {
+		return nil
+	}
+	return c.targetCAPool
 }
 
 func (c *InternalTunnelProxyConfig) validateGuacd(addr string) error {

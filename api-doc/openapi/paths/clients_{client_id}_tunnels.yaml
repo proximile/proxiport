@@ -105,6 +105,15 @@ put:
  description: see `auth_user`
  schema:
  type: string
+ - name: skip_tls_verify
+ in: query
+ description: >-
+ Only applies when `http_proxy` is true and the scheme is `https`. The
+ offloading proxy verifies the target's TLS certificate by default; set
+ this to `true` to skip that verification for a target that presents a
+ self-signed or otherwise untrusted certificate. Default is false.
+ schema:
+ type: boolean
  responses:
  '200':
  description: success response
