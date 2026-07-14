@@ -2,6 +2,7 @@ package chclient
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -139,13 +140,36 @@ func (c *Client) Run(ctx context.Context) (err error) {
 }
 
 func (c *Client) verifyServer(hostname string, remote net.Addr, key ssh.PublicKey) error {
-	got := chshare.FingerprintKey(key)
-	if c.configHolder.Client.Fingerprint != "" && !strings.HasPrefix(got, c.configHolder.Client.Fingerprint) {
-		return fmt.Errorf("invalid fingerprint (%s)", got)
+	md5FP := chshare.FingerprintKey(key)
+	sha256FP := chshare.FingerprintKeySHA256(key)
+	pin := strings.TrimSpace(c.configHolder.Client.Fingerprint)
+
+	switch {
+	case pin == "":
+		// No pin: the host key is accepted on trust. This is insecure against a
+		// man-in-the-middle at first connect — pin the SHA-256 fingerprint.
+		c.Infof("No server fingerprint pinned — accepting host key on trust. Pin it by setting 'fingerprint' to %s", sha256FP)
+		return nil
+
+	case strings.HasPrefix(pin, "SHA256:"):
+		// Preferred: full-string, constant-time equality on the SHA-256
+		// fingerprint. Fails closed on any mismatch, including a truncated pin.
+		if subtle.ConstantTimeCompare([]byte(pin), []byte(sha256FP)) != 1 {
+			return fmt.Errorf("invalid server fingerprint: host presented %s, but %s is pinned", sha256FP, pin)
+		}
+		c.Infof("Server fingerprint verified (%s)", sha256FP)
+		return nil
+
+	default:
+		// Legacy MD5 pin (colon-hex). Prefix matching is retained only for
+		// backward compatibility and is weak — a short pin matches many keys.
+		// Migrate to the SHA-256 fingerprint above.
+		if !strings.HasPrefix(md5FP, pin) {
+			return fmt.Errorf("invalid fingerprint (%s)", md5FP)
+		}
+		c.Infof("Server fingerprint verified against a deprecated MD5 pin (%s). Migrate 'fingerprint' to %s", md5FP, sha256FP)
+		return nil
 	}
-	//overwrite with complete fingerprint
-	c.Infof("Server's full fingerprint %s", got)
-	return nil
 }
 
 // Start client and do not block

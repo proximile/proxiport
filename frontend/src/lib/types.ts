@@ -128,6 +128,7 @@ export type ApiToken = {
 export type ServerStatus = {
   version?: string;
   fingerprint?: string;
+  fingerprint_sha256?: string;
   connect_url?: string[];
   pairing_url?: string;
   clients_connected?: number;

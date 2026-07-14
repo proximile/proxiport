@@ -38,6 +38,10 @@ get:
  - Read Write
  fingerprint:
  type: string
+ description: Legacy MD5 host-key fingerprint (colon-hex). Deprecated; pin `fingerprint_sha256` instead.
+ fingerprint_sha256:
+ type: string
+ description: SHA-256 host-key fingerprint in the form `SHA256:<base64>`. The value agents should pin.
  connect_url:
  type: array
  description: Full client connect URL(s)

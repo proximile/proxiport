@@ -28,6 +28,7 @@ func (al *APIListener) handleGetStatus(w http.ResponseWriter, req *http.Request)
 		"clients_connected":         countActive,
 		"clients_disconnected":      countDisconnected,
 		"fingerprint":               al.fingerprint,
+		"fingerprint_sha256":        al.fingerprintSHA256,
 		"connect_url":               al.config.Server.URL,
 		"pairing_url":               al.config.Server.PairingURL,
 		"clients_auth_source":       al.clientAuthProvider.Source(),
