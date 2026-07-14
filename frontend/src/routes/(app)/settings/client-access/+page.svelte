@@ -36,8 +36,7 @@
   let copied = $state<'linux' | 'windows' | null>(null);
 
   // installer-flag toggles (match `retrieve/templates/linux/install.sh`
-  // getopts in proxiport-pairing). Tacoscript (-i) is deliberately
-  // omitted because ProxiPort doesn't ship a Tacoscript install path.
+  // getopts in proxiport-pairing).
   let optX = $state(true);  // -x: enable remote command/script execution
   let optS = $state(false); // -s: sudo rights for those commands
   let optR = $state(false); // -r: enable file reception

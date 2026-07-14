@@ -7,8 +7,6 @@ import (
 	"context"
 	"os/exec"
 	"strings"
-
-	chshare "github.com/proximile/proxiport/share"
 )
 
 func (e *CmdExecutorImpl) New(ctx context.Context, execCtx *CmdExecutorContext) *exec.Cmd {
@@ -29,7 +27,7 @@ func (e *CmdExecutorImpl) New(ctx context.Context, execCtx *CmdExecutorContext) 
 	}
 
 	cmdStr := execCtx.Command
-	if strings.Contains(cmdStr, " ") && interpreter != chshare.Tacoscript {
+	if strings.Contains(cmdStr, " ") {
 		cmdStr = strings.ReplaceAll(cmdStr, " ", "\\ ")
 	}
 

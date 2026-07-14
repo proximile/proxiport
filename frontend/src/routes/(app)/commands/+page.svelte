@@ -137,7 +137,6 @@
               <option value="cmd">cmd</option>
               <option value="powershell">powershell</option>
               <option value="pwsh">pwsh</option>
-              <option value="tacoscript">tacoscript</option>
             </select>
           </label>
           <label class="text-xs">

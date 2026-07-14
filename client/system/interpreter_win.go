@@ -25,7 +25,6 @@ func (i Interpreter) Get() string {
 	}
 
 	if interpreterNameFromInput == chshare.CmdShell ||
-		interpreterNameFromInput == chshare.Tacoscript ||
 		interpreterNameFromInput == chshare.PowerShell {
 		interpreterWithAbsPath := i.getInterpreterAbsolutePath(interpreterNameFromInput)
 

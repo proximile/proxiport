@@ -154,7 +154,7 @@ func TestHandlePostCommand(t *testing.T) {
 			clients:        []*clientdata.Client{c1},
 			wantStatusCode: http.StatusBadRequest,
 			wantErrTitle:   "Invalid interpreter.",
-			wantErrDetail:  "expected interpreter to be one of: [cmd powershell tacoscript], actual: unsupported",
+			wantErrDetail:  "expected interpreter to be one of: [cmd powershell], actual: unsupported",
 		},
 		{
 			name:           "valid cmd with no timeout",

@@ -35,13 +35,6 @@ func getCmdBuildTestcases() []cmdBuildTestCase {
 			command:        "/script.sh",
 		},
 		{
-			name:         "tacoscript interpreter",
-			interpreter:  chshare.Tacoscript,
-			partialMatch: true,
-			wantCmdStr:   "tacoscript /script.sh",
-			command:      "/script.sh",
-		},
-		{
 			name:               "interpreter aliases",
 			interpreter:        "taco",
 			wantCmdStr:         "/non-standard-interpreter /script.sh",

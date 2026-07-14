@@ -37,12 +37,6 @@ func getCmdBuildTestcases() []cmdBuildTestCase {
 			wantCmdStr:     `powershell.exe -Noninteractive -executionpolicy bypass -File C:\\script.ps1`,
 		},
 		{
-			name:        "tacoscript interpreter",
-			interpreter: chshare.Tacoscript,
-			command:     `C:\\script.ps1`,
-			wantCmdStr:  `tacoscript.exe C:\\script.ps1`,
-		},
-		{
 			name:               "interpreter aliases",
 			interpreter:        "pwsh7",
 			command:            `C:\\script.ps1`,

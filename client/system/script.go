@@ -10,7 +10,6 @@ import (
 
 	"golang.org/x/text/encoding"
 
-	chshare "github.com/proximile/proxiport/share"
 	"github.com/proximile/proxiport/share/random"
 )
 
@@ -77,17 +76,7 @@ func createScriptFileName(interpreter Interpreter) (string, error) {
 		return "", err
 	}
 
-	extension := getExtension(interpreter)
-
-	return scriptName + extension, nil
-}
-
-func getExtension(interpreter Interpreter) string {
-	if interpreter.InterpreterNameFromInput == chshare.Tacoscript {
-		return ".yml"
-	}
-
-	return GetScriptExtensionOS(interpreter)
+	return scriptName + GetScriptExtensionOS(interpreter), nil
 }
 
 const shebangPrefix = "#!"
