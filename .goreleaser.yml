@@ -222,6 +222,33 @@ nfpms:
           - glibc
 checksum:
   name_template: 'checksums.txt'
+
+# Keyless Sigstore signature over the checksums file. Because every artifact's
+# hash is listed in checksums.txt, one signature over it transitively covers all
+# release artifacts. Verify with:
+#   cosign verify-blob --certificate checksums.txt.pem \
+#     --signature checksums.txt.sig \
+#     --certificate-identity-regexp 'https://github.com/proximile/proxiport' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     checksums.txt
+# Requires cosign on PATH and `id-token: write` in the release workflow.
+signs:
+  - cmd: cosign
+    signature: '${artifact}.sig'
+    certificate: '${artifact}.pem'
+    args:
+      - sign-blob
+      - '--output-signature=${signature}'
+      - '--output-certificate=${certificate}'
+      - '${artifact}'
+      - '--yes'
+    artifacts: checksum
+    output: true
+
+# Per-archive SBOMs (Syft) so downstreams can audit the shipped dependencies.
+sboms:
+  - artifacts: archive
+
 snapshot:
   version_template: '{{ .Tag }}'
 changelog:
