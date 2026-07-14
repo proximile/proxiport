@@ -2,7 +2,6 @@ package chserver
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
@@ -592,15 +591,15 @@ func (al *APIListener) shouldCreateMissingUser(user *users.User, skipPasswordVal
 }
 
 func verifyPassword(saved, provided string) bool {
-	// bcrypt hashed password — accept any of the equivalent identifiers
-	// ($2a$, $2b$, $2y$). Upstream only checked $2y$, which silently
-	// rejects hashes produced by every bcrypt library except htpasswd.
-	if hasBcryptPrefix(saved) {
-		return bcrypt.CompareHashAndPassword([]byte(saved), []byte(provided)) == nil
+	// Stored credentials are always bcrypt hashes: the static config user is
+	// hashed at load, the file/DB providers reject non-hashed passwords, and
+	// API/CLI writes hash on the way in. Anything that is not a recognized
+	// bcrypt hash ($2a$/$2b$/$2y$) fails closed here — there is deliberately no
+	// plaintext-comparison fallback.
+	if !hasBcryptPrefix(saved) {
+		return false
 	}
-
-	// plaintext password, constant time compare is used for security reasons
-	return subtle.ConstantTimeCompare([]byte(saved), []byte(provided)) == 1
+	return bcrypt.CompareHashAndPassword([]byte(saved), []byte(provided)) == nil
 }
 
 var (

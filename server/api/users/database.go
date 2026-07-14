@@ -55,10 +55,40 @@ func NewUserDatabase(
 	if err := d.checkDatabaseTables(); err != nil {
 		return nil, err
 	}
+	if err := d.rejectPlaintextPasswords(); err != nil {
+		return nil, err
+	}
 	if err := d.encryptExistingTotP(); err != nil {
 		return nil, err
 	}
 	return d, nil
+}
+
+// rejectPlaintextPasswords fails startup if any stored API-user password is not
+// a bcrypt hash. A plaintext password in the user table would be readable from
+// a stolen disk and would authenticate through the (now removed) plaintext
+// verify path, so the server refuses to run with one rather than trusting it.
+// Credentials created through the API/CLI are always hashed on write; this only
+// catches a hand-seeded or legacy row, which the operator must hash (e.g. with
+// `htpasswd -bnBC 10 "" <password> | tr -d ':'`).
+func (d *UserDatabase) rejectPlaintextPasswords() error {
+	var rows []struct {
+		Username string `db:"username"`
+		Password string `db:"password"`
+	}
+	err := d.db.Select(&rows, fmt.Sprintf("SELECT username, password FROM `%s`", d.usersTableName))
+	if err != nil {
+		return fmt.Errorf("password format check: read users: %w", err)
+	}
+	for _, r := range rows {
+		if r.Password == "" {
+			continue
+		}
+		if !IsBcryptHash(r.Password) {
+			return fmt.Errorf("API user %q has a non-bcrypt password stored; hash it (e.g. `htpasswd -bnBC 10 \"\" <password> | tr -d ':'`) — plaintext passwords are refused", r.Username)
+		}
+	}
+	return nil
 }
 
 // encryptTotP is the encrypt-on-write path for the totp_secret column. Empty

@@ -133,6 +133,8 @@ ProxiPort server installed.
 Initial credentials (read with `sudo cat`):
   /var/lib/proxiport/initial-admin-password   - SPA login (user:pass)
   /var/lib/proxiport/initial-client-auth      - first agent's credential
+Both files are shredded automatically after your first admin login, so
+read them and store them in a password manager now.
 
 The server is NOT enabled yet. Before starting it:
 

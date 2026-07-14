@@ -65,6 +65,16 @@ func NewAPIServiceFromConfig(authDB *sqlx.DB, config *chconfig.Config) (*APIServ
 		if e != nil {
 			return nil, e
 		}
+		// The inline `auth = "user:password"` credential is plaintext in the
+		// config. Hash it at load so the running process holds only a bcrypt
+		// hash and the password verifier never has to compare plaintext.
+		if !IsBcryptHash(authUser.Password) {
+			hashed, herr := GenerateTokenHash(authUser.Password)
+			if herr != nil {
+				return nil, fmt.Errorf("failed to hash static API user password: %w", herr)
+			}
+			authUser.Password = hashed
+		}
 		// for static user set the admin group
 		authUser.Groups = []string{Administrators}
 		usersProvider = NewStaticProvider([]*User{authUser})

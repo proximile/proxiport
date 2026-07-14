@@ -5,9 +5,23 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/proximile/proxiport/server/api/users"
 )
+
+// verifyPassword is bcrypt-only: a correct password verifies against a stored
+// bcrypt hash, and no plaintext-comparison fallback survives — a plaintext
+// stored value never verifies, even against itself.
+func TestVerifyPasswordBcryptOnly(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("s3cret"), bcrypt.DefaultCost)
+	assert.NoError(t, err)
+
+	assert.True(t, verifyPassword(string(hash), "s3cret"), "correct password vs bcrypt hash")
+	assert.False(t, verifyPassword(string(hash), "wrong"), "wrong password vs bcrypt hash")
+	assert.False(t, verifyPassword("s3cret", "s3cret"), "plaintext stored value must never verify")
+	assert.False(t, verifyPassword("", ""), "empty stored value must never verify")
+}
 
 func TestValidateCredentials(t *testing.T) {
 	u1Hashed := &users.User{
@@ -60,11 +74,15 @@ func TestValidateCredentials(t *testing.T) {
 			wantRes:   false,
 		},
 		{
-			descr:     "authorized, both Users Repo and credentials with plaintext password",
+			// A password stored as plaintext no longer authenticates: the
+			// plaintext-comparison fallback was removed, so verification is
+			// bcrypt-only and fails closed on a non-hashed stored value even
+			// when the supplied password matches it byte-for-byte.
+			descr:     "refused, repo user has a plaintext password (no plaintext fallback)",
 			repoUsers: []*users.User{u1Plaintext},
 			username:  u1Plaintext.Username,
 			password:  u1Plaintext.Password,
-			wantRes:   true,
+			wantRes:   false,
 		},
 		{
 			descr:     "unauthorized, both Users Repo and credentials with plaintext password, unknown username",
