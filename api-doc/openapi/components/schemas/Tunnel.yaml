@@ -36,6 +36,12 @@ properties:
   host_header:
     type: string
     description: host name to set as http header field 'Host'
+  skip_tls_verify:
+    type: boolean
+    description: >-
+      For an https http_proxy tunnel, true if the offloading proxy was told to
+      skip verification of the target's TLS certificate. Verification is on by
+      default.
   tunnel_url:
     type: string
     description: if using subdomain tunnels with caddy integration then this will be the full url for accessing the downstream caddy subdomain based tunnel

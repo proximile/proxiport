@@ -400,6 +400,17 @@ func (al *APIListener) setTunnelProxyOptionsForRemote(req *http.Request, remote 
 		}
 	}
 
+	if skipTLSVerify := req.URL.Query().Get("skip_tls_verify"); skipTLSVerify != "" {
+		skip, err := strconv.ParseBool(skipTLSVerify)
+		if err != nil {
+			return apierrors.NewAPIError(http.StatusBadRequest, "", "skip_tls_verify must be a boolean", nil)
+		}
+		if skip && !isHTTPProxy {
+			return apierrors.NewAPIError(http.StatusBadRequest, "", "skip_tls_verify only applies when http_proxy is true", nil)
+		}
+		remote.SkipTLSVerify = skip
+	}
+
 	return err
 }
 

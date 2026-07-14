@@ -52,6 +52,7 @@ type Remote struct {
 	HostHeader         string        `json:"host_header"`
 	AuthUser           string        `json:"auth_user"`
 	AuthPassword       string        `json:"auth_password"`
+	SkipTLSVerify      bool          `json:"skip_tls_verify,omitempty"`
 	TunnelURL          string        `json:"tunnel_url"`
 }
 

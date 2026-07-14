@@ -161,6 +161,31 @@ curl --unix-socket /var/lib/proxiport/caddy-admin.sock \
   http://localhost/config/apps/http/servers/srv0/routes | jq
 ```
 
+### HTTPS targets and certificate verification
+
+When the reverse proxy fronts an **HTTPS** target it terminates the
+browser's TLS and opens a second TLS connection to the target. That
+second connection's certificate **is verified** — against the system
+trust store, or against a private CA bundle if you set one:
+
+```toml
+[server]
+  # PEM bundle of CA certificate(s) to trust for tunnel targets.
+  # Empty = use the system trust store.
+  tunnel_proxy_target_ca_file = "/var/lib/proxiport/target-ca.pem"
+```
+
+Verification uses the target's real hostname for SNI: the tunnel's
+`host_header` when you set one, otherwise the tunnel's remote host. If a
+particular target presents a self-signed certificate you cannot add to a
+CA bundle, opt that one tunnel out with the `skip_tls_verify=true` query
+parameter when creating it — it applies only to that tunnel.
+
+If you would rather the operator's own browser validate the target
+certificate end to end, use a plain (non-proxied) tunnel instead: the
+bytes pass through untouched and your client completes the real TLS
+handshake with the target.
+
 ## NoVNC proxy
 
 For agents on hosts that expose a VNC server, ProxiPort can bridge to
