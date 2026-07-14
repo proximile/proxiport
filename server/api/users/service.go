@@ -415,7 +415,16 @@ func newAPIAuthDatabase(authDB *sqlx.DB, config *chconfig.Config, logger *logger
 		enc.NewEnvelope(config.KeyProvider.DEK()),
 		logger,
 	)
-	return usersProvider, err
+	if err != nil {
+		return nil, err
+	}
+	// Enforce the bcrypt-only password policy on the configured auth database at
+	// boot: a plaintext row can never authenticate through the bcrypt-only
+	// verifier, so the server refuses to start rather than run with one.
+	if err := usersProvider.rejectPlaintextPasswords(); err != nil {
+		return nil, err
+	}
+	return usersProvider, nil
 }
 
 // parseHTTPAuthStr parses <user>:<password> string, returns (user, nil) or (nil, error)

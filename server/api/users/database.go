@@ -55,9 +55,6 @@ func NewUserDatabase(
 	if err := d.checkDatabaseTables(); err != nil {
 		return nil, err
 	}
-	if err := d.rejectPlaintextPasswords(); err != nil {
-		return nil, err
-	}
 	if err := d.encryptExistingTotP(); err != nil {
 		return nil, err
 	}

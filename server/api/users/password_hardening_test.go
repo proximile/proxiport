@@ -42,6 +42,8 @@ func TestStaticAuthUserIsHashedAtLoad(t *testing.T) {
 }
 
 // A plaintext password in the DB user table makes the server refuse to start.
+// Storage construction is permissive (it round-trips whatever is stored); the
+// bcrypt-only policy is enforced by the boot scan the auth-DB constructor runs.
 func TestDatabaseRejectsPlaintextPasswordAtBoot(t *testing.T) {
 	db, err := sqlx.Connect("sqlite3", ":memory:")
 	require.NoError(t, err)
@@ -51,14 +53,17 @@ func TestDatabaseRejectsPlaintextPasswordAtBoot(t *testing.T) {
 	_, err = db.Exec("INSERT INTO `users` (username, password) VALUES ('legacy', 'plaintextpw')")
 	require.NoError(t, err)
 
-	_, err = NewUserDatabase(db, "users", "groups", "", false, false, nil, testLog)
-	require.Error(t, err, "a plaintext password row must make construction fail closed")
+	d, err := NewUserDatabase(db, "users", "groups", "", false, false, nil, testLog)
+	require.NoError(t, err)
+
+	err = d.rejectPlaintextPasswords()
+	require.Error(t, err, "the boot scan must reject a plaintext password row")
 	assert.Contains(t, err.Error(), "non-bcrypt")
 	assert.Contains(t, err.Error(), "legacy")
 }
 
-// A bcrypt-hashed DB row is accepted; an empty password row is ignored (it can
-// never authenticate anyway).
+// A bcrypt-hashed DB row passes the boot scan; an empty password row is ignored
+// (it can never authenticate anyway).
 func TestDatabaseAcceptsBcryptAndEmptyPasswords(t *testing.T) {
 	db, err := sqlx.Connect("sqlite3", ":memory:")
 	require.NoError(t, err)
@@ -72,8 +77,10 @@ func TestDatabaseAcceptsBcryptAndEmptyPasswords(t *testing.T) {
 	_, err = db.Exec("INSERT INTO `users` (username, password) VALUES ('nopass', '')")
 	require.NoError(t, err)
 
-	_, err = NewUserDatabase(db, "users", "groups", "", false, false, nil, testLog)
+	d, err := NewUserDatabase(db, "users", "groups", "", false, false, nil, testLog)
 	require.NoError(t, err)
+
+	require.NoError(t, d.rejectPlaintextPasswords())
 }
 
 // The file provider accepts every bcrypt identifier ($2y$, $2a$, $2b$), not
