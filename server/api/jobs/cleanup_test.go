@@ -17,7 +17,7 @@ func TestCleanupJobsMultiJobs(t *testing.T) {
 	ctx := context.Background()
 	jobsDB, err := sqlite.New(":memory:", jobs.AssetNames(), jobs.Asset, DataSourceOptions)
 	require.NoError(t, err)
-	p := NewSqliteProvider(jobsDB, testLog)
+	p := NewSqliteProvider(jobsDB, nil, testLog)
 	defer p.Close()
 
 	mj1 := jb.NewMulti(t).Build()

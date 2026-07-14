@@ -36,7 +36,8 @@ func MockUserService(user string, group string) *users.APIService {
 }
 
 func FsCallback(fs *test.FileAPIMock, t *testing.T) {
-	fs.On("CreateDirIfNotExists", "/data/"+files.DefaultUploadTempFolder, files.DefaultMode).Return(true, nil)
+	fs.On("CreateDirIfNotExists", "/data/"+files.DefaultUploadTempFolder, files.UploadStagingDirMode).Return(true, nil)
+	fs.On("ChangeMode", "/data/filepush/id-123_proxiport_filepush", files.UploadStagingFileMode).Return(nil)
 
 	fileExpectation := func(f io.Reader) bool {
 		actualFileContent, err := ioutil.ReadAll(f)

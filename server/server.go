@@ -137,7 +137,7 @@ func NewServer(ctx context.Context, config *chconfig.Config, opts *ServerOpts) (
 		return nil, fmt.Errorf("failed to create jobs DB instance: %v", err)
 	}
 
-	s.jobProvider = jobs.NewSqliteProvider(jobsDB, s.Logger)
+	s.jobProvider = jobs.NewSqliteProvider(jobsDB, config.KeyProvider.Envelope(), s.Logger)
 
 	groupsDB, err := sqlite.New(
 		path.Join(config.Server.DataDir, "client_groups.db"),
@@ -157,6 +157,7 @@ func NewServer(ctx context.Context, config *chconfig.Config, opts *ServerOpts) (
 	monitoringProvider, err := monitoring.NewSqliteProvider(
 		path.Join(config.Server.DataDir, "monitoring.db"),
 		config.Server.GetSQLiteDataSourceOptions(),
+		config.KeyProvider.Envelope(),
 		s.Logger,
 	)
 	if err != nil {

@@ -16,7 +16,7 @@ import (
 var DataSourceOptions = sqlite.DataSourceOptions{WALEnabled: false}
 
 func TestMonitoringService_SaveMeasurement(t *testing.T) {
-	dbProvider, err := NewSqliteProvider(":memory:", DataSourceOptions, testLog)
+	dbProvider, err := NewSqliteProvider(":memory:", DataSourceOptions, nil, testLog)
 	require.NoError(t, err)
 	defer dbProvider.Close()
 
@@ -34,7 +34,7 @@ func TestMonitoringService_SaveMeasurement(t *testing.T) {
 }
 
 func TestMonitoringService_ListClientMetrics(t *testing.T) {
-	dbProvider, err := NewSqliteProvider(":memory:", DataSourceOptions, testLog)
+	dbProvider, err := NewSqliteProvider(":memory:", DataSourceOptions, nil, testLog)
 	require.NoError(t, err)
 	defer dbProvider.Close()
 
@@ -98,7 +98,7 @@ func TestMonitoringService_ListClientMetrics(t *testing.T) {
 	}
 }
 func TestMonitoringService_ListClientGraphMetrics(t *testing.T) {
-	dbProvider, err := NewSqliteProvider(":memory:", DataSourceOptions, testLog)
+	dbProvider, err := NewSqliteProvider(":memory:", DataSourceOptions, nil, testLog)
 	require.NoError(t, err)
 	defer dbProvider.Close()
 

@@ -128,6 +128,33 @@ Two things follow from the DEK being the only way back:
   invalidate every session) or a different host key (which would break
   every agent's fingerprint check). Fix the key, don't work around it.
 
+## What else the key provider encrypts
+
+Enabling a `[key_provider]` also encrypts the recoverable operational
+data the server stores, transparently — you read and write it through
+the API exactly as before, and only the on-disk databases hold
+ciphertext:
+
+- **Command and script output** (`jobs.db`): stdout, stderr and error
+  text are encrypted. The command itself and the one-line summary stay
+  in the clear so the schedules "last run" view works without the key.
+- **Monitoring data** (`monitoring.db`): the process list and mountpoint
+  blobs (which can carry command-line arguments and filesystem layout)
+  are encrypted.
+- **Vault secrets** and **TOTP enrolment seeds**, as covered in
+  [vault.md](vault.md) and the two-factor docs.
+
+On the first boot after you enable a key provider, existing plaintext
+rows are re-encrypted in place. A stolen database read under the wrong
+key (or with none) fails closed — it never returns the ciphertext as if
+it were the value. As with the config secrets, this protects a stolen
+disk, not a live host that also holds the DEK.
+
+File pushes are staged briefly on disk before agents pull them; that
+staging directory (`{data_dir}/filepush`) is created owner-only. For the
+strongest guarantee, mount it on a `tmpfs` so payloads never touch
+persistent storage.
+
 ## Rotating credentials
 
 - **Admin password.** Edit `/etc/proxiport/proxiportd.conf`,

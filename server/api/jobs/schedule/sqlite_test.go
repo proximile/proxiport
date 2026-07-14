@@ -198,7 +198,7 @@ func addTestData(db *sqlx.DB) error {
 
 func addJobs(t *testing.T, db *sqlx.DB) {
 	testLog := logger.NewLogger("test", logger.LogOutput{File: os.Stdout}, logger.LogLevelDebug)
-	jobsProvider := jobs.NewSqliteProvider(db, testLog)
+	jobsProvider := jobs.NewSqliteProvider(db, nil, testLog)
 
 	multiJob := jb.NewMulti(t).ScheduleID(testData[0].ID).Build()
 	otherMultiJob := jb.NewMulti(t).ScheduleID(testData[1].ID).Build()

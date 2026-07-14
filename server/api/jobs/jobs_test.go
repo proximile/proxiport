@@ -25,7 +25,7 @@ func TestJobsSqliteProvider(t *testing.T) {
 	ctx := context.Background()
 	jobsDB, err := sqlite.New(":memory:", jobs.AssetNames(), jobs.Asset, DataSourceOptions)
 	require.NoError(t, err)
-	p := NewSqliteProvider(jobsDB, testLog)
+	p := NewSqliteProvider(jobsDB, nil, testLog)
 	defer p.Close()
 
 	// add jobs
@@ -101,7 +101,7 @@ func TestJobsSqliteProvider(t *testing.T) {
 func TestCreateJob(t *testing.T) {
 	jobsDB, err := sqlite.New(":memory:", jobs.AssetNames(), jobs.Asset, DataSourceOptions)
 	require.NoError(t, err)
-	p := NewSqliteProvider(jobsDB, testLog)
+	p := NewSqliteProvider(jobsDB, nil, testLog)
 	defer p.Close()
 
 	// create job
