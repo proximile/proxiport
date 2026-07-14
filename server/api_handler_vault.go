@@ -139,6 +139,13 @@ func (al *APIListener) handleReadVaultValue(w http.ResponseWriter, req *http.Req
 		return
 	}
 
+	// Reading a stored secret is the vault's exfiltration channel, so record it
+	// (who, which value id, from where) — never the secret itself.
+	al.auditLog.Entry(auditlog.ApplicationVault, auditlog.ActionRead).
+		WithHTTPRequest(req).
+		WithID(id).
+		Save()
+
 	al.writeJSONResponse(w, http.StatusOK, api.NewSuccessPayload(storedValue))
 }
 

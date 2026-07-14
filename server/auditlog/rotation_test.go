@@ -22,7 +22,7 @@ func TestRotation(t *testing.T) {
 	period := 300 * time.Millisecond
 
 	// Prepare sqlite with 1 entry
-	sqlite, err := newSQLiteProvider(dir, dso)
+	sqlite, err := newSQLiteProvider(dir, dso, nil)
 	require.NoError(t, err)
 	err = sqlite.Save(&Entry{Timestamp: time.Now(), Username: "test1"})
 	require.NoError(t, err)
@@ -30,7 +30,7 @@ func TestRotation(t *testing.T) {
 	require.NoError(t, err)
 
 	// No rotation on init if entry is not older than period
-	rotation, err := newRotationProvider(nil, period, dir, dso)
+	rotation, err := newRotationProvider(nil, period, dir, dso, nil)
 	require.NoError(t, err)
 	entries, err := rotation.List(ctx, &query.ListOptions{})
 	require.NoError(t, err)
@@ -42,7 +42,7 @@ func TestRotation(t *testing.T) {
 	time.Sleep(period)
 
 	// Should rotate on init
-	rotation, err = newRotationProvider(nil, period, dir, dso)
+	rotation, err = newRotationProvider(nil, period, dir, dso, nil)
 	require.NoError(t, err)
 	entries, err = rotation.List(ctx, &query.ListOptions{})
 	require.NoError(t, err)

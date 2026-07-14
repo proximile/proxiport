@@ -211,6 +211,7 @@ func NewServer(ctx context.Context, config *chconfig.Config, opts *ServerOpts) (
 		s.config.Server.DataDir,
 		s.config.API.AuditLog,
 		s.config.Server.GetSQLiteDataSourceOptions(),
+		config.KeyProvider.DEK(),
 	)
 	if err != nil {
 		return nil, err

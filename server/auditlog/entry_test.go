@@ -199,4 +199,7 @@ func (p *mockProvider) List(ctx context.Context, opts *query.ListOptions) ([]*En
 func (p *mockProvider) Count(ctx context.Context, opts *query.ListOptions) (int, error) {
 	return 0, nil
 }
+func (p *mockProvider) Verify(ctx context.Context) (ChainVerification, error) {
+	return ChainVerification{}, nil
+}
 func (p mockProvider) Close() error { return nil }

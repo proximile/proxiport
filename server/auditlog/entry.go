@@ -23,6 +23,13 @@ type Entry struct {
 	Request        string    `db:"request" json:"request"`
 	Response       string    `db:"response" json:"response"`
 
+	// Tamper-evidence chain (populated by the provider on write; not exposed in
+	// the API). Seq is a monotonic per-database sequence number; MAC is the
+	// keyed HMAC over this entry chained to the previous row's PrevMAC.
+	Seq     int64  `db:"seq" json:"-"`
+	MAC     string `db:"mac" json:"-"`
+	PrevMAC string `db:"prev_mac" json:"-"`
+
 	al *AuditLog
 }
 

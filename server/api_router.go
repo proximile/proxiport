@@ -123,6 +123,7 @@ func (al *APIListener) initRouter() {
 
 	secureAPI.Handle("/tunnels", al.permissionsMiddleware(users.PermissionTunnels)(http.HandlerFunc(al.handleGetTunnels))).Methods(http.MethodGet)
 	secureAPI.Handle("/auditlog", al.permissionsMiddleware(users.PermissionsAuditLog)(http.HandlerFunc(al.handleListAuditLog))).Methods(http.MethodGet)
+	secureAPI.Handle("/auditlog/verify", al.permissionsMiddleware(users.PermissionsAuditLog)(http.HandlerFunc(al.handleVerifyAuditLog))).Methods(http.MethodGet)
 	secureAPI.Handle("/files", al.permissionsMiddleware(users.PermissionUploads)(http.HandlerFunc(al.handleFileUploads))).Methods(http.MethodPost).Name(routes.FilesUploadRouteName)
 
 	secureAPI.HandleFunc("/client-groups", al.handleGetClientGroups).Methods(http.MethodGet)

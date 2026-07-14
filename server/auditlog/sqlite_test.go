@@ -46,6 +46,9 @@ func TestSqliteSave(t *testing.T) {
 			"client_hostname": e.ClientHostName,
 			"request":         e.Request,
 			"response":        e.Response,
+			"seq":             int64(0),
+			"mac":             "",
+			"prev_mac":        "",
 		},
 	}
 	q := "SELECT * FROM auditlog"
