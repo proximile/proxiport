@@ -54,6 +54,24 @@ running list).
 
 [open issues]: https://github.com/proximile/proxiport/issues
 
+### The `tacoscript` interpreter
+
+Upstream let you set `interpreter: "tacoscript"` on a command or a
+script, which made the agent hand the file to a `tacoscript` binary —
+a separate third-party tool that neither rport nor ProxiPort ever
+installed for you.
+
+ProxiPort removes it in **v0.2.0**. It was a menu item that could not
+work: both places the SPA offered it were *command* forms, and the
+server rejected tacoscript for commands outright, so choosing it
+returned `400`. `tacoscript` is no longer an accepted `interpreter`
+value and is gone from the API schema and the SPA.
+
+If you actually run tacoscript, nothing stops you: the server does not
+validate the interpreter of a *script*, so an alias or an absolute path
+(`/usr/local/bin/tacoscript`) still works. The only change is that
+ProxiPort no longer writes the script with a `.yml` extension for you.
+
 ### Some upstream API quirks
 
 We have fixed a small number of inherited bugs where the upstream API
