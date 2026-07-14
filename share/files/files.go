@@ -18,6 +18,13 @@ const DefaultUploadTempFolder = "filepush"
 
 const DefaultMode = os.FileMode(0764)
 
+// UploadStagingDirMode / UploadStagingFileMode keep the server-side file-push
+// staging area owner-only: the cleartext payload lives there only until every
+// target agent has pulled it, and no other host user should be able to read it
+// in transit.
+const UploadStagingDirMode = os.FileMode(0700)
+const UploadStagingFileMode = os.FileMode(0600)
+
 type FileAPI interface {
 	ReadDir(dir string) ([]os.FileInfo, error)
 	MakeDirAll(dir string) error

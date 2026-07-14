@@ -551,7 +551,7 @@ func TestHandleGetMultiClientCommandJobs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			jobsDB, err := sqlite.New(":memory:", jobsmigration.AssetNames(), jobsmigration.Asset, DataSourceOptions)
 			require.NoError(t, err)
-			jp := jobs.NewSqliteProvider(jobsDB, testLog)
+			jp := jobs.NewSqliteProvider(jobsDB, nil, testLog)
 			defer func() { _ = jp.Close() }()
 
 			require.NoError(t, jp.SaveMultiJob(&models.MultiJob{
@@ -750,7 +750,7 @@ func TestHandlePostMultiClientCommand(t *testing.T) {
 				DataSourceOptions,
 			)
 			require.NoError(t, err)
-			jp := jobs.NewSqliteProvider(jobsDB, testLog)
+			jp := jobs.NewSqliteProvider(jobsDB, nil, testLog)
 			defer jp.Close()
 			al.jobProvider = jp
 
@@ -913,7 +913,7 @@ func TestHandlePostMultiClientCommandWithPausedClient(t *testing.T) {
 				DataSourceOptions,
 			)
 			require.NoError(t, err)
-			jp := jobs.NewSqliteProvider(jobsDB, testLog)
+			jp := jobs.NewSqliteProvider(jobsDB, nil, testLog)
 			defer jp.Close()
 			al.jobProvider = jp
 
@@ -2169,7 +2169,7 @@ func makeJobsProvider(t *testing.T, dataSourceOptions sqlite.DataSourceOptions, 
 		dataSourceOptions,
 	)
 	require.NoError(t, err)
-	jp = jobs.NewSqliteProvider(jobsDB, testLog)
+	jp = jobs.NewSqliteProvider(jobsDB, nil, testLog)
 	return jp
 }
 

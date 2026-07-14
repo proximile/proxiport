@@ -631,7 +631,9 @@ func (cl *ClientListener) handleSSHRequests(clientLog *logger.DynamicLogger, cli
 
 			cl.server.monitoringQueue.Notify(measurement)
 		case comm.RequestTypeIPAddresses:
-			clientLog.Debugf("IP addresses update received from: %s, payload: %s", clientID, r.Payload)
+			// Do not log the raw payload — it is operational data that should
+			// not land in plaintext server logs (rec 10).
+			clientLog.Debugf("IP addresses update received from: %s (%d bytes)", clientID, len(r.Payload))
 			IPAddresses := &models.IPAddresses{}
 			err := json.Unmarshal(r.Payload, IPAddresses)
 			if err != nil {

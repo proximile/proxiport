@@ -13,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/proximile/proxiport/db/sqlite"
+	"github.com/proximile/proxiport/share/enc"
 	"github.com/proximile/proxiport/share/logger"
 	"github.com/proximile/proxiport/share/models"
 	"github.com/proximile/proxiport/share/query"
@@ -92,14 +93,147 @@ type SqliteProvider struct {
 	log       *logger.Logger
 	db        *sqlx.DB
 	converter *query.SQLConverter
+	enc       *enc.Envelope
 }
 
-func NewSqliteProvider(db *sqlx.DB, log *logger.Logger) *SqliteProvider {
-	return &SqliteProvider{
+func NewSqliteProvider(db *sqlx.DB, envelope *enc.Envelope, log *logger.Logger) *SqliteProvider {
+	if envelope == nil {
+		envelope = enc.NewEnvelope(nil)
+	}
+	p := &SqliteProvider{
 		db:        db,
 		log:       log,
 		converter: query.NewSQLConverter(db.DriverName()),
+		enc:       envelope,
 	}
+	if err := p.encryptExistingResults(); err != nil {
+		// A backfill failure must not stop the server; new writes are still
+		// encrypted and reads still work. Log loudly so it is noticed.
+		log.Errorf("job-result at-rest backfill failed (new results are still encrypted): %v", err)
+	}
+	return p
+}
+
+// encryptExistingResults is the at-rest migration for the jobs table: when a key
+// provider is configured it walks the table once at startup and encrypts any
+// legacy plaintext stdout/stderr/error in place. It is idempotent — fields that
+// are already encrypted (or empty) are skipped — so it is safe on every boot.
+// SQL cannot encrypt, and there is no jobs migration set that could, so this Go
+// startup step is the migration.
+func (p *SqliteProvider) encryptExistingResults() error {
+	if !p.enc.Enabled() {
+		return nil
+	}
+	type row struct {
+		JID      string `db:"jid"`
+		ClientID string `db:"client_id"`
+		Details  string `db:"details"`
+	}
+	var rows []row
+	if err := p.db.Select(&rows, "SELECT jid, client_id, details FROM jobs"); err != nil {
+		return fmt.Errorf("read jobs: %w", err)
+	}
+
+	migrated := 0
+	for _, r := range rows {
+		var d JobDetails
+		if err := json.Unmarshal([]byte(r.Details), &d); err != nil {
+			p.log.Errorf("job-result backfill: skip jid %q: cannot decode details: %v", r.JID, err)
+			continue
+		}
+		needs := isPlaintextField(d.Error) ||
+			(d.Result != nil && (isPlaintextField(d.Result.StdOut) || isPlaintextField(d.Result.StdErr)))
+		if !needs {
+			continue
+		}
+		if err := p.encryptDetailsResult(&d); err != nil {
+			return fmt.Errorf("encrypt jid %q: %w", r.JID, err)
+		}
+		encoded, err := json.Marshal(&d)
+		if err != nil {
+			return fmt.Errorf("encode jid %q: %w", r.JID, err)
+		}
+		if _, err := p.db.Exec("UPDATE jobs SET details = ? WHERE jid = ? AND client_id = ?", string(encoded), r.JID, r.ClientID); err != nil {
+			return fmt.Errorf("update jid %q: %w", r.JID, err)
+		}
+		migrated++
+	}
+	if migrated > 0 {
+		p.log.Infof("job-result at-rest backfill: encrypted %d job(s)", migrated)
+	}
+	return nil
+}
+
+func isPlaintextField(v string) bool {
+	return v != "" && !enc.IsEncrypted(v)
+}
+
+// encryptDetailsResult is the encrypt-on-write step for a job's command output.
+// It encrypts the recoverable, potentially secret fields — stdout, stderr and
+// the error text — in place before the details JSON is stored. Summary is left
+// plaintext so the schedules "last execution" view can read it without the key,
+// and empty fields are skipped so they round-trip unchanged.
+func (p *SqliteProvider) encryptDetailsResult(d *JobDetails) error {
+	if d == nil || !p.enc.Enabled() {
+		return nil
+	}
+	if err := encryptStringField(p.enc, &d.Error); err != nil {
+		return err
+	}
+	if d.Result != nil {
+		if err := encryptStringField(p.enc, &d.Result.StdOut); err != nil {
+			return err
+		}
+		if err := encryptStringField(p.enc, &d.Result.StdErr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// decryptJobResult is the decrypt-on-read step, mirroring encryptDetailsResult.
+// Legacy plaintext (no prefix) passes through unchanged; a value that carries
+// the prefix but will not decrypt returns an error (fail closed).
+func (p *SqliteProvider) decryptJobResult(job *models.Job) error {
+	if job == nil {
+		return nil
+	}
+	if err := decryptStringField(p.enc, &job.Error); err != nil {
+		return err
+	}
+	if job.Result != nil {
+		if err := decryptStringField(p.enc, &job.Result.StdOut); err != nil {
+			return err
+		}
+		if err := decryptStringField(p.enc, &job.Result.StdErr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func encryptStringField(e *enc.Envelope, v *string) error {
+	if *v == "" || enc.IsEncrypted(*v) {
+		return nil
+	}
+	out, err := e.Encrypt(*v)
+	if err != nil {
+		return err
+	}
+	*v = out
+	return nil
+}
+
+func decryptStringField(e *enc.Envelope, v *string) error {
+	if *v == "" {
+		return nil
+	}
+	out, err := e.Decrypt(*v)
+	if err != nil {
+		return err
+	}
+	*v = out
+	return nil
 }
 
 // TODO: this was added to support test dependencies. we could potentially remove if there's a
@@ -117,7 +251,11 @@ func (p *SqliteProvider) GetByJID(clientID, jid string) (*models.Job, error) {
 		}
 		return nil, err
 	}
-	return res.convert(), nil
+	job := res.convert()
+	if err := p.decryptJobResult(job); err != nil {
+		return nil, err
+	}
+	return job, nil
 }
 
 func (p *SqliteProvider) List(ctx context.Context, options *query.ListOptions) ([]*models.Job, error) {
@@ -142,7 +280,13 @@ func (p *SqliteProvider) List(ctx context.Context, options *query.ListOptions) (
 	if err != nil {
 		return nil, err
 	}
-	return convertJobs(res), nil
+	jobs := convertJobs(res)
+	for _, job := range jobs {
+		if err := p.decryptJobResult(job); err != nil {
+			return nil, err
+		}
+	}
+	return jobs, nil
 }
 
 func (p *SqliteProvider) Count(ctx context.Context, options *query.ListOptions) (int, error) {
@@ -162,10 +306,14 @@ func (p *SqliteProvider) Count(ctx context.Context, options *query.ListOptions) 
 
 // SaveJob creates a new or updates an existing job.
 func (p *SqliteProvider) SaveJob(job *models.Job) error {
-	_, err := sqlite.WithRetryWhenBusy(func() (result sql.Result, err error) {
+	sqliteJob, err := p.toSqlite(job)
+	if err != nil {
+		return err
+	}
+	_, err = sqlite.WithRetryWhenBusy(func() (result sql.Result, err error) {
 		result, err = p.db.NamedExec(`INSERT OR REPLACE INTO jobs (jid, status, started_at, finished_at, created_by, client_id, multi_job_id, details)
 		VALUES (:jid, :status, :started_at, :finished_at, :created_by, :client_id, :multi_job_id, :details)`,
-			convertToSqlite(job))
+			sqliteJob)
 		return result, err
 	}, "savejob", p.log)
 
@@ -177,10 +325,14 @@ func (p *SqliteProvider) SaveJob(job *models.Job) error {
 
 // CreateJob creates a new job. If already exists with the same ID - does nothing and returns nil.
 func (p *SqliteProvider) CreateJob(job *models.Job) error {
-	_, err := sqlite.WithRetryWhenBusy(func() (result sql.Result, err error) {
+	sqliteJob, err := p.toSqlite(job)
+	if err != nil {
+		return err
+	}
+	_, err = sqlite.WithRetryWhenBusy(func() (result sql.Result, err error) {
 		result, err = p.db.NamedExec(`INSERT INTO jobs (jid, status, started_at, finished_at, created_by, client_id, multi_job_id, details)
 		VALUES (:jid, :status, :started_at, :finished_at, :created_by, :client_id, :multi_job_id, :details)`,
-			convertToSqlite(job))
+			sqliteJob)
 		return result, err
 	}, "createjob", p.log)
 	if err != nil {
@@ -289,6 +441,25 @@ func (j *jobSqlite) convert() *models.Job {
 		res.MultiJobID = &j.MultiJobID.String
 	}
 	return res
+}
+
+// toSqlite builds the DB row for a job and encrypts its command-output fields
+// at rest. The details are copied first so the caller's in-memory job (which the
+// API may still return to the operator) keeps the plaintext.
+func (p *SqliteProvider) toSqlite(job *models.Job) (*jobSqlite, error) {
+	res := convertToSqlite(job)
+	if p.enc.Enabled() && res.Details != nil {
+		clone := *res.Details
+		if clone.Result != nil {
+			resultCopy := *clone.Result
+			clone.Result = &resultCopy
+		}
+		if err := p.encryptDetailsResult(&clone); err != nil {
+			return nil, err
+		}
+		res.Details = &clone
+	}
+	return res, nil
 }
 
 func convertToSqlite(job *models.Job) *jobSqlite {

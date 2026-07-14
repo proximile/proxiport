@@ -66,7 +66,11 @@ func (al *APIListener) handleFileUploads(w http.ResponseWriter, req *http.Reques
 	}
 	defer uploadRequest.File.Close()
 
-	wasCreated, err := al.filesAPI.CreateDirIfNotExists(al.config.GetUploadDir(), files.DefaultMode)
+	// The staging dir holds cleartext upload payloads until every target agent
+	// has pulled them, so keep it owner-only (0700): no other host user should
+	// be able to read a file in transit. Mounting GetUploadDir() on a tmpfs
+	// keeps the payload off persistent disk entirely.
+	wasCreated, err := al.filesAPI.CreateDirIfNotExists(al.config.GetUploadDir(), files.UploadStagingDirMode)
 	if err != nil {
 		al.jsonError(w, err)
 		return
@@ -110,6 +114,11 @@ func (al *APIListener) handleFileUploads(w http.ResponseWriter, req *http.Reques
 		al.jsonError(w, err)
 		return
 	}
+	// Restrict the staged cleartext payload to the daemon only (0600); the
+	// default create mode is group/other-readable.
+	if err := al.filesAPI.ChangeMode(uploadRequest.SourceFilePath, files.UploadStagingFileMode); err != nil {
+		al.Errorf("failed to restrict permissions on staged upload %s: %v", uploadRequest.SourceFilePath, err)
+	}
 
 	file, err := al.filesAPI.Open(uploadRequest.SourceFilePath)
 	if err != nil {
@@ -126,12 +135,10 @@ func (al *APIListener) handleFileUploads(w http.ResponseWriter, req *http.Reques
 	uploadRequest.Md5Checksum = md5Checksum
 
 	al.Debugf(
-		"stored file %s on server, size %d, Content-Type %s, temp location: %s, md5 checksum: %x",
+		"staged upload %s on server, size %d, Content-Type %s",
 		uploadRequest.FileHeader.Filename,
 		uploadRequest.FileHeader.Size,
 		uploadRequest.FileHeader.Header.Get("Content-Type"),
-		uploadRequest.SourceFilePath,
-		md5Checksum,
 	)
 
 	uploadRep := &models.UploadResponseShort{

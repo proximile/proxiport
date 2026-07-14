@@ -12,9 +12,11 @@ import (
 
 	"github.com/proximile/proxiport/db/migration/monitoring"
 	"github.com/proximile/proxiport/db/sqlite"
+	"github.com/proximile/proxiport/share/enc"
 	"github.com/proximile/proxiport/share/logger"
 	"github.com/proximile/proxiport/share/models"
 	"github.com/proximile/proxiport/share/query"
+	"github.com/proximile/proxiport/share/types"
 )
 
 type DBProvider interface {
@@ -37,9 +39,10 @@ type SqliteProvider struct {
 	db        *sqlx.DB
 	logger    *logger.Logger
 	converter *query.SQLConverter
+	enc       *enc.Envelope
 }
 
-func NewSqliteProvider(dbPath string, dataSourceOptions sqlite.DataSourceOptions, logger *logger.Logger) (DBProvider, error) {
+func NewSqliteProvider(dbPath string, dataSourceOptions sqlite.DataSourceOptions, envelope *enc.Envelope, logger *logger.Logger) (DBProvider, error) {
 	db, err := sqlite.New(dbPath, monitoring.AssetNames(), monitoring.Asset, dataSourceOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create monitoring DB instance: %v", err)
@@ -47,11 +50,85 @@ func NewSqliteProvider(dbPath string, dataSourceOptions sqlite.DataSourceOptions
 
 	logger.Infof("initialized database at %s", dbPath)
 
-	return &SqliteProvider{
+	if envelope == nil {
+		envelope = enc.NewEnvelope(nil)
+	}
+	p := &SqliteProvider{
 		db:        db,
 		logger:    logger,
 		converter: query.NewSQLConverter(db.DriverName()),
-	}, nil
+		enc:       envelope,
+	}
+	if err := p.encryptExistingMeasurements(); err != nil {
+		logger.Errorf("monitoring at-rest backfill failed (new measurements are still encrypted): %v", err)
+	}
+	return p, nil
+}
+
+// encryptExistingMeasurements walks the measurements table once at startup and
+// encrypts any legacy plaintext processes/mountpoints blob in place. Idempotent
+// (already-encrypted or empty values are skipped), so it is safe every boot.
+func (p *SqliteProvider) encryptExistingMeasurements() error {
+	if !p.enc.Enabled() {
+		return nil
+	}
+	type row struct {
+		ClientID    string    `db:"client_id"`
+		Timestamp   time.Time `db:"timestamp"`
+		Processes   string    `db:"processes"`
+		Mountpoints string    `db:"mountpoints"`
+	}
+	var rows []row
+	if err := p.db.Select(&rows, "SELECT client_id, timestamp, processes, mountpoints FROM measurements"); err != nil {
+		return fmt.Errorf("read measurements: %w", err)
+	}
+	migrated := 0
+	for _, r := range rows {
+		proc, procChanged, err := p.maybeEncrypt(r.Processes)
+		if err != nil {
+			return err
+		}
+		mount, mountChanged, err := p.maybeEncrypt(r.Mountpoints)
+		if err != nil {
+			return err
+		}
+		if !procChanged && !mountChanged {
+			continue
+		}
+		if _, err := p.db.Exec(
+			"UPDATE measurements SET processes = ?, mountpoints = ? WHERE client_id = ? AND timestamp = ?",
+			proc, mount, r.ClientID, r.Timestamp,
+		); err != nil {
+			return fmt.Errorf("update measurement: %w", err)
+		}
+		migrated++
+	}
+	if migrated > 0 {
+		p.logger.Infof("monitoring at-rest backfill: encrypted %d measurement(s)", migrated)
+	}
+	return nil
+}
+
+func (p *SqliteProvider) maybeEncrypt(v string) (out string, changed bool, err error) {
+	if v == "" || enc.IsEncrypted(v) {
+		return v, false, nil
+	}
+	out, err = p.enc.Encrypt(v)
+	if err != nil {
+		return v, false, err
+	}
+	return out, true, nil
+}
+
+// decryptJSONString decrypts a stored processes/mountpoints value for the API.
+// Legacy plaintext passes through; a prefixed value that will not decrypt errors
+// (fail closed).
+func (p *SqliteProvider) decryptJSONString(v types.JSONString) (types.JSONString, error) {
+	out, err := p.enc.Decrypt(string(v))
+	if err != nil {
+		return "", err
+	}
+	return types.JSONString(out), nil
 }
 
 func (p *SqliteProvider) ListMountpointsByClientID(ctx context.Context, clientID string, o *query.ListOptions) ([]*ClientMountpointsPayload, error) {
@@ -61,8 +138,17 @@ func (p *SqliteProvider) ListMountpointsByClientID(ctx context.Context, clientID
 	q, params = p.converter.AppendOptionsToQuery(o, q, params)
 
 	val := []*ClientMountpointsPayload{}
-	err := p.db.SelectContext(ctx, &val, q, params...)
-	return val, err
+	if err := p.db.SelectContext(ctx, &val, q, params...); err != nil {
+		return nil, err
+	}
+	for _, m := range val {
+		dec, err := p.decryptJSONString(m.Mountpoints)
+		if err != nil {
+			return nil, err
+		}
+		m.Mountpoints = dec
+	}
+	return val, nil
 }
 
 func (p *SqliteProvider) ListProcessesByClientID(ctx context.Context, clientID string, o *query.ListOptions) ([]*ClientProcessesPayload, error) {
@@ -72,8 +158,17 @@ func (p *SqliteProvider) ListProcessesByClientID(ctx context.Context, clientID s
 	q, params = p.converter.AppendOptionsToQuery(o, q, params)
 
 	val := []*ClientProcessesPayload{}
-	err := p.db.SelectContext(ctx, &val, q, params...)
-	return val, err
+	if err := p.db.SelectContext(ctx, &val, q, params...); err != nil {
+		return nil, err
+	}
+	for _, m := range val {
+		dec, err := p.decryptJSONString(m.Processes)
+		if err != nil {
+			return nil, err
+		}
+		m.Processes = dec
+	}
+	return val, nil
 }
 
 func (p *SqliteProvider) ListMetricsByClientID(ctx context.Context, clientID string, o *query.ListOptions) ([]*ClientMetricsPayload, error) {
@@ -179,7 +274,23 @@ func (p *SqliteProvider) ListGraphByClientID(ctx context.Context, clientID strin
 }
 
 func (p *SqliteProvider) CreateMeasurement(ctx context.Context, measurement *models.Measurement) error {
-	q := `INSERT INTO measurements (client_id, timestamp, cpu_usage_percent, memory_usage_percent, io_usage_percent, processes, mountpoints, net_lan_in, net_lan_out, net_wan_in, net_wan_out) 
+	// Encrypt the two free-text blobs at rest on a copy, so the caller's
+	// in-memory measurement is untouched and only the DB holds ciphertext.
+	if p.enc.Enabled() {
+		mCopy := *measurement
+		if ct, changed, err := p.maybeEncrypt(mCopy.Processes); err != nil {
+			return err
+		} else if changed {
+			mCopy.Processes = ct
+		}
+		if ct, changed, err := p.maybeEncrypt(mCopy.Mountpoints); err != nil {
+			return err
+		} else if changed {
+			mCopy.Mountpoints = ct
+		}
+		measurement = &mCopy
+	}
+	q := `INSERT INTO measurements (client_id, timestamp, cpu_usage_percent, memory_usage_percent, io_usage_percent, processes, mountpoints, net_lan_in, net_lan_out, net_wan_in, net_wan_out)
 		VALUES (:client_id, :timestamp, :cpu_usage_percent, :memory_usage_percent, :io_usage_percent, :processes, :mountpoints, `
 	if measurement.NetLan == nil {
 		q = q + `null, null, `
