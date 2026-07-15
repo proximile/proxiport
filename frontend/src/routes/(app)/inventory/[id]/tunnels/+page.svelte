@@ -63,14 +63,22 @@
   let aclMode = $state<'current' | 'specific' | 'anyone'>('current');
   let aclIp = $state('');
   let myIp = $state('');
+  let myIpError = $state('');
 
   async function loadMyIp() {
+    myIpError = '';
     try {
       const r = await apiGet<{ ip?: string } | string>('/me/ip');
       const ip = typeof r === 'string' ? r : (r?.ip ?? '');
       myIp = ip;
+      if (!ip) myIpError = 'The server could not determine your IP address.';
       if (aclMode === 'current') aclIp = ip;
-    } catch { /* best-effort */ }
+    } catch (err) {
+      // Surface the failure: with "Only my current IP" selected, an empty IP
+      // must block tunnel creation (see formValid) rather than silently drop
+      // the ACL and open the tunnel to everyone.
+      myIpError = err instanceof Error ? err.message : 'Failed to look up your current IP address.';
+    }
   }
 
   function onAclModeChange() {
@@ -154,6 +162,11 @@
       if (!pp || pp < 1 || pp > 65535) return 'Public port must be 1–65535.';
     }
     if (aclMode === 'specific' && !aclIp.trim()) return 'CIDR is required for a specific ACL.';
+    // Fail closed: "Only my current IP" with no resolved IP would otherwise
+    // build an empty ACL and create a tunnel open to everyone.
+    if (aclMode === 'current' && !aclIp.trim()) {
+      return 'Could not determine your current IP address. Retry, or choose a specific range or "No restrictions".';
+    }
     return '';
   }
 
@@ -403,6 +416,13 @@
                        placeholder={aclMode === 'specific' ? '192.168.1.0/24' : ''}
                        class="font-mono" />
               </label>
+            {/if}
+            {#if aclMode === 'current' && !aclIp.trim()}
+              <p class="md:col-span-3 text-xs text-rose-400">
+                Couldn’t determine your current IP address{myIpError ? ` — ${myIpError}` : ''}. The tunnel can’t be
+                restricted to it. <button type="button" class="underline" onclick={loadMyIp}>Retry</button>,
+                or choose a specific range or “No restrictions”.
+              </p>
             {/if}
           </div>
         </div>

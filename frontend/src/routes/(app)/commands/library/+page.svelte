@@ -14,18 +14,22 @@
   async function load() {
     loading = true;
     error = '';
-    try {
-      const [c, s] = await Promise.allSettled([
-        apiGet<any[]>('/library/commands?page[limit]=100'),
-        apiGet<any[]>('/library/scripts?page[limit]=100')
-      ]);
-      if (c.status === 'fulfilled') commands = c.value ?? [];
-      if (s.status === 'fulfilled') scripts = s.value ?? [];
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-    } finally {
-      loading = false;
+    // Promise.allSettled never rejects, so failures must be read off each
+    // result — otherwise a failed fetch is indistinguishable from an empty
+    // library and the ErrorBox below never shows.
+    const [c, s] = await Promise.allSettled([
+      apiGet<any[]>('/library/commands?page[limit]=100'),
+      apiGet<any[]>('/library/scripts?page[limit]=100')
+    ]);
+    if (c.status === 'fulfilled') commands = c.value ?? [];
+    if (s.status === 'fulfilled') scripts = s.value ?? [];
+    const failures = [c, s].filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
+    if (failures.length) {
+      error = failures
+        .map((f) => (f.reason instanceof Error ? f.reason.message : String(f.reason)))
+        .join('; ');
     }
+    loading = false;
   }
 
   onMount(load);
