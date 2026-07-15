@@ -788,9 +788,7 @@ func (s *ClientServiceProvider) StartTunnel(
 		go s.terminateTunnelOnIdleTimeout(ctx, tunnel, client)
 	}
 
-	existingTunnels := client.GetTunnels()
-	existingTunnels = append(existingTunnels, tunnel)
-	client.SetTunnels(existingTunnels)
+	client.AddTunnel(tunnel)
 
 	return tunnel, nil
 }

@@ -86,6 +86,10 @@ type APIListener struct {
 	notificationsDB        *sqlx.DB
 	notificationsCleaner   notificationsSQLite.Closeable
 
+	// tunnelOpLocks serializes tunnel create/delete per client so the
+	// check-then-act guards in the handlers are atomic for a given client.
+	tunnelOpLocks keyedMutex
+
 	mu sync.RWMutex
 }
 
