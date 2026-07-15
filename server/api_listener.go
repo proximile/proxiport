@@ -31,6 +31,7 @@ import (
 
 	"github.com/proximile/proxiport/server/api/authorization"
 	"github.com/proximile/proxiport/server/api/session"
+	"github.com/proximile/proxiport/server/clients"
 	"github.com/proximile/proxiport/server/clients/storedtunnels"
 	"github.com/proximile/proxiport/server/script"
 
@@ -88,7 +89,7 @@ type APIListener struct {
 
 	// tunnelOpLocks serializes tunnel create/delete per client so the
 	// check-then-act guards in the handlers are atomic for a given client.
-	tunnelOpLocks keyedMutex
+	tunnelOpLocks clients.KeyedMutex
 
 	mu sync.RWMutex
 }
