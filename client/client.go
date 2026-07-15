@@ -146,8 +146,12 @@ func (c *Client) verifyServer(hostname string, remote net.Addr, key ssh.PublicKe
 
 	switch {
 	case pin == "":
-		// No pin: the host key is accepted on trust. This is insecure against a
-		// man-in-the-middle at first connect — pin the SHA-256 fingerprint.
+		// No pin. Accepting the host key on trust is insecure against a
+		// man-in-the-middle at first connect, so an operator can opt into
+		// failing closed with require_fingerprint.
+		if c.configHolder.Client.RequireFingerprint {
+			return fmt.Errorf("no server fingerprint pinned but require_fingerprint is set: refusing to connect. Pin it by setting 'fingerprint' to %s", sha256FP)
+		}
 		c.Infof("No server fingerprint pinned — accepting host key on trust. Pin it by setting 'fingerprint' to %s", sha256FP)
 		return nil
 

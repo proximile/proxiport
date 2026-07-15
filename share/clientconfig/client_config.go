@@ -31,6 +31,7 @@ type ClientConfig struct {
 	FallbackServers          []string          `json:"fallback_servers" mapstructure:"fallback_servers"`
 	ServerSwitchbackInterval time.Duration     `json:"server_switchback_interval" mapstructure:"server_switchback_interval"`
 	Fingerprint              string            `json:"fingerprint" mapstructure:"fingerprint"`
+	RequireFingerprint       bool              `json:"require_fingerprint" mapstructure:"require_fingerprint"`
 	Auth                     string            `json:"auth" mapstructure:"auth"`
 	Proxy                    string            `json:"proxy" mapstructure:"proxy"`
 	ID                       string            `json:"id" mapstructure:"id"`
