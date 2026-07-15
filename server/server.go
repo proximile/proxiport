@@ -108,7 +108,11 @@ func NewServer(ctx context.Context, config *chconfig.Config, opts *ServerOpts) (
 		return nil, err
 	}
 	fingerprint := chshare.FingerprintKey(privateKey.PublicKey())
-	s.Infof("Fingerprint %s", fingerprint)
+	fingerprintSHA256 := chshare.FingerprintKeySHA256(privateKey.PublicKey())
+	// Advertise both so agents can pin the SHA-256 fingerprint while MD5-pinned
+	// agents keep working during the migration.
+	s.Infof("Fingerprint (SHA-256, pin this): %s", fingerprintSHA256)
+	s.Infof("Fingerprint (MD5, deprecated):   %s", fingerprint)
 
 	s.Infof("data directory path: %q", config.Server.DataDir)
 	if config.Server.DataDir == "" {
@@ -120,11 +124,16 @@ func NewServer(ctx context.Context, config *chconfig.Config, opts *ServerOpts) (
 		return nil, fmt.Errorf("failed to create data dir %q: %v", config.Server.DataDir, makedirErr)
 	}
 
-	// store fingerprint in file
+	// store fingerprints in files (MD5 kept at its historical path for
+	// compatibility; SHA-256 alongside it).
 	fingerprintFile := path.Join(config.Server.DataDir, "proxiportd-fingerprint.txt")
 	if err := filesAPI.Write(fingerprintFile, fingerprint); err != nil {
 		// juts log it and proceed
 		s.Errorf("Failed to store fingerprint %q in file %q: %v", fingerprint, fingerprintFile, err)
+	}
+	fingerprintSHA256File := path.Join(config.Server.DataDir, "proxiportd-fingerprint-sha256.txt")
+	if err := filesAPI.Write(fingerprintSHA256File, fingerprintSHA256); err != nil {
+		s.Errorf("Failed to store fingerprint %q in file %q: %v", fingerprintSHA256, fingerprintSHA256File, err)
 	}
 
 	jobsDB, err := sqlite.New(
@@ -237,7 +246,7 @@ func NewServer(ctx context.Context, config *chconfig.Config, opts *ServerOpts) (
 
 	s.filesAPI = filesAPI
 
-	s.apiListener, err = NewAPIListener(s, fingerprint)
+	s.apiListener, err = NewAPIListener(s, fingerprint, fingerprintSHA256)
 	if err != nil {
 		return nil, err
 	}

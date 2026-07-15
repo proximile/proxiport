@@ -350,7 +350,10 @@ Edit `/etc/proxiport/proxiport.conf` and set three fields:
 - **`fingerprint`** — the proxiportd host-key fingerprint, printed in
   the server's log on first boot and shown on the SPA's **Info** page.
   Without it, the agent will accept whatever public key the server
-  presents — fine for testing, never for production.
+  presents — fine for testing, never for production. Prefer the
+  **SHA-256** value (starts with `SHA256:`): the agent matches it in
+  full, in constant time. The legacy MD5 colon-hex form still works but
+  is deprecated.
 
 Then start the service:
 

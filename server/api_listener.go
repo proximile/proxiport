@@ -60,6 +60,7 @@ type APIListener struct {
 	*Server
 
 	fingerprint       string
+	fingerprintSHA256 string
 	apiSessions       *session.Cache
 	router            *mux.Router
 	httpServer        *chshare.HTTPServer
@@ -115,6 +116,7 @@ type UserService interface {
 func NewAPIListener(
 	server *Server,
 	fingerprint string,
+	fingerprintSHA256 string,
 ) (*APIListener, error) {
 	ctx := context.Background()
 
@@ -236,6 +238,7 @@ func NewAPIListener(
 		Server:                 server,
 		Logger:                 allog,
 		fingerprint:            fingerprint,
+		fingerprintSHA256:      fingerprintSHA256,
 		httpServer:             chshare.NewHTTPServer(int(config.API.MaxRequestBytes), allog, HTTPServerOptions...),
 		requestLogOptions:      config.InitRequestLogOptions(),
 		bannedUsers:            security.NewBanList(time.Duration(config.API.UserLoginWait) * time.Second),

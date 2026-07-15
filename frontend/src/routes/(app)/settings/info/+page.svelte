@@ -39,7 +39,8 @@
   {:else if status}
     <div class="card p-4 space-y-2">
       <KV k="Server version" v={status.version} mono />
-      <KV k="Fingerprint" v={status.fingerprint} mono />
+      <KV k="Fingerprint (SHA-256)" v={status.fingerprint_sha256 || '—'} mono />
+      <KV k="Fingerprint (MD5, legacy)" v={status.fingerprint} mono />
       <KV k="Pairing URL" v={status.pairing_url || '—'} mono />
       <KV k="Connect URLs" v={(status.connect_url ?? []).join(', ') || '—'} mono />
     </div>

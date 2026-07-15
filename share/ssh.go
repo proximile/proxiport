@@ -46,6 +46,9 @@ func useGo19CompatibleKeyGenerator(curve elliptic.Curve, r io.Reader) (*ecdsa.Pr
 	return backwardskey.ECDSALegacy(curve, r)
 }
 
+// FingerprintKey returns the legacy MD5 colon-hex fingerprint of a host key
+// (e.g. "36:98:...:15"). Kept for backward compatibility with agents pinned to
+// this format; new deployments should pin the SHA-256 fingerprint instead.
 func FingerprintKey(k ssh.PublicKey) string {
 	bytes := md5.Sum(k.Marshal())
 	strbytes := make([]string, len(bytes))
@@ -53,6 +56,14 @@ func FingerprintKey(k ssh.PublicKey) string {
 		strbytes[i] = fmt.Sprintf("%02x", b)
 	}
 	return strings.Join(strbytes, ":")
+}
+
+// FingerprintKeySHA256 returns the SHA-256 fingerprint of a host key in the
+// self-describing OpenSSH form "SHA256:<base64>". The "SHA256:" prefix lets a
+// pin's algorithm be detected by shape, so MD5 and SHA-256 pins can coexist
+// during the migration off MD5.
+func FingerprintKeySHA256(k ssh.PublicKey) string {
+	return ssh.FingerprintSHA256(k)
 }
 
 func HandleTCPStream(l *logger.Logger, connStats *ConnStats, src io.ReadWriteCloser, remote string) {
