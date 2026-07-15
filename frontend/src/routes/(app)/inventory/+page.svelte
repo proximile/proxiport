@@ -16,12 +16,6 @@
     goto(`/inventory/${c.id}`);
   }
 
-  function rowKey(c: Client, e: KeyboardEvent) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      goto(`/inventory/${c.id}`);
-    }
-  }
 
   let clients: Client[] = $state([]);
   let filter = $state('');
@@ -114,12 +108,15 @@
         </thead>
         <tbody>
           {#each filtered as c (c.id)}
+            <!-- Row click is a mouse-only convenience; keyboard/AT users use the
+                 Name-cell link. The row is intentionally not a tab stop nor a
+                 "button" role — that mislabelled every row with its full text
+                 content and added a tab stop per row. -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <tr
               class="cursor-pointer hover:bg-pp-surface-2"
-              role="button"
-              tabindex="0"
               onclick={(e) => rowClick(c, e)}
-              onkeydown={(e) => rowKey(c, e)}
             >
               <td>
                 {#if c.connection_state === 'connected'}
