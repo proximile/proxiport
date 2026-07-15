@@ -2,6 +2,8 @@ package clientdata
 
 import (
 	"encoding/json"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 
 	"github.com/proximile/proxiport/server/api/users"
 	"github.com/proximile/proxiport/server/cgroups"
+	"github.com/proximile/proxiport/server/clients/clienttunnel"
 )
 
 func NewTestClient(id string, address string, hostname string, clientAuthID string, connection ssh.Conn) (c *Client) {
@@ -435,4 +438,40 @@ func TestToCalculatedWhenDisconnected(t *testing.T) {
 	calculated := client.ToCalculated(groups)
 	assert.Equal(t, client, calculated.Client)
 	assert.Equal(t, "disconnected", string(calculated.ConnectionState))
+}
+
+// TestClientAddRemoveTunnelConcurrent guards the atomicity of the client's
+// tunnel-list mutations. AddTunnel and RemoveTunnelByID each perform a
+// read-modify-write on c.Tunnels; if that is not done under a single lock,
+// concurrent callers lose updates. Here N goroutines each add one distinct
+// tunnel: with atomic AddTunnel the final list has exactly N entries; a bare
+// GetTunnels+append+SetTunnels loses some appends and yields fewer.
+func TestClientAddRemoveTunnelConcurrent(t *testing.T) {
+	const n = 200
+	c := &Client{ID: "concurrent-tunnels"}
+
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c.AddTunnel(&clienttunnel.Tunnel{ID: strconv.Itoa(i)})
+		}(i)
+	}
+	wg.Wait()
+
+	assert.Len(t, c.GetTunnels(), n, "concurrent AddTunnel lost updates")
+
+	// Now concurrently remove every tunnel; the list must end empty.
+	wg = sync.WaitGroup{}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c.RemoveTunnelByID(strconv.Itoa(i))
+		}(i)
+	}
+	wg.Wait()
+
+	assert.Len(t, c.GetTunnels(), 0, "concurrent RemoveTunnelByID lost updates")
 }

@@ -80,6 +80,12 @@ type ClientServiceProvider struct {
 	logger            *logger.Logger
 	acme              *acme.Acme
 
+	// startLocks serializes StartClient per clientID so the
+	// exists/already-connected check and the subsequent Save form one atomic
+	// critical section for a given client (two connections racing the same
+	// clientID would otherwise both pass the check and both register).
+	startLocks KeyedMutex
+
 	mu sync.RWMutex
 }
 
@@ -286,6 +292,12 @@ func (s *ClientServiceProvider) StartClient(
 ) (*clientdata.Client, error) {
 	clog.Debugf("Starting client session: %s", clientID)
 	repo := s.GetRepo()
+
+	// Serialize the whole exists-check → register → Save sequence per clientID.
+	// Two connections racing the same clientID would otherwise both read "not
+	// connected" and both register, clobbering each other's repo entry.
+	unlock := s.startLocks.Lock(clientID)
+	defer unlock()
 
 	clientAddr := sshConn.RemoteAddr().String()
 	clientHost, _, err := net.SplitHostPort(clientAddr)
@@ -788,9 +800,7 @@ func (s *ClientServiceProvider) StartTunnel(
 		go s.terminateTunnelOnIdleTimeout(ctx, tunnel, client)
 	}
 
-	existingTunnels := client.GetTunnels()
-	existingTunnels = append(existingTunnels, tunnel)
-	client.SetTunnels(existingTunnels)
+	client.AddTunnel(tunnel)
 
 	return tunnel, nil
 }

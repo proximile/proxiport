@@ -31,6 +31,7 @@ import (
 
 	"github.com/proximile/proxiport/server/api/authorization"
 	"github.com/proximile/proxiport/server/api/session"
+	"github.com/proximile/proxiport/server/clients"
 	"github.com/proximile/proxiport/server/clients/storedtunnels"
 	"github.com/proximile/proxiport/server/script"
 
@@ -85,6 +86,10 @@ type APIListener struct {
 	notificationsProcessor notifications.Processor
 	notificationsDB        *sqlx.DB
 	notificationsCleaner   notificationsSQLite.Closeable
+
+	// tunnelOpLocks serializes tunnel create/delete per client so the
+	// check-then-act guards in the handlers are atomic for a given client.
+	tunnelOpLocks clients.KeyedMutex
 
 	mu sync.RWMutex
 }

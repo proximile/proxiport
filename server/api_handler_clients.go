@@ -300,6 +300,14 @@ func (al *APIListener) handlePutClientTunnel(w http.ResponseWriter, req *http.Re
 		return
 	}
 
+	// Serialize tunnel create/delete for this client so the duplicate-tunnel
+	// checks below and the tunnel-list append inside StartClientTunnels form a
+	// single atomic critical section. Without it, concurrent identical PUTs all
+	// pass the checks and each append a tunnel (a reproduced TOCTOU). Keyed on
+	// clientID so requests for other clients are unaffected.
+	unlockTunnelOps := al.tunnelOpLocks.Lock(clientID)
+	defer unlockTunnelOps()
+
 	if existing := al.clientService.FindTunnelByRemote(client, remote); existing != nil {
 		al.jsonErrorResponseWithErrCode(w, http.StatusBadRequest, ErrCodeTunnelExist, "Tunnel already exist.")
 		return
@@ -538,6 +546,11 @@ func (al *APIListener) handleDeleteClientTunnel(w http.ResponseWriter, req *http
 		al.jsonErrorResponseWithTitle(w, http.StatusBadRequest, "tunnel id is missing")
 		return
 	}
+
+	// Serialize with concurrent create/delete for this client (see the matching
+	// lock in handlePutClientTunnel) so the find-then-terminate is atomic.
+	unlockTunnelOps := al.tunnelOpLocks.Lock(clientID)
+	defer unlockTunnelOps()
 
 	tunnel := al.clientService.FindTunnel(client, tunnelID)
 	if tunnel == nil {
