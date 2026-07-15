@@ -229,6 +229,44 @@ func TestStartClientDisconnected(t *testing.T) {
 	assert.Equal(t, 13, client.UpdatesStatus.UpdatesAvailable)
 }
 
+func TestStartClientRejectsDifferentCredential(t *testing.T) {
+	connMock := test.NewConnMock()
+	connMock.ReturnRemoteAddr = &net.TCPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 2345}
+	now := time.Now()
+
+	newCS := func() *ClientServiceProvider {
+		return &ClientServiceProvider{
+			repo: NewClientRepository([]*clientdata.Client{{
+				ID:             "bound-client",
+				ClientAuthID:   "credential-A",
+				DisconnectedAt: &now,
+			}}, nil, testLog),
+			portDistributor: ports.NewPortDistributor(mapset.NewSet()),
+			logger:          testLog,
+		}
+	}
+
+	// Per-client-credential deployment: a different credential claiming the
+	// already-registered client id must be rejected (identity/history takeover).
+	_, err := newCS().StartClient(
+		context.Background(), "credential-B", "bound-client", connMock, false,
+		&chshare.ConnectionRequest{Name: "hijack", Version: "0.7.0"}, testLog)
+	assert.Error(t, err)
+
+	// The correct credential still connects.
+	_, err = newCS().StartClient(
+		context.Background(), "credential-A", "bound-client", connMock, false,
+		&chshare.ConnectionRequest{Name: "legit", Version: "0.7.0"}, testLog)
+	assert.NoError(t, err)
+
+	// Multiuse-credential deployment: clients share a credential by design, so
+	// the binding does not apply and a different credential is accepted.
+	_, err = newCS().StartClient(
+		context.Background(), "credential-B", "bound-client", connMock, true,
+		&chshare.ConnectionRequest{Name: "multiuse", Version: "0.7.0"}, testLog)
+	assert.NoError(t, err)
+}
+
 func TestDeleteOfflineClient(t *testing.T) {
 	c1Active := New(t).Logger(testLog).Build()
 	c2Active := New(t).Logger(testLog).Build()
