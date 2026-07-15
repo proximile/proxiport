@@ -534,15 +534,25 @@ func (c *Client) generateNewTunnelID() int64 {
 	return atomic.AddInt64(&c.tunnelIDAutoIncrement, 1)
 }
 
+// AddTunnel appends a tunnel to the client's tunnel list as one atomic
+// read-modify-write under flock, so it does not race a concurrent
+// AddTunnel/RemoveTunnelByID (which a bare GetTunnels+append+SetTunnels would).
+func (c *Client) AddTunnel(t *clienttunnel.Tunnel) {
+	c.flock.Lock()
+	defer c.flock.Unlock()
+	c.Tunnels = append(c.Tunnels, t)
+}
+
 func (c *Client) RemoveTunnelByID(tunnelID string) {
-	updatedTunnelList := make([]*clienttunnel.Tunnel, 0)
-	// TODO: (rs): not thread-safe
-	for _, tunnel := range c.GetTunnels() {
+	c.flock.Lock()
+	defer c.flock.Unlock()
+	updatedTunnelList := make([]*clienttunnel.Tunnel, 0, len(c.Tunnels))
+	for _, tunnel := range c.Tunnels {
 		if tunnel.ID != tunnelID {
 			updatedTunnelList = append(updatedTunnelList, tunnel)
 		}
 	}
-	c.SetTunnels(updatedTunnelList)
+	c.Tunnels = updatedTunnelList
 }
 
 func (c *Client) Banner() string {

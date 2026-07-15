@@ -29,7 +29,7 @@ require (
 	github.com/jpillora/sizestr v1.0.0
 	github.com/kardianos/service v1.3.0
 	github.com/kr/fs v0.1.0 // indirect
-	github.com/mattn/go-sqlite3 v1.14.47
+	github.com/mattn/go-sqlite3 v1.14.48
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/mocktools/go-smtp-mock v1.10.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -51,12 +51,12 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/wwt/guac v1.3.2
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/crypto v0.53.0
-	golang.org/x/net v0.56.0
+	golang.org/x/crypto v0.54.0
+	golang.org/x/net v0.57.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
-	golang.org/x/term v0.44.0
-	golang.org/x/text v0.39.0
+	golang.org/x/term v0.45.0
+	golang.org/x/text v0.40.0
 	gopkg.in/h2non/gock.v1 v1.1.2
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
@@ -69,10 +69,10 @@ require (
 	github.com/mocktools/go-smtp-mock/v2 v2.5.4
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/oleiade/reflections v1.1.0
-	github.com/pkg/sftp v1.13.10
+	github.com/pkg/sftp v1.13.11
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/trustelem/zxcvbn v1.0.1
-	github.com/wneessen/go-mail v0.8.0
+	github.com/wneessen/go-mail v0.8.1
 )
 
 require (

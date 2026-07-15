@@ -13,18 +13,18 @@
 
   async function load() {
     loading = true;
-    try {
-      const [s, p] = await Promise.allSettled([
-        apiGet<ServerStatus>('/status'),
-        apiGet<any>('/auth/provider').catch(() => null)
-      ]);
-      if (s.status === 'fulfilled') status = s.value;
-      if (p.status === 'fulfilled') provider = p.value;
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-    } finally {
-      loading = false;
-    }
+    error = '';
+    // Promise.allSettled never rejects, so a failed /status must be read off
+    // the settled result; otherwise status stays null and the page renders
+    // blank with no error.
+    const [s, p] = await Promise.allSettled([
+      apiGet<ServerStatus>('/status'),
+      apiGet<any>('/auth/provider').catch(() => null)
+    ]);
+    if (s.status === 'fulfilled') status = s.value;
+    else error = s.reason instanceof Error ? s.reason.message : String(s.reason);
+    if (p.status === 'fulfilled') provider = p.value;
+    loading = false;
   }
 
   onMount(load);
@@ -55,6 +55,11 @@
       <KV k="Client auth source" v={[status.clients_auth_source, status.clients_auth_mode].filter(Boolean).join(', ') || '—'} />
       <KV k="2FA enabled" v={status.two_fa_enabled ? 'yes' : 'no'} />
       <KV k="2FA delivery" v={status.two_fa_delivery_method === 'totp_authenticator_app' ? 'TOTP authenticator app' : status.two_fa_delivery_method || '—'} />
+    </div>
+  {:else}
+    <div class="card p-4 text-sm text-slate-400">
+      Couldn’t load server info.
+      <button type="button" class="underline" onclick={load}>Retry</button>
     </div>
   {/if}
 </div>

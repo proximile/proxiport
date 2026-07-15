@@ -9,7 +9,6 @@
 
   let client: Client | null = $state(null);
   let metrics: any = $state(null);
-  let updates: any = $state(null);
   let loading = $state(true);
   let error = $state('');
 
@@ -17,14 +16,16 @@
     loading = true;
     error = '';
     try {
-      const [c, m, u] = await Promise.allSettled([
+      // The pending-updates summary is already part of the client payload
+      // (client.updates_status). GET /updates-status is POST-only and 404s on
+      // every load, so it is deliberately not fetched here.
+      const [c, m] = await Promise.allSettled([
         apiGet<Client>(`/clients/${id}`),
-        apiGet<any>(`/clients/${id}/metrics?include_processes=false`).catch(() => null),
-        apiGet<any>(`/clients/${id}/updates-status`).catch(() => null)
+        apiGet<any>(`/clients/${id}/metrics?include_processes=false`).catch(() => null)
       ]);
       if (c.status === 'fulfilled') client = c.value;
+      else error = c.reason instanceof Error ? c.reason.message : String(c.reason);
       if (m.status === 'fulfilled') metrics = m.value;
-      if (u.status === 'fulfilled') updates = u.value;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -98,9 +99,9 @@
 
     <div class="card p-4 space-y-2">
       <div class="text-xs uppercase tracking-wider text-slate-500">Updates</div>
-      {#if updates?.updates_summary}
-        <KV k="Available" v={String(updates.updates_summary.updates_count ?? 0)} />
-        <KV k="Security" v={String(updates.updates_summary.security_updates_count ?? 0)} />
+      {#if client.updates_status?.updates_summary}
+        <KV k="Available" v={String(client.updates_status.updates_summary.updates_count ?? 0)} />
+        <KV k="Security" v={String(client.updates_status.updates_summary.security_updates_count ?? 0)} />
       {:else}
         <div class="text-sm text-slate-500">No data yet.</div>
       {/if}

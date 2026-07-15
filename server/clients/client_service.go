@@ -80,6 +80,12 @@ type ClientServiceProvider struct {
 	logger            *logger.Logger
 	acme              *acme.Acme
 
+	// startLocks serializes StartClient per clientID so the
+	// exists/already-connected check and the subsequent Save form one atomic
+	// critical section for a given client (two connections racing the same
+	// clientID would otherwise both pass the check and both register).
+	startLocks KeyedMutex
+
 	mu sync.RWMutex
 }
 
@@ -287,6 +293,12 @@ func (s *ClientServiceProvider) StartClient(
 	clog.Debugf("Starting client session: %s", clientID)
 	repo := s.GetRepo()
 
+	// Serialize the whole exists-check → register → Save sequence per clientID.
+	// Two connections racing the same clientID would otherwise both read "not
+	// connected" and both register, clobbering each other's repo entry.
+	unlock := s.startLocks.Lock(clientID)
+	defer unlock()
+
 	clientAddr := sshConn.RemoteAddr().String()
 	clientHost, _, err := net.SplitHostPort(clientAddr)
 	if err != nil {
@@ -302,6 +314,7 @@ func (s *ClientServiceProvider) StartClient(
 	// if found existing client
 	if client != nil {
 		clog.Debugf("found existing client %s", clientID)
+
 		var sessionReUsed = false
 		if req.SessionID != "" && req.SessionID == client.GetSessionID() {
 			// Stored previous session id and the session id of the connection attempt are equal
@@ -312,6 +325,19 @@ func (s *ClientServiceProvider) StartClient(
 		if client.IsConnected() && !sessionReUsed {
 			clog.Debugf("client is already connected:  %s", clientID)
 			return nil, fmt.Errorf("client is already connected: %s [%s]", client.GetName(), clientID)
+		}
+
+		// In per-client-credential deployments a client id is bound to the
+		// credential that first registered it. Reject a (re)connection that
+		// claims an existing client id with a different credential, otherwise a
+		// holder of any other valid credential could take over a disconnected
+		// client's identity and history. Multiuse-credential deployments share
+		// one credential by design, so the binding does not apply there. To
+		// rebind a client id to a new credential (e.g. after a credential
+		// rotation) delete the client first.
+		if !authMultiuseCreds && client.GetClientAuthID() != "" && client.GetClientAuthID() != clientAuthID {
+			clog.Infof("rejecting client %s: id is registered to a different credential", clientID)
+			return nil, fmt.Errorf("client id %q is already registered to a different credential", clientID)
 		}
 
 		oldTunnels := getTunnelsToReestablish(getRemotes(client.GetTunnels()), req.Remotes)
@@ -788,9 +814,7 @@ func (s *ClientServiceProvider) StartTunnel(
 		go s.terminateTunnelOnIdleTimeout(ctx, tunnel, client)
 	}
 
-	existingTunnels := client.GetTunnels()
-	existingTunnels = append(existingTunnels, tunnel)
-	client.SetTunnels(existingTunnels)
+	client.AddTunnel(tunnel)
 
 	return tunnel, nil
 }

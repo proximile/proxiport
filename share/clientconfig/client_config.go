@@ -17,7 +17,7 @@ type Config struct {
 	RemoteCommands           CommandsConfig      `json:"remote_commands" mapstructure:"remote-commands"`
 	RemoteScripts            ScriptsConfig       `json:"remote_scripts" mapstructure:"remote-scripts"`
 	Monitoring               MonitoringConfig    `json:"monitoring" mapstructure:"monitoring"`
-	Tunnels                  TunnelsConfig       `json:"-"`
+	Tunnels                  TunnelsConfig       `json:"-" mapstructure:"tunnels"`
 	InterpreterAliasesConfig map[string]any      `json:"-" mapstructure:"interpreter-aliases"`
 	FileReceptionConfig      FileReceptionConfig `json:"file_reception" mapstructure:"file-reception"`
 
@@ -31,6 +31,7 @@ type ClientConfig struct {
 	FallbackServers          []string          `json:"fallback_servers" mapstructure:"fallback_servers"`
 	ServerSwitchbackInterval time.Duration     `json:"server_switchback_interval" mapstructure:"server_switchback_interval"`
 	Fingerprint              string            `json:"fingerprint" mapstructure:"fingerprint"`
+	RequireFingerprint       bool              `json:"require_fingerprint" mapstructure:"require_fingerprint"`
 	Auth                     string            `json:"auth" mapstructure:"auth"`
 	Proxy                    string            `json:"proxy" mapstructure:"proxy"`
 	ID                       string            `json:"id" mapstructure:"id"`
@@ -55,9 +56,9 @@ type ClientConfig struct {
 }
 
 type TunnelsConfig struct {
-	Scheme       string `json:"scheme"`
-	ReverseProxy bool   `json:"reverse_proxy"`
-	HostHeader   string `json:"host_header"`
+	Scheme       string `json:"scheme" mapstructure:"scheme"`
+	ReverseProxy bool   `json:"reverse_proxy" mapstructure:"reverse_proxy"`
+	HostHeader   string `json:"host_header" mapstructure:"host_header"`
 }
 
 type ConnectionConfig struct {

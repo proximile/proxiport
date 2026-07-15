@@ -73,11 +73,20 @@ func (d *PortDistributor) IsPortBusy(protocol string, port int) bool {
 }
 
 func (d *PortDistributor) getPool(protocol string) mapset.Set {
-	pool := d.getPoolFromMap(protocol)
 	if protocol == models.ProtocolTCPUDP {
-		pool = d.portsPools[models.ProtocolTCP].Intersect(d.portsPools[models.ProtocolUDP])
+		// Read both sub-pools through getPoolFromMap so the underlying map is
+		// only ever touched under d.mu. Indexing d.portsPools directly here
+		// races with setPool's locked write (concurrent map read+write is a Go
+		// fatal error that crashes the whole server). Intersect then operates on
+		// the two set references, which carry their own locking.
+		tcpPool := d.getPoolFromMap(models.ProtocolTCP)
+		udpPool := d.getPoolFromMap(models.ProtocolUDP)
+		if tcpPool == nil || udpPool == nil {
+			return nil
+		}
+		return tcpPool.Intersect(udpPool)
 	}
-	return pool
+	return d.getPoolFromMap(protocol)
 }
 
 func (d *PortDistributor) Refresh() error {

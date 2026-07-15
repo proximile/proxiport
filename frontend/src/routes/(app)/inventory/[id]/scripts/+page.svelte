@@ -15,6 +15,20 @@
   let stream: string[] = $state([]);
   let currentJobId = $state('');
 
+  // Base64-encode a UTF-8 string. btoa() alone throws on any code point > 255
+  // (smart quotes, emoji, accented or CJK characters commonly pasted into a
+  // script), so encode to UTF-8 bytes first. Chunked to avoid blowing the call
+  // stack via String.fromCharCode(...) on large scripts.
+  function utf8ToBase64(s: string): string {
+    const bytes = new TextEncoder().encode(s);
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
   async function run(e: Event) {
     e.preventDefault();
     if (!script.trim() || running) return;
@@ -24,7 +38,7 @@
     const id = $page.params.id;
     try {
       const payload: any = {
-        script: btoa(script),
+        script: utf8ToBase64(script),
         timeout_sec: Number(timeout) || 120,
         interpreter,
         is_sudo: isSudo
