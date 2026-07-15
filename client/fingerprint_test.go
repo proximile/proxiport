@@ -32,6 +32,12 @@ func clientWithPin(pin string) *Client {
 	}
 }
 
+func clientWithPinStrict(pin string, strict bool) *Client {
+	c := clientWithPin(pin)
+	c.configHolder.Client.RequireFingerprint = strict
+	return c
+}
+
 func TestVerifyServerFingerprint(t *testing.T) {
 	key := testHostKey(t)
 	sha256FP := chshare.FingerprintKeySHA256(key)
@@ -52,6 +58,14 @@ func TestVerifyServerFingerprint(t *testing.T) {
 
 	t.Run("empty pin is accepted on trust", func(t *testing.T) {
 		require.NoError(t, clientWithPin("").verifyServer("h", nil, key))
+	})
+
+	t.Run("empty pin with require_fingerprint is refused", func(t *testing.T) {
+		require.Error(t, clientWithPinStrict("", true).verifyServer("h", nil, key))
+	})
+
+	t.Run("valid pin with require_fingerprint still verifies", func(t *testing.T) {
+		require.NoError(t, clientWithPinStrict(sha256FP, true).verifyServer("h", nil, key))
 	})
 
 	t.Run("legacy full MD5 pin still verifies", func(t *testing.T) {
