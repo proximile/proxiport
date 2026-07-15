@@ -95,12 +95,31 @@
     const xScale = (ts: string) => padL + (new Date(ts).getTime() - t0) * dx;
     const cpuPath = metrics.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(p.timestamp).toFixed(1)},${yScale(num(p.cpu_usage_percent)).toFixed(1)}`).join(' ');
     const memPath = metrics.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(p.timestamp).toFixed(1)},${yScale(num(p.memory_usage_percent)).toFixed(1)}`).join(' ');
-    return { W, H, padL, padB, padT, padR, cpuPath, memPath, ymax, points: metrics, xScale, yScale };
+    const plotTop = padT;
+    const plotBottom = H - padB;
+    // Per-sample selectable bands: each covers the full plot height and the
+    // horizontal span nearest that sample, tiling the whole plot so a click or
+    // tap anywhere selects the nearest sample — a far larger target than the
+    // old 4px baseline dot — and carries the sample's on-line coordinates so a
+    // visible marker can be drawn for the selected point.
+    const cols = metrics.map((p, i) => {
+      const cx = xScale(p.timestamp);
+      const left = i === 0 ? padL : (xScale(metrics[i - 1].timestamp) + cx) / 2;
+      const right = i === n - 1 ? W - padR : (cx + xScale(metrics[i + 1].timestamp)) / 2;
+      const cpu = num(p.cpu_usage_percent);
+      const mem = num(p.memory_usage_percent);
+      return { ts: p.timestamp, x: left, w: Math.max(0, right - left), cx, cpu, mem, cpuY: yScale(cpu), memY: yScale(mem) };
+    });
+    return { W, H, padL, padB, padT, padR, plotTop, plotBottom, cpuPath, memPath, ymax, cols, xScale, yScale };
   });
 
-  function selectPoint(p: GMPoint) {
-    selectedTimestamp = p.timestamp;
-    loadProcesses($page.params.id, p.timestamp);
+  function optionLabel(c: { ts: string; cpu: number; mem: number }): string {
+    return `${fmtDate(c.ts)} — CPU ${c.cpu.toFixed(0)}%, memory ${c.mem.toFixed(0)}%`;
+  }
+
+  function selectPoint(ts: string) {
+    selectedTimestamp = ts;
+    loadProcesses($page.params.id, ts);
   }
 </script>
 
@@ -142,26 +161,46 @@
         <path d={chart.cpuPath} fill="none" stroke="#6366f1" stroke-width="1.5" />
         <!-- Memory -->
         <path d={chart.memPath} fill="none" stroke="#10b981" stroke-width="1.5" />
-        <!-- selectable points -->
-        {#each chart.points as p}
-          <circle
-            cx={chart.xScale(p.timestamp)}
-            cy={chart.H - chart.padB}
-            r="4"
-            fill="transparent"
-            class="cursor-pointer"
-            role="button"
-            tabindex="0"
-            onclick={() => selectPoint(p)}
-            onkeydown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') selectPoint(p);
-            }}
-          />
-        {/each}
+        <!-- Selected-sample marker: dashed guide line + a visible dot on each
+             line. Keyboard/AT users select via the labelled <select> below the
+             chart; these bands are a mouse/touch convenience only. -->
         {#if selectedTimestamp}
           <line x1={chart.xScale(selectedTimestamp)} y1={chart.padT} x2={chart.xScale(selectedTimestamp)} y2={chart.H - chart.padB} stroke="#fbbf24" stroke-width="0.8" stroke-dasharray="2,2" />
         {/if}
+        {#each chart.cols as c}
+          {#if c.ts === selectedTimestamp}
+            <circle cx={c.cx} cy={c.cpuY} r="2.5" fill="#6366f1" />
+            <circle cx={c.cx} cy={c.memY} r="2.5" fill="#10b981" />
+          {/if}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <rect
+            x={c.x}
+            y={chart.plotTop}
+            width={c.w}
+            height={chart.plotBottom - chart.plotTop}
+            fill="transparent"
+            class="cursor-pointer"
+            onclick={() => selectPoint(c.ts)}
+          />
+        {/each}
       </svg>
+      <label class="mt-2 flex flex-col gap-1 text-xs text-slate-400 sm:flex-row sm:items-center sm:gap-2">
+        <span class="shrink-0">Inspect a sample</span>
+        <select
+          class="max-w-full"
+          value={selectedTimestamp ?? ''}
+          onchange={(e) => {
+            const ts = (e.currentTarget as HTMLSelectElement).value;
+            if (ts) selectPoint(ts);
+          }}
+        >
+          <option value="" disabled>Choose a time…</option>
+          {#each chart.cols as c}
+            <option value={c.ts}>{optionLabel(c)}</option>
+          {/each}
+        </select>
+      </label>
       <div class="flex gap-4 text-xs text-slate-400 mt-1 px-2">
         <span><span class="inline-block w-3 h-3 align-middle rounded-sm" style="background: #6366f1"></span> CPU%</span>
         <span><span class="inline-block w-3 h-3 align-middle rounded-sm" style="background: #10b981"></span> Memory%</span>
