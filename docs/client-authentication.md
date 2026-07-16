@@ -103,13 +103,24 @@ read-only for an externally-managed table.
 ## How an agent presents its credential
 
 The agent reads its credential from one of three places, in this
-precedence order:
+precedence order (highest first):
 
 1. The `--auth` command-line flag.
-2. The `[client] auth` setting in
+2. The `PROXIPORT_AUTH` environment variable. `RPORT_AUTH` is accepted as
+   a lower-precedence alias for compatibility with the upstream name.
+3. The `[client] auth` setting in
    [`proxiport.conf`](https://github.com/proximile/proxiport/blob/main/proxiport.example.conf).
-3. The `RPORT_AUTH` environment variable (the upstream name is kept for
-   compatibility).
+
+The environment variable and config setting both take the
+`client_id:password` form; the flag takes the same value. The
+fingerprint has the same three sources — `--fingerprint`,
+`PROXIPORT_FINGERPRINT` (alias `RPORT_FINGERPRINT`), then
+`[client] fingerprint` — in the same order.
+
+The agent logs which state it resolved on startup: `Client credential
+loaded for client id "<id>"` when a credential is present (the password
+is never logged), or a clear `no client credential configured` error
+when none of the three sources supplied one.
 
 The on-disk form in `proxiport.conf`:
 

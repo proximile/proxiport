@@ -66,6 +66,16 @@ func preconfigureViperReader(cfgPath string) *viper.Viper {
 
 	SetViperConfigDefaults(viperCfg)
 
+	// Client credentials may be supplied through the environment. Binding the
+	// env var as a pflag *default* (see SetPFlags) only resolves on the
+	// interactive run path, and not at all when the agent runs as an OS service
+	// (where the pflags are never bound to viper). Bind the env vars directly
+	// here so PROXIPORT_AUTH / PROXIPORT_FINGERPRINT resolve on every run path.
+	// The RPORT_* names are accepted as lower-precedence upstream aliases.
+	// Precedence for these keys becomes: --flag > env > config file > default.
+	_ = viperCfg.BindEnv("client.auth", "PROXIPORT_AUTH", "RPORT_AUTH")
+	_ = viperCfg.BindEnv("client.fingerprint", "PROXIPORT_FINGERPRINT", "RPORT_FINGERPRINT")
+
 	if cfgPath != "" {
 		viperCfg.SetConfigFile(cfgPath)
 	} else {
