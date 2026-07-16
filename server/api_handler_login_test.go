@@ -194,6 +194,40 @@ func TestAPITokenOps(t *testing.T) {
 			requestURL:     "/api/v1/me/tokens/" + MyalphaNumNewPrefix,
 			wantStatusCode: http.StatusNoContent,
 		},
+		// The singular /me/token endpoints are a deprecation shim: they must
+		// respond 410 Gone and point callers at /me/tokens. These lock that
+		// contract (the OpenAPI spec documents it) so a route regression is
+		// caught here.
+		{
+			descr:          "deprecated GET /me/token is gone",
+			requestMethod:  http.MethodGet,
+			requestURL:     "/api/v1/me/token",
+			wantStatusCode: http.StatusGone,
+			wantErrTitle:   "use new token management on /me/tokens",
+		},
+		{
+			descr:          "deprecated POST /me/token is gone",
+			requestMethod:  http.MethodPost,
+			requestURL:     "/api/v1/me/token",
+			requestBody:    strings.NewReader(`{"scope":"read","name":"x"}`),
+			wantStatusCode: http.StatusGone,
+			wantErrTitle:   "use new token management on /me/tokens",
+		},
+		{
+			descr:          "deprecated PUT /me/token/{id} is gone",
+			requestMethod:  http.MethodPut,
+			requestURL:     "/api/v1/me/token/theprefi",
+			requestBody:    strings.NewReader(`{"name":"x"}`),
+			wantStatusCode: http.StatusGone,
+			wantErrTitle:   "use new token management on /me/tokens",
+		},
+		{
+			descr:          "deprecated DELETE /me/token/{id} is gone",
+			requestMethod:  http.MethodDelete,
+			requestURL:     "/api/v1/me/token/theprefi",
+			wantStatusCode: http.StatusGone,
+			wantErrTitle:   "use new token management on /me/tokens",
+		},
 	}
 
 	for _, tc := range testCases {

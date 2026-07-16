@@ -49,6 +49,10 @@ paths:
  $ref: paths/me_ip.yaml
  /me/tokens:
  $ref: paths/me_token.yaml
+ /me/tokens/{prefix}:
+ $ref: paths/me_tokens_{prefix}.yaml
+ /me/token:
+ $ref: paths/me_token_deprecated.yaml
  /status:
  $ref: paths/status.yaml
  /clients:

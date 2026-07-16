@@ -1,42 +1,46 @@
-post:
+put:
  tags:
  - Profile & Info
- summary: Generate a new API token for the current user and return it
- operationId: MeTokenPost
+ summary: Update a specific API token of the current user
+ operationId: MeTokenPut
+ parameters:
+ - name: prefix
+ in: path
+ description: the 8-character prefix identifying the token to update
+ required: true
+ schema:
+ type: string
  requestBody:
  required: true
  content:
  application/json:
  schema:
  type: object
- required:
- - scope
- - name
  properties:
- scope:
- enum:
- - read
- - read+write
- - clients-auth
- description: what this token is authorized for
  name:
  type: string
  description: token name, 250 characters max, unique per user
  expires_at:
  type: string
- description: >-
- date and time when this token will expire. Optional; defaults to
- one year from creation.
+ description: date and time when this token will expire
  format: date-time
  responses:
  '200':
- description: API token
+ description: the updated token
  content:
  application/json:
  schema:
- $ref: ../components/schemas/APIToken.yaml
+ type: object
+ properties:
+ prefix:
+ type: string
+ name:
+ type: string
+ expires_at:
+ type: string
+ format: date-time
  '400':
- description: missing or invalid scope / name, or a token with that name already exists
+ description: missing or invalid token prefix, or a token with that name already exists
  content:
  application/json:
  schema:
@@ -53,20 +57,28 @@ post:
  application/json:
  schema:
  $ref: ../components/schemas/ErrorPayload.yaml
-get:
+delete:
  tags:
  - Profile & Info
- summary: Returns the current user's list of API tokens
- operationId: MeTokenGet
+ summary: Delete a specific API token of the current user
+ operationId: MeTokenDelete
+ parameters:
+ - name: prefix
+ in: path
+ description: the 8-character prefix identifying the token to delete
+ required: true
+ schema:
+ type: string
  responses:
- '200':
- description: Successful Operation
+ '204':
+ description: token deleted
+ content: {}
+ '400':
+ description: missing or invalid token prefix
  content:
  application/json:
  schema:
- type: array
- items:
- $ref: ../components/schemas/APIToken.yaml
+ $ref: ../components/schemas/ErrorPayload.yaml
  '401':
  description: Unauthorized
  content:
