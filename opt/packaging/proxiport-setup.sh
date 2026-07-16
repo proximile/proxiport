@@ -33,6 +33,8 @@ FQDN=""
 EMAIL=""
 PUBLIC_FQDN=0
 SKIP_NAT=0
+ASSUME_YES=0            # --assume-yes: answer confirm() prompts non-interactively
+SHOW_SECRETS=0          # --show-secrets: echo initial passwords to stdout even when non-interactive
 CLIENT_URL=""
 CERT_FILE=""
 KEY_FILE=""
@@ -60,9 +62,23 @@ is_terminal()   { [ -t 0 ]; }
 
 confirm() {
     local prompt="${1:-Proceed?}"
+
+    # Non-interactive stdin (CI, `ssh host 'proxiport-setup ...'`, any piped
+    # run): `read` returns EOF immediately, so a naive prompt loop would spin
+    # forever. Require an explicit --assume-yes to proceed unattended;
+    # otherwise fail fast instead of hanging.
+    if ! is_terminal; then
+        if [ "$ASSUME_YES" -eq 1 ]; then
+            throw_info "non-interactive: assuming \"yes\" for: $prompt"
+            return 0
+        fi
+        throw_fatal "refusing to prompt on a non-interactive stdin: \"$prompt\" — re-run with --assume-yes to proceed unattended, or run interactively."
+    fi
+
     while true; do
         printf "%s (y/n) " "$prompt"
-        read -r ans
+        # EOF mid-run (stdin closed): stop rather than loop.
+        read -r ans || throw_fatal "stdin closed while awaiting confirmation: \"$prompt\""
         case "$ans" in
             [Yy]*) return 0 ;;
             [Nn]*) return 1 ;;
@@ -94,11 +110,17 @@ Flags:
       --cert-file PATH     manual cert PEM; turns off built-in ACME
       --key-file PATH      matching key PEM
   -s, --skip-nat           skip the public-IP / NAT sanity check
+  -y, --assume-yes         answer all confirmation prompts with "yes"
+                           (required to run non-interactively / in CI)
+      --show-secrets       print the initial admin/agent passwords to stdout
+                           even when non-interactive (default: only on a TTY)
   -u, --uninstall          remove proxiportd and all state
   -h, --help               this message
   -v, --version            print version
 
-If --fqdn is omitted and stdin is a terminal, you'll be prompted.
+If --fqdn is omitted and stdin is a terminal, you'll be prompted. On a
+non-interactive stdin, prompts are not shown: pass --assume-yes to proceed,
+or the script fails fast rather than hanging.
 EOF
 }
 
@@ -145,17 +167,24 @@ do_uninstall() {
 # Argument parsing
 #======================================================================
 
+# Test hook: when sourced with PROXIPORT_SETUP_LIB_ONLY=1, stop here so a test
+# can exercise the helper functions defined above (confirm, is_terminal, …)
+# without running the installer's main flow. No effect on normal execution.
+if [ -n "${PROXIPORT_SETUP_LIB_ONLY:-}" ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
 # getopt is GNU on Debian / RHEL — features we use are portable across
 # both. Long-only flags use the --long form.
 PARSED=$(getopt \
-    -o vhd:e:a:c:p:i:onsu \
-    --long version,help,fqdn:,email:,api-port:,client-port:,port-range:,client-url:,totp,no-2fa,cert-file:,key-file:,skip-nat,uninstall \
+    -o vhd:e:a:c:p:i:onsuy \
+    --long version,help,fqdn:,email:,api-port:,client-port:,port-range:,client-url:,totp,no-2fa,cert-file:,key-file:,skip-nat,uninstall,assume-yes,show-secrets \
     -n proxiport-setup -- "$@") || { print_help; exit 2; }
 eval set -- "$PARSED"
 while true; do
     case "$1" in
         -h|--help)          print_help; exit 0 ;;
-        -v|--version)       echo "proxiport-setup 0.1.4"; exit 0 ;;
+        -v|--version)       echo "proxiport-setup 0.1.5"; exit 0 ;;
         -d|--fqdn)          FQDN="$2"; shift 2 ;;
         -e|--email)         EMAIL="$2"; shift 2 ;;
         -a|--api-port)      API_PORT="$2"; shift 2 ;;
@@ -167,11 +196,20 @@ while true; do
         --cert-file)        CERT_FILE="$2"; shift 2 ;;
         --key-file)         KEY_FILE="$2"; shift 2 ;;
         -s|--skip-nat)      SKIP_NAT=1; shift ;;
-        -u|--uninstall)     do_uninstall; exit 0 ;;
+        -y|--assume-yes)    ASSUME_YES=1; shift ;;
+        --show-secrets)     SHOW_SECRETS=1; shift ;;
+        -u|--uninstall)     DO_UNINSTALL=1; shift ;;
         --) shift; break ;;
         *) throw_fatal "argument parsing error" ;;
     esac
 done
+
+# Deferred so that flags like --assume-yes are already parsed before the
+# uninstall confirmation prompt runs, regardless of argument order.
+if [ "${DO_UNINSTALL:-0}" -eq 1 ]; then
+    do_uninstall
+    exit 0
+fi
 
 #======================================================================
 # Prereq checks
@@ -412,7 +450,10 @@ set_in_section "server" "url"                "[\"${CLIENT_URL}\"]"
 set_in_section "server" "key_seed"           "\"${KEY_SEED}\""
 set_in_section "server" "used_ports"         "['${TUNNEL_PORT_RANGE}']"
 set_in_section "server" "keep_lost_clients"  "\"168h\""
-set_in_section "server" "data_storage_days"  "7"
+# Monitoring retention lives in [monitoring] as data_storage_duration ("7d")
+# on current schemas; the old [server] data_storage_days key is deprecated and
+# ignored by the server, so writing it here was a silent no-op.
+set_in_section "monitoring" "data_storage_duration"  "\"7d\""
 comment_in_section   "server" "auth"
 uncomment_in_section "server" "auth_table"
 
@@ -582,20 +623,33 @@ Config:       ${CONFIG_FILE}
 Database:     ${DB_FILE}
 EOF
 
+# Only print the cleartext passwords to stdout when it is safe to do so:
+# an interactive terminal, or an explicit --show-secrets opt-in. For any
+# logged / piped / automated run they would otherwise leak into the capture,
+# so there we point the operator at the initial-* credential files instead
+# (the passwords are already written there).
+if is_terminal || [ "$SHOW_SECRETS" -eq 1 ]; then
+    ADMIN_CREDS="${BOLD}admin${RESET} / ${BOLD}${ADMIN_PASSWD}${RESET}"
+    CLIENT_CREDS="client1:${CLIENT_PASSWD}"
+else
+    ADMIN_CREDS="${BOLD}admin${RESET} / (see /var/lib/proxiport/initial-admin-password)"
+    CLIENT_CREDS="client1:(see /var/lib/proxiport/initial-client-auth)"
+fi
+
 cat <<EOF
 
 ------------------------------------------------------------------------
 ${BOLD}proxiport is up.${RESET}
 
   Point a browser at  ${BOLD}https://${FQDN}:${API_PORT}${RESET}
-  Sign in as          ${BOLD}admin${RESET} / ${BOLD}${ADMIN_PASSWD}${RESET}
+  Sign in as          ${ADMIN_CREDS}
 
   Agent dial address  ${FQDN}:${CLIENT_PORT}
-  First agent auth    client1:${CLIENT_PASSWD}
+  First agent auth    ${CLIENT_CREDS}
 
   ${TWO_FA_MSG}
 
-  These passwords are shown once. They are also in
+  The initial passwords are in
   /var/lib/proxiport/initial-admin-password and initial-client-auth,
   which are ${BOLD}shredded after your first admin login${RESET}. Save them now.
   (${SUMMARY_FILE} records the non-secret details only.)

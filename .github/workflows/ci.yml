@@ -146,3 +146,16 @@ jobs:
 
       - name: Build docs
         run: mkdocs build --strict --site-dir _site
+
+  shell:
+    name: Shell scripts (shellcheck + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: proxiport-setup regression tests
+        run: bash opt/packaging/proxiport-setup_test.sh
