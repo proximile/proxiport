@@ -39,6 +39,20 @@ func getDefaultValidMinConfig() ClientConfigHolder {
 	}
 }
 
+// TestPrepareDirsErrorNamesDataDir guards the rootless-run papercut: when the
+// data directory can't be created, the error must name the `data_dir` config
+// key (not just a bare "permission denied"), so the operator knows what to
+// change. /dev/null/... reliably fails to mkdir without needing special perms.
+func TestPrepareDirsErrorNamesDataDir(t *testing.T) {
+	config := getDefaultValidMinConfig()
+	config.Client.DataDir = "/dev/null/proxiport-cannot-create-here"
+
+	err := PrepareDirs(&config)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "data_dir",
+		"error should name the data_dir config key so a rootless run is diagnosable")
+}
+
 func TestConfigParseAndValidateHeaders(t *testing.T) {
 	testCases := []struct {
 		Name           string
