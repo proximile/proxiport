@@ -44,7 +44,7 @@ func TestOpenAPIMediaTypeKeysAreWellFormed(t *testing.T) {
 		t.Fatalf("no OpenAPI YAML files found under %s", openAPIRoot)
 	}
 	for _, f := range files {
-		raw, err := os.ReadFile(f)
+		raw, err := os.ReadFile(f) //nolint:gosec // f comes from walking a fixed in-repo spec dir, not user input
 		if err != nil {
 			t.Fatalf("read %s: %v", f, err)
 		}
@@ -78,8 +78,8 @@ func malformedMediaKeysOnLine(line string) []string {
 // succeed if the detection logic regresses.
 func TestOpenAPIMediaTypeDetector(t *testing.T) {
 	bad := []string{
-		` 'application/json:':`,  // the me_token.yaml bug: trailing colon
-		` 'application/ json':`,  // space where the subtype should start
+		` 'application/json:':`, // the me_token.yaml bug: trailing colon
+		` 'application/ json':`, // space where the subtype should start
 	}
 	for _, line := range bad {
 		if got := malformedMediaKeysOnLine(line); len(got) == 0 {
@@ -87,12 +87,12 @@ func TestOpenAPIMediaTypeDetector(t *testing.T) {
 		}
 	}
 	good := []string{
-		` application/json:`,          // unquoted, valid (key is application/json)
-		` 'application/json':`,        // quoted, valid
-		` '*/*':`,                     // wildcard
+		` application/json:`,   // unquoted, valid (key is application/json)
+		` 'application/json':`, // quoted, valid
+		` '*/*':`,              // wildcard
 		` 'text/plain; charset=utf-8':`,
 		` description: has/slash: in prose`, // key is "description", not a media type
-		` type: string`,               // ordinary schema key
+		` type: string`,                     // ordinary schema key
 	}
 	for _, line := range good {
 		if got := malformedMediaKeysOnLine(line); len(got) != 0 {
@@ -108,7 +108,7 @@ func TestOpenAPIPathRefsResolve(t *testing.T) {
 	files := collectYAMLFiles(t, openAPIRoot)
 	refRe := regexp.MustCompile(`\$ref:\s*([^\s#]+)`)
 	for _, f := range files {
-		raw, err := os.ReadFile(f)
+		raw, err := os.ReadFile(f) //nolint:gosec // f comes from walking a fixed in-repo spec dir, not user input
 		if err != nil {
 			t.Fatalf("read %s: %v", f, err)
 		}
@@ -118,7 +118,7 @@ func TestOpenAPIPathRefsResolve(t *testing.T) {
 				continue // in-document or remote ref
 			}
 			resolved := filepath.Join(filepath.Dir(f), target)
-			if _, err := os.Stat(resolved); err != nil {
+			if _, err := os.Stat(resolved); err != nil { //nolint:gosec // resolved is under a fixed in-repo spec dir
 				t.Errorf("%s: $ref %q does not resolve (%s)", relPath(f), target, resolved)
 			}
 		}
