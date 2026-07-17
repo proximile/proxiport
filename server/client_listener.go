@@ -168,7 +168,16 @@ func (cl *ClientListener) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Pe
 	// VerifyPassword bcrypt-compares a hashed credential and constant-time
 	// compares a legacy plaintext one.
 	if clientAuth == nil || !clientsauth.VerifyPassword(clientAuth.Password, password) {
-		cl.log().Debugf("Login failed for client auth id: %s", clientAuthID)
+		// Log the reason at info level (not debug) so an operator can actually
+		// see why an agent is rejected. A silent failure here otherwise looks
+		// like a network problem and, after repeated retries, an unexplained
+		// ban. The reason stays server-side only; the error returned to the
+		// client is deliberately generic to avoid credential enumeration.
+		reason := "bad password"
+		if clientAuth == nil {
+			reason = "unknown client auth id"
+		}
+		cl.log().Infof("Login failed for client auth id %q from %s: %s", clientAuthID, ip, reason)
 		cl.bannedClientAuths.Add(clientAuthID)
 		if cl.bannedIPs != nil {
 			cl.bannedIPs.AddBadAttempt(ip)
