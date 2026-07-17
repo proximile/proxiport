@@ -102,6 +102,57 @@ func TestAuthUserUnknownIDRejected(t *testing.T) {
 	assert.Error(t, err, "an unknown client auth id must be rejected")
 }
 
+// newAuthTestListenerWithIPBan builds a listener whose per-auth-id wait is
+// disabled (NewBanList(0) never bans) so every authUser call reaches the
+// IP-level ban list, letting these tests exercise the distinct-credential
+// counting directly rather than being short-circuited by the per-id wait.
+func newAuthTestListenerWithIPBan(t *testing.T, provider clientsauth.Provider, ipBan *security.MaxBadAttemptsBanList) *ClientListener {
+	t.Helper()
+	log := logger.NewLogger("authuser-test", logger.LogOutput{File: os.Stdout}, logger.LogLevelInfo)
+	return &ClientListener{
+		logger:            log,
+		bannedClientAuths: security.NewBanList(0),
+		bannedIPs:         ipBan,
+		server: &Server{
+			config:             &chconfig.Config{},
+			clientAuthProvider: provider,
+		},
+	}
+}
+
+// TestAuthUserSameWrongCredentialDoesNotSelfBanIP is the field-report-#2 guard:
+// an agent retrying the SAME wrong credential (its own reconnect loop) must not
+// ban its own IP, no matter how many times it retries.
+func TestAuthUserSameWrongCredentialDoesNotSelfBanIP(t *testing.T) {
+	hashed, err := clientsauth.HashPassword("correct-pw")
+	require.NoError(t, err)
+	ipBan := security.NewMaxBadAttemptsBanList(3, time.Hour, nil)
+	cl := newAuthTestListenerWithIPBan(t, clientsauth.NewSingleProvider("agent-x", hashed), ipBan)
+
+	for i := 0; i < 10; i++ {
+		_, err := cl.authUser(&authConnMock{user: "agent-x"}, []byte("wrong-pw"))
+		require.Error(t, err)
+	}
+	assert.False(t, ipBan.IsBanned("127.0.0.1"),
+		"an agent retrying the same wrong credential must not ban its own IP")
+}
+
+// TestAuthUserDistinctWrongCredentialsBanIP confirms brute-force protection is
+// preserved: enough DISTINCT wrong credentials from an IP still ban it.
+func TestAuthUserDistinctWrongCredentialsBanIP(t *testing.T) {
+	hashed, err := clientsauth.HashPassword("correct-pw")
+	require.NoError(t, err)
+	ipBan := security.NewMaxBadAttemptsBanList(3, time.Hour, nil)
+	cl := newAuthTestListenerWithIPBan(t, clientsauth.NewSingleProvider("agent-x", hashed), ipBan)
+
+	for _, pw := range []string{"guess-1", "guess-2", "guess-3"} {
+		_, err := cl.authUser(&authConnMock{user: "agent-x"}, []byte(pw))
+		require.Error(t, err)
+	}
+	assert.True(t, ipBan.IsBanned("127.0.0.1"),
+		"three distinct wrong credentials must ban the IP")
+}
+
 // TestAuthUserFailureIsLoggedAtInfo guards field report #3: the reason for a
 // failed login must be visible at the default INFO log level (it used to log at
 // DEBUG, i.e. invisibly, which made an empty/wrong credential look like a
