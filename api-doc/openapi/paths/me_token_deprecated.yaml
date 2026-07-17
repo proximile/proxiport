@@ -1,0 +1,30 @@
+# Deprecated singular /me/token endpoints. Token management moved to the
+# plural /me/tokens (collection) and /me/tokens/{prefix} (item) routes; every
+# verb on the singular path now responds 410 Gone. Documented so a client that
+# guesses the old path gets a defined response instead of a surprise.
+get:
+ tags:
+ - Profile & Info
+ summary: "Deprecated: use GET /me/tokens"
+ operationId: MeTokenDeprecatedGet
+ deprecated: true
+ responses:
+ '410':
+ description: Gone — use /me/tokens instead
+ content:
+ application/json:
+ schema:
+ $ref: ../components/schemas/ErrorPayload.yaml
+post:
+ tags:
+ - Profile & Info
+ summary: "Deprecated: use POST /me/tokens"
+ operationId: MeTokenDeprecatedPost
+ deprecated: true
+ responses:
+ '410':
+ description: Gone — use /me/tokens instead
+ content:
+ application/json:
+ schema:
+ $ref: ../components/schemas/ErrorPayload.yaml
