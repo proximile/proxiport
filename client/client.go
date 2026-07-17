@@ -120,6 +120,17 @@ func NewClient(config *ClientConfigHolder, filesAPI files.FileAPI) (*Client, err
 		Timeout:         AuthTimeout,
 	}
 
+	// Surface the credential state up front. An empty credential otherwise
+	// produces only an opaque "ssh: unable to authenticate" error at connect
+	// time (and can trip the server's fail2ban ban), so name the problem
+	// clearly here. The client id (the username half of auth) is not secret;
+	// the password is never logged.
+	if config.Client.AuthUser == "" && config.Client.AuthPass == "" {
+		logger.Errorf("no client credential configured — set 'auth' in the [client] config, pass --auth, or set the PROXIPORT_AUTH environment variable (format \"client_id:password\"); the agent will fail server authentication until one is provided")
+	} else {
+		logger.Infof("Client credential loaded for client id %q", config.Client.AuthUser)
+	}
+
 	logger.Infof("NewFetcher client instance with sessionID %s", sessionID)
 	return client, nil
 }
