@@ -355,7 +355,15 @@ func PrepareDirs(c *ClientConfigHolder) error {
 	logger := logger.NewLogger("client", c.Logging.LogOutput, c.Logging.LogLevel)
 
 	if err := os.MkdirAll(c.Client.DataDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create dir %q: %s", c.Client.DataDir, err)
+		// Name the config key and a fix: the default data_dir is a
+		// system path (see DefaultDataDir), so a rootless run fails here
+		// with a bare "permission denied" that gives no hint at the cause.
+		return fmt.Errorf(
+			"failed to create data_dir %q: %s — set 'data_dir' in the [client] "+
+				"section (or pass --data-dir) to a path this user can write, "+
+				"e.g. a directory under your home",
+			c.Client.DataDir, err,
+		)
 	}
 
 	logger.Debugf("Data directory path: %q", c.Client.DataDir)

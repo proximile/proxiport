@@ -103,6 +103,16 @@ go install github.com/proximile/proxiport/cmd/proxiportd@latest
 The server needs CGO (`CGO_ENABLED=1`) for the embedded SQLite. The
 agent is pure Go.
 
+The version string is injected at release time via linker flags, so a
+plain `go build` / `go install` reports `0.0.0-src` for
+`proxiportd --version` (and `proxiport --version`). That is expected — to
+stamp a real version into a source build, pass the ldflag yourself:
+
+```sh
+go build -ldflags "-X github.com/proximile/proxiport/share.BuildVersion=0.6.0" \
+  ./cmd/proxiportd
+```
+
 ### Quick setup with `proxiport-setup`
 
 If this is a single-host install with a public hostname pointed at it,
