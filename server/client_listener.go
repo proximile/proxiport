@@ -2,6 +2,8 @@ package chserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -180,7 +182,11 @@ func (cl *ClientListener) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Pe
 		cl.log().Infof("Login failed for client auth id %q from %s: %s", clientAuthID, ip, reason)
 		cl.bannedClientAuths.Add(clientAuthID)
 		if cl.bannedIPs != nil {
-			cl.bannedIPs.AddBadAttempt(ip)
+			// Count distinct failing credentials, not raw attempts, so a
+			// legitimate agent retrying the SAME wrong credential (its own
+			// reconnect loop) can't ban its own IP and lock itself out — while
+			// an attacker trying many distinct credentials is still banned.
+			cl.bannedIPs.AddDistinctBadAttempt(ip, credentialFingerprint(clientAuthID, password))
 		}
 		return nil, fmt.Errorf("invalid authentication for client auth id: %s", clientAuthID)
 	}
@@ -191,6 +197,18 @@ func (cl *ClientListener) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Pe
 		cl.bannedIPs.AddSuccessAttempt(ip)
 	}
 	return nil, nil
+}
+
+// credentialFingerprint returns a non-reversible, in-memory-only fingerprint of
+// an attempted (client auth id, password) pair, used solely to deduplicate a
+// client's repeated identical failures when counting toward the IP ban. It is
+// never logged or persisted.
+func credentialFingerprint(clientAuthID string, password []byte) string {
+	h := sha256.New()
+	h.Write([]byte(clientAuthID))
+	h.Write([]byte{0})
+	h.Write(password)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // maybeUpgradeClientAuthHash migrates a legacy plaintext client-auth credential
