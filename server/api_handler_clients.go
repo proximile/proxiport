@@ -269,6 +269,11 @@ func (al *APIListener) handlePutClientTunnel(w http.ResponseWriter, req *http.Re
 		return
 	}
 
+	if err = al.checkInsecureHTTPTunnelAllowed(req, remote); err != nil {
+		al.jsonError(w, err)
+		return
+	}
+
 	err = al.setAuthOptionsForRemote(req, remote)
 	if err != nil {
 		al.jsonError(w, err)
@@ -420,6 +425,35 @@ func (al *APIListener) setTunnelProxyOptionsForRemote(req *http.Request, remote 
 	}
 
 	return err
+}
+
+// checkInsecureHTTPTunnelAllowed refuses to open a plaintext-HTTP tunnel unless
+// the caller explicitly opts in with allow_insecure_http=true.
+//
+// A tunnel whose scheme is "http" and that is not fronted by the server's TLS
+// reverse proxy carries the operator's browser<->server traffic in the clear:
+// anyone able to observe the network path between the ProxiPort server and the
+// browser can read the request URLs, headers, cookies and page contents. A
+// tunnel is considered secure — and needs no override — when the server
+// terminates TLS with its own certificate (http_proxy=true) or when TLS is
+// carried end to end by the target service itself (scheme "https", passed
+// through untouched). This mirrors the deliberate, explicit opt-in the UI
+// already requires before opening a tunnel to an unrestricted IP range.
+func (al *APIListener) checkInsecureHTTPTunnelAllowed(req *http.Request, remote *models.Remote) error {
+	if remote.Scheme == nil || *remote.Scheme != "http" || remote.HTTPProxy {
+		return nil
+	}
+
+	if allow, _ := strconv.ParseBool(req.URL.Query().Get("allow_insecure_http")); allow {
+		return nil
+	}
+
+	return apierrors.NewAPIError(
+		http.StatusBadRequest,
+		"",
+		"refusing to open a plaintext HTTP tunnel: traffic between the server and the browser would be unencrypted and readable by anyone on the network path. Terminate TLS on the server (http_proxy=true), use an https target, or resend with allow_insecure_http=true to acknowledge and override.",
+		nil,
+	)
 }
 
 func (al *APIListener) setAuthOptionsForRemote(req *http.Request, remote *models.Remote) (err error) {

@@ -114,6 +114,17 @@ put:
  self-signed or otherwise untrusted certificate. Default is false.
  schema:
  type: boolean
+ - name: allow_insecure_http
+ in: query
+ description: >-
+ Required to open a plaintext HTTP tunnel. When the scheme is `http` and
+ `http_proxy` is false, traffic between the server and the browser is
+ unencrypted and readable by anyone on the network path, so the request is
+ rejected unless this is set to `true` to acknowledge and override. Not
+ needed when the server terminates TLS (`http_proxy=true`) or the target
+ already speaks HTTPS. Default is false.
+ schema:
+ type: boolean
  responses:
  '200':
  description: success response

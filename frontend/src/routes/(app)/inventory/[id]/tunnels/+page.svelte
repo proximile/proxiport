@@ -33,6 +33,10 @@
   let tlsProxy = $state(false);
   let tlsHostname = $state('');
 
+  // Explicit acknowledgement required before opening a plaintext-HTTP tunnel
+  // (scheme http with no TLS). See insecureHttp() for the rationale.
+  let allowInsecureHttp = $state(false);
+
   const DEFAULT_PORTS: Record<string, number> = {
     ssh: 22, rdp: 3389, vnc: 5900, realvnc: 5900, http: 80, https: 443, other: 0
   };
@@ -54,6 +58,23 @@
     const s = effectiveScheme();
     return s === 'http' || s === 'https';
   }
+
+  // A plain http:// tunnel with no TLS in front of it: the traffic between the
+  // server and the browser is unencrypted, so anyone on the network path can
+  // read URLs, headers, cookies and page contents. It counts as secure only
+  // when the server terminates TLS with its own cert (tlsProxy) or the target
+  // already speaks HTTPS end to end (https scheme). Requires an explicit
+  // acknowledgement to create, just like opening a tunnel to any IP.
+  function insecureHttp(): boolean {
+    return effectiveScheme() === 'http' && !tlsProxy;
+  }
+
+  // Drop a stale acknowledgement whenever the tunnel is no longer plaintext
+  // HTTP (scheme changed, or TLS termination enabled), so re-entering the
+  // insecure state always requires ticking the box again.
+  $effect(() => {
+    if (!insecureHttp()) allowInsecureHttp = false;
+  });
 
   // ---- Step 2: Public port ------------------------------------------------
   let publicPortMode = $state<'random' | 'specify'>('random');
@@ -167,6 +188,11 @@
     if (aclMode === 'current' && !aclIp.trim()) {
       return 'Could not determine your current IP address. Retry, or choose a specific range or "No restrictions".';
     }
+    // Fail closed on plaintext HTTP: force the user to acknowledge the exposure
+    // (or enable server TLS / use HTTPS) before the tunnel can be created.
+    if (insecureHttp() && !allowInsecureHttp) {
+      return 'This tunnel would serve plaintext http:// with no TLS. Tick the acknowledgement below, enable server TLS termination, or use an HTTPS service.';
+    }
     return '';
   }
 
@@ -220,6 +246,9 @@
         params.set('http_proxy', 'true');
         if (tlsHostname.trim()) params.set('host_header', tlsHostname.trim());
       }
+      // Required server-side override for a plaintext-HTTP tunnel; formValid()
+      // guarantees the user has acknowledged the exposure before we get here.
+      if (insecureHttp()) params.set('allow_insecure_http', 'true');
       if (skipPortCheck) params.set('check_port', '0');
 
       await apiPut(`/clients/${id}/tunnels?${params}`);
@@ -363,6 +392,20 @@
                   <span class="block text-slate-400 mb-1">Hostname (Host header forwarded to the client)</span>
                   <input bind:value={tlsHostname} placeholder="intranet.local" class="font-mono w-full" />
                 </label>
+              {/if}
+              {#if insecureHttp()}
+                <div class="pt-2 space-y-1">
+                  <label class="text-xs flex items-center gap-2 cursor-pointer text-amber-400">
+                    <input type="checkbox" bind:checked={allowInsecureHttp} />
+                    <span>Allow insecure <span class="font-mono">http://</span> without TLS</span>
+                  </label>
+                  <p class="text-xs text-amber-400/80 max-w-xl">
+                    Plain <span class="font-mono">http://</span> traffic between the server and your browser is
+                    <strong>unencrypted</strong> — anyone able to observe the network path can read the request
+                    URLs, headers, cookies and page contents. Prefer “Terminate TLS on the server” above, or use an
+                    HTTPS service. Only tick this for a trusted, private network.
+                  </p>
+                </div>
               {/if}
             </div>
           {/if}

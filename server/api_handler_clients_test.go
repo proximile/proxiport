@@ -531,6 +531,38 @@ func TestHandlePutTunnelWithName(t *testing.T) {
 			URL:           "/api/v1/clients/client-1/tunnels?scheme=http&acl=127.0.0.1&local=0.0.0.0%3A3390&remote=0.0.0.0%3A22&check_port=0&auth_user=admin&http_proxy=1",
 			ExpectedError: "auth_user requires auth_password",
 		},
+		{
+			Name:          "Plaintext HTTP refused without override",
+			URL:           "/api/v1/clients/client-1/tunnels?scheme=http&acl=127.0.0.1&local=0.0.0.0%3A3390&remote=0.0.0.0%3A22&check_port=0",
+			ExpectedError: "plaintext HTTP tunnel",
+		},
+		{
+			Name: "Plaintext HTTP allowed with override",
+			URL:  "/api/v1/clients/client-1/tunnels?scheme=http&acl=127.0.0.1&local=0.0.0.0%3A3390&remote=0.0.0.0%3A22&check_port=0&allow_insecure_http=true",
+			ExpectedJSON: `{
+			"data": {
+				"id": "10",
+				"name": "",
+				"owner": "test-user",
+				"protocol": "tcp",
+				"lhost": "0.0.0.0",
+				"lport": "3390",
+				"rhost": "0.0.0.0",
+				"rport": "22",
+				"lport_random": false,
+				"scheme": "http",
+				"acl": "127.0.0.1",
+				"idle_timeout_minutes": 5,
+				"auto_close": 0,
+				"http_proxy": false,
+				"host_header": "",
+				"auth_user":"",
+				"auth_password":"",
+				"created_at": "0001-01-01T00:00:00Z",
+				"tunnel_url": ""
+			}
+		}`,
+		},
 	}
 
 	for _, tc := range testCases {

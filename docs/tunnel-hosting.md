@@ -186,6 +186,38 @@ certificate end to end, use a plain (non-proxied) tunnel instead: the
 bytes pass through untouched and your client completes the real TLS
 handshake with the target.
 
+### Plaintext HTTP tunnels are blocked by default
+
+A tunnel whose scheme is `http` with **no** TLS in front of it carries the
+operator's browser ⇆ server traffic in the clear. Anyone able to observe the
+network path between the ProxiPort server and the browser — other hosts on the
+LAN, an upstream router, a hostile Wi-Fi access point, a transit provider — can
+read the request URLs, headers, session cookies and page contents. Because a
+management UI is exactly the kind of traffic worth protecting, ProxiPort
+**refuses to open such a tunnel by default**.
+
+A tunnel is considered safe, and needs no override, when either:
+
+- the **server terminates TLS** with its own certificate — tick *Terminate TLS
+  on the server* in the SPA, or pass `http_proxy=true` (see the reverse proxy
+  above); or
+- **TLS is carried end to end by the target** — use the `https` scheme, and the
+  encrypted bytes pass through the tunnel untouched.
+
+If you genuinely need plaintext `http` — for instance on a trusted, isolated
+private network — you must opt in explicitly:
+
+- **In the SPA:** tick *Allow insecure `http://` without TLS* on the New Tunnel
+  form. The box appears only for an `http` tunnel with server TLS disabled, and
+  the tunnel cannot be created until it is ticked.
+- **Via the API:** add `allow_insecure_http=true` to the
+  `PUT /clients/{client_id}/tunnels` query. Without it the request is rejected
+  with `400` and a message explaining the exposure.
+
+This is the same deliberate, one-tick opt-in the UI already requires before
+opening a tunnel to an unrestricted IP range — an easy-to-hit safe default, with
+a clear escape hatch when you know what you are doing.
+
 ## NoVNC proxy
 
 For agents on hosts that expose a VNC server, ProxiPort can bridge to
