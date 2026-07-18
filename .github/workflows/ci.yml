@@ -34,7 +34,7 @@ jobs:
         # a fresh release — it installed the still-vulnerable 1.25.11 while
         # GO-2026-5856 (crypto/tls) was fixed in 1.25.12. Bump this as new
         # stdlib fixes ship.
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.25.12"
           cache: true
