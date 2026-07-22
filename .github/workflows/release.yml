@@ -27,7 +27,7 @@ jobs:
         # Build released binaries with the 1.25.x PATCH that clears known stdlib
         # CVEs (not the exact `go 1.25.0` floor in go.mod). Pinned to 1.25.12
         # (GO-2026-5856 / crypto/tls); mirrors ci.yml. Bump as new fixes ship.
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: "1.25.12"
 
