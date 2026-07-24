@@ -283,6 +283,35 @@ across every connected agent.
 
 ![Global active tunnels.](screenshots/06-tunnels-global-active.png)
 
+### Finding and reusing tunnels from the API
+
+The per-client endpoint `GET /api/v1/clients/{id}` includes that
+client's active tunnels by default. The **list** endpoint
+`GET /api/v1/clients` returns a lean projection — `id`, `name`,
+`hostname` — so request the tunnels field explicitly when you want it
+across the fleet:
+
+```
+GET /api/v1/clients?fields[clients]=id,name,tunnels
+```
+
+This is the same field-projection the list endpoint uses for every
+optional attribute: ask for a field and you get it; a client with no
+open tunnels reports an empty list. Each tunnel object carries the `id`
+you delete it by (`DELETE /api/v1/clients/{id}/tunnels/{tunnelID}`), so
+you never have to remember the id from when you created it.
+
+### Tunnels survive an agent restart
+
+When an agent drops and reconnects under the same client id, the server
+**re-establishes that client's tunnels automatically** — including a
+manually pinned local port — and the restored listener starts carrying
+traffic again with no operator action. Because the tunnel is still
+there, opening a *new* tunnel to the same agent-side port returns
+`ERR_CODE_TUNNEL_TO_PORT_EXIST`. Reuse the existing tunnel (look it up
+as above) rather than recreating it; delete it by id first only if you
+genuinely want a fresh listener.
+
 ## Commands and scripts
 
 ProxiPort can run ad-hoc commands or multi-line scripts against any
