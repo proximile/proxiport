@@ -33,6 +33,12 @@
   let tlsProxy = $state(false);
   let tlsHostname = $state('');
 
+  // Opt a single TLS-proxy tunnel out of verifying the target's certificate.
+  // Only meaningful for an HTTPS target (the server re-originates TLS to it):
+  // needed for a self-signed or hostname-mismatched cert, e.g. a LAN appliance
+  // whose certificate carries no SAN. Sent as skip_tls_verify=true.
+  let skipTlsVerify = $state(false);
+
   // Explicit acknowledgement required before opening a plaintext-HTTP tunnel
   // (scheme http with no TLS). See insecureHttp() for the rationale.
   let allowInsecureHttp = $state(false);
@@ -48,6 +54,8 @@
     if (remotePort === lastDefaultPort) remotePort = next;
     lastDefaultPort = next;
     if (effective !== 'http' && effective !== 'https') tlsProxy = false;
+    // skip-verify only applies to an HTTPS target; drop it otherwise.
+    if (effective !== 'https') skipTlsVerify = false;
   }
 
   function effectiveScheme(): string {
@@ -245,6 +253,9 @@
       if (tlsProxy && tlsProxyAvailable()) {
         params.set('http_proxy', 'true');
         if (tlsHostname.trim()) params.set('host_header', tlsHostname.trim());
+        // Only meaningful (and only accepted by the server) for an https target
+        // fronted by the TLS proxy.
+        if (skipTlsVerify && effectiveScheme() === 'https') params.set('skip_tls_verify', 'true');
       }
       // Required server-side override for a plaintext-HTTP tunnel; formValid()
       // guarantees the user has acknowledged the exposure before we get here.
@@ -384,7 +395,11 @@
           {#if tlsProxyAvailable()}
             <div class="pt-3 border-t border-pp-border space-y-2">
               <label class="text-xs flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" bind:checked={tlsProxy} />
+                <input
+                  type="checkbox"
+                  bind:checked={tlsProxy}
+                  onchange={() => { if (!tlsProxy) skipTlsVerify = false; }}
+                />
                 <span>Terminate TLS on the server using the server's certificate</span>
               </label>
               {#if tlsProxy}
@@ -392,6 +407,20 @@
                   <span class="block text-slate-400 mb-1">Hostname (Host header forwarded to the client)</span>
                   <input bind:value={tlsHostname} placeholder="intranet.local" class="font-mono w-full" />
                 </label>
+                {#if effectiveScheme() === 'https'}
+                  <div class="pt-1 space-y-1">
+                    <label class="text-xs flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" bind:checked={skipTlsVerify} />
+                      <span>Do not verify the target's TLS certificate (self-signed target)</span>
+                    </label>
+                    <p class="text-xs text-slate-400/80 max-w-xl">
+                      Tick only for an HTTPS target whose certificate is self-signed or does not match
+                      its hostname — for example a LAN appliance whose certificate carries no SAN. The
+                      connection to the target stays encrypted, but its identity is not checked, so use
+                      this only on a trusted network.
+                    </p>
+                  </div>
+                {/if}
               {/if}
               {#if insecureHttp()}
                 <div class="pt-2 space-y-1">
