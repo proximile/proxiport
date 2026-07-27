@@ -178,8 +178,18 @@ trust store, or against a private CA bundle if you set one:
 Verification uses the target's real hostname for SNI: the tunnel's
 `host_header` when you set one, otherwise the tunnel's remote host. If a
 particular target presents a self-signed certificate you cannot add to a
-CA bundle, opt that one tunnel out with the `skip_tls_verify=true` query
-parameter when creating it — it applies only to that tunnel.
+CA bundle — or one whose SAN does not match the hostname, such as a LAN
+appliance whose certificate carries no SAN at all — opt that one tunnel
+out with the `skip_tls_verify=true` query parameter when creating it. It
+applies only to that tunnel. In the web UI the same option is a **"Do not
+verify the target's TLS certificate"** checkbox that appears under
+*Terminate TLS on the server* once the target scheme is `https`.
+
+A private CA bundle does not help a certificate that has no SAN: modern
+TLS verification ignores the legacy Common Name and matches only against
+the SAN, so a SAN-less certificate is rejected however it is trusted.
+Either reissue the target's certificate with the hostname in its SAN, or
+use `skip_tls_verify` for that tunnel.
 
 If you would rather the operator's own browser validate the target
 certificate end to end, use a plain (non-proxied) tunnel instead: the
