@@ -29,7 +29,7 @@ require (
 	github.com/jpillora/sizestr v1.0.0
 	github.com/kardianos/service v1.3.0
 	github.com/kr/fs v0.1.0 // indirect
-	github.com/mattn/go-sqlite3 v1.14.48
+	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/mocktools/go-smtp-mock v1.10.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -67,7 +67,7 @@ require (
 	github.com/hashicorp/go-version v1.9.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/mocktools/go-smtp-mock/v2 v2.5.4
-	github.com/oklog/ulid/v2 v2.1.1
+	github.com/oklog/ulid/v2 v2.1.2
 	github.com/oleiade/reflections v1.1.0
 	github.com/pkg/sftp v1.13.11
 	github.com/shirou/gopsutil/v3 v3.24.5
