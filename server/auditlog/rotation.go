@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"os"
 	"path"
+	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -17,11 +19,15 @@ import (
 const (
 	sqliteFilename  = "auditlog.db"
 	rotatedFilename = "auditlog.2006-01-02.db"
+	// rotatedGlob matches rotated files (auditlog.<date>.db) but not the
+	// active auditlog.db, whose name has no middle segment.
+	rotatedGlob = "auditlog.*.db"
 )
 
 type RotationProvider struct {
 	logger            *logger.Logger
 	period            time.Duration
+	retention         int
 	ticker            *time.Ticker
 	dataDir           string
 	dataSourceOptions sqlite.DataSourceOptions
@@ -31,19 +37,20 @@ type RotationProvider struct {
 	sqlite *SQLiteProvider
 }
 
-func newRotationProvider(l *logger.Logger, period time.Duration, dataDir string, dataSourceOptions sqlite.DataSourceOptions, hmacKey []byte) (*RotationProvider, error) {
+func newRotationProvider(l *logger.Logger, period time.Duration, retention int, dataDir string, dataSourceOptions sqlite.DataSourceOptions, hmacKey []byte) (*RotationProvider, error) {
 	sqlite, err := newSQLiteProvider(dataDir, dataSourceOptions, hmacKey)
 	if err != nil {
 		return nil, err
 	}
 
 	r := &RotationProvider{
-		logger:  l,
-		period:  period,
-		dataDir: dataDir,
-		hmacKey: hmacKey,
-		sqlite:  sqlite,
-		ticker:  time.NewTicker(period),
+		logger:    l,
+		period:    period,
+		retention: retention,
+		dataDir:   dataDir,
+		hmacKey:   hmacKey,
+		sqlite:    sqlite,
+		ticker:    time.NewTicker(period),
 	}
 	err = r.rotateIfNeeded()
 	if err != nil {
@@ -83,6 +90,39 @@ func (r *RotationProvider) rotate() error {
 	r.sqlite, err = newSQLiteProvider(r.dataDir, r.dataSourceOptions, r.hmacKey)
 	if err != nil {
 		return err
+	}
+
+	if err := r.pruneRotated(); err != nil {
+		// Pruning is best-effort: a fresh, working DB matters more than a
+		// stale rotated file, so log and carry on rather than fail rotation.
+		r.logger.Errorf("Could not prune old rotated auditlogs: %v", err)
+	}
+
+	return nil
+}
+
+// pruneRotated deletes the oldest rotated auditlog files beyond the configured
+// retention count. Retention <= 0 keeps every rotated file. Rotated names are
+// dated (auditlog.YYYY-MM-DD.db), so a lexicographic sort is chronological.
+func (r *RotationProvider) pruneRotated() error {
+	if r.retention <= 0 {
+		return nil
+	}
+
+	matches, err := filepath.Glob(filepath.Join(r.dataDir, rotatedGlob))
+	if err != nil {
+		return err
+	}
+	if len(matches) <= r.retention {
+		return nil
+	}
+
+	sort.Strings(matches)
+	for _, old := range matches[:len(matches)-r.retention] {
+		if err := os.Remove(old); err != nil {
+			return err
+		}
+		r.logger.Infof("pruned rotated auditlog %s (retention=%d)", filepath.Base(old), r.retention)
 	}
 
 	return nil

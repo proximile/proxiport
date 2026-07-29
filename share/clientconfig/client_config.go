@@ -74,8 +74,22 @@ type ConnectionConfig struct {
 }
 
 type LogConfig struct {
-	LogOutput logger.LogOutput `json:"log_file" mapstructure:"log_file"`
-	LogLevel  logger.LogLevel  `json:"log_level" mapstructure:"log_level"`
+	LogOutput  logger.LogOutput `json:"log_file" mapstructure:"log_file"`
+	LogLevel   logger.LogLevel  `json:"log_level" mapstructure:"log_level"`
+	MaxSizeMB  int              `json:"log_max_size_mb" mapstructure:"log_max_size_mb"`
+	MaxBackups int              `json:"log_max_backups" mapstructure:"log_max_backups"`
+	MaxAgeDays int              `json:"log_max_age_days" mapstructure:"log_max_age_days"`
+	Compress   bool             `json:"log_compress" mapstructure:"log_compress"`
+}
+
+// RotationConfig assembles the agent's log-file rotation settings.
+func (c LogConfig) RotationConfig() logger.RotationConfig {
+	return logger.RotationConfig{
+		MaxSizeMB:  c.MaxSizeMB,
+		MaxBackups: c.MaxBackups,
+		MaxAgeDays: c.MaxAgeDays,
+		Compress:   c.Compress,
+	}
 }
 
 type CommandsConfig struct {

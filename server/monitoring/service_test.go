@@ -193,3 +193,35 @@ func TestMonitoringService_ListClientGraphMetrics(t *testing.T) {
 	}
 
 }
+
+// stubDrainProvider hands back deletions in fixed-size chunks so the service's
+// drain loop must iterate until the backlog is empty.
+type stubDrainProvider struct {
+	*DBProviderMock
+	remaining int
+	calls     int
+}
+
+func (p *stubDrainProvider) DeleteMeasurementsBefore(_ context.Context, _ time.Time) (int64, error) {
+	p.calls++
+	n := p.remaining
+	if n > MaxDeletedEntries {
+		n = MaxDeletedEntries
+	}
+	p.remaining -= n
+	return int64(n), nil
+}
+
+// TestMonitoringService_DeleteDrainsBacklog: DeleteMeasurementsOlderThan must
+// loop over MaxDeletedEntries-sized chunks until the whole backlog is cleared,
+// not stop after a single chunk.
+func TestMonitoringService_DeleteDrainsBacklog(t *testing.T) {
+	stub := &stubDrainProvider{DBProviderMock: &DBProviderMock{}, remaining: 2*MaxDeletedEntries + 3}
+	service := NewService(stub, testLog)
+
+	deleted, err := service.DeleteMeasurementsOlderThan(context.Background(), time.Hour)
+	require.NoError(t, err)
+	require.Equal(t, int64(2*MaxDeletedEntries+3), deleted, "must drain the whole backlog in one pass")
+	require.Equal(t, 3, stub.calls, "two full chunks plus one partial chunk")
+	require.Zero(t, stub.remaining)
+}

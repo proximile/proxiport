@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"os/exec"
 	"path"
 	"strings"
@@ -319,7 +318,7 @@ func NewAPIListener(
 	}
 
 	if config.API.AccessLogFile != "" {
-		accessLogFile, err := os.OpenFile(config.API.AccessLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		accessLogFile, err := logger.OpenRotating(config.API.AccessLogFile, config.Logging.RotationConfig())
 		if err != nil {
 			return nil, err
 		}

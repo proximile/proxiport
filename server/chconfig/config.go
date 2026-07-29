@@ -119,8 +119,24 @@ const (
 )
 
 type LogConfig struct {
-	LogOutput logger.LogOutput `mapstructure:"log_file"`
-	LogLevel  logger.LogLevel  `mapstructure:"log_level"`
+	LogOutput  logger.LogOutput `mapstructure:"log_file"`
+	LogLevel   logger.LogLevel  `mapstructure:"log_level"`
+	MaxSizeMB  int              `mapstructure:"log_max_size_mb"`
+	MaxBackups int              `mapstructure:"log_max_backups"`
+	MaxAgeDays int              `mapstructure:"log_max_age_days"`
+	Compress   bool             `mapstructure:"log_compress"`
+}
+
+// RotationConfig assembles the log-file rotation settings for this logging
+// block. It also drives rotation of the API access log, which shares these
+// limits.
+func (c LogConfig) RotationConfig() logger.RotationConfig {
+	return logger.RotationConfig{
+		MaxSizeMB:  c.MaxSizeMB,
+		MaxBackups: c.MaxBackups,
+		MaxAgeDays: c.MaxAgeDays,
+		Compress:   c.Compress,
+	}
 }
 
 type ServerConfig struct {

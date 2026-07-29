@@ -8,10 +8,17 @@ import (
 	"github.com/proximile/proxiport/share/logger"
 )
 
+// vacuumMinInterval throttles the reclaim VACUUM. DELETE alone never shrinks
+// the SQLite file, so we compact it — but VACUUM is expensive and briefly
+// locks the DB, so run it at most this often, and only after a cleanup that
+// actually removed rows.
+const vacuumMinInterval = 24 * time.Hour
+
 type CleanupTask struct {
-	log      *logger.Logger
-	service  Service
-	duration time.Duration
+	log        *logger.Logger
+	service    Service
+	duration   time.Duration
+	lastVacuum time.Time
 }
 
 // NewCleanupTask returns a task to cleanup monitoring data after configured period
@@ -29,5 +36,16 @@ func (t *CleanupTask) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to cleanup measurements: %v", err)
 	}
 	t.log.Debugf("monitoring.CleanupTask: %d measurement records deleted", deletedRecords)
+
+	// Reclaim the freed pages so monitoring.db actually shrinks on disk, but
+	// only when something was deleted and not more than once per interval.
+	if deletedRecords > 0 && time.Since(t.lastVacuum) >= vacuumMinInterval {
+		if err := t.service.Vacuum(ctx); err != nil {
+			t.log.Errorf("monitoring.CleanupTask: could not reclaim space (VACUUM): %v", err)
+		} else {
+			t.lastVacuum = time.Now()
+			t.log.Infof("monitoring.CleanupTask: reclaimed monitoring.db free space")
+		}
+	}
 	return nil
 }

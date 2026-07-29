@@ -2,6 +2,8 @@ package auditlog
 
 import (
 	"context"
+	"io"
+	"os"
 	"path"
 	"path/filepath"
 	"testing"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/proximile/proxiport/db/migration/auditlog"
 	"github.com/proximile/proxiport/db/sqlite"
+	"github.com/proximile/proxiport/share/logger"
 	"github.com/proximile/proxiport/share/query"
 )
 
@@ -35,7 +38,7 @@ func TestRotationKeepsFreshEntriesOnInit(t *testing.T) {
 	dir := t.TempDir()
 	seedEntry(t, dir, &Entry{Timestamp: time.Now(), Username: "fresh"})
 
-	rotation, err := newRotationProvider(nil, time.Hour, dir, dso, nil)
+	rotation, err := newRotationProvider(nil, time.Hour, 0, dir, dso, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rotation.Close() })
 
@@ -54,7 +57,7 @@ func TestRotationRotatesAgedEntriesOnInit(t *testing.T) {
 	period := time.Hour
 	seedEntry(t, dir, &Entry{Timestamp: time.Now().Add(-2 * period), Username: "aged"})
 
-	rotation, err := newRotationProvider(nil, period, dir, dso, nil)
+	rotation, err := newRotationProvider(nil, period, 0, dir, dso, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rotation.Close() })
 
@@ -71,7 +74,7 @@ func TestRotationExplicitRotate(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	rotation, err := newRotationProvider(nil, time.Hour, dir, dso, nil)
+	rotation, err := newRotationProvider(nil, time.Hour, 0, dir, dso, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rotation.Close() })
 
@@ -98,7 +101,7 @@ func TestRotationTickerRotates(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	rotation, err := newRotationProvider(nil, 150*time.Millisecond, dir, dso, nil)
+	rotation, err := newRotationProvider(nil, 150*time.Millisecond, 0, dir, dso, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rotation.Close() })
 
@@ -130,4 +133,38 @@ func assertRotatedSqlite(t *testing.T, dir, expectedUsername string) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	assert.Equal(t, expectedUsername, entries[0].Username)
+}
+
+// TestRotationPrunesOldFiles: with a retention of N, pruneRotated keeps only
+// the N newest dated auditlog files and never touches the active auditlog.db.
+func TestRotationPrunesOldFiles(t *testing.T) {
+	dir := t.TempDir()
+	l := logger.NewLogger("test", logger.LogOutput{File: io.Discard}, logger.LogLevelError)
+
+	rotation, err := newRotationProvider(l, time.Hour, 2, dir, dso, nil)
+	require.NoError(t, err)
+	defer func() { _ = rotation.Close() }()
+
+	// Fake several already-rotated files (dated names sort chronologically).
+	rotated := []string{
+		"auditlog.2026-01-01.db",
+		"auditlog.2026-01-02.db",
+		"auditlog.2026-01-03.db",
+		"auditlog.2026-01-04.db",
+	}
+	for _, name := range rotated {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600))
+	}
+
+	require.NoError(t, rotation.pruneRotated())
+
+	matches, err := filepath.Glob(filepath.Join(dir, rotatedGlob))
+	require.NoError(t, err)
+	require.Len(t, matches, 2, "retention=2 should keep the 2 newest rotated files")
+	assert.Equal(t, filepath.Join(dir, "auditlog.2026-01-03.db"), matches[0])
+	assert.Equal(t, filepath.Join(dir, "auditlog.2026-01-04.db"), matches[1])
+
+	// The active DB must survive pruning.
+	_, err = os.Stat(filepath.Join(dir, sqliteFilename))
+	require.NoError(t, err, "active auditlog.db must not be pruned")
 }

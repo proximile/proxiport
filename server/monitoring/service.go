@@ -19,6 +19,7 @@ type Service interface {
 	SaveMeasurementUpdateTimestamp(ctx context.Context, measurement *models.Measurement) error
 	SaveMeasurement(ctx context.Context, measurement *models.Measurement) error
 	DeleteMeasurementsOlderThan(ctx context.Context, period time.Duration) (int64, error)
+	Vacuum(ctx context.Context) error
 	ListClientMetrics(context.Context, string, *query.ListOptions) (*api.SuccessPayload, error)
 	ListClientGraph(context.Context, string, *query.ListOptions, string, *models.NetworkCard, *models.NetworkCard) (*api.SuccessPayload, error)
 	ListClientGraphMetrics(context.Context, string, *query.ListOptions, *query.RequestInfo, bool, bool) (*api.SuccessPayload, error)
@@ -67,7 +68,30 @@ func (s *monitoringService) SaveMeasurement(ctx context.Context, measurement *mo
 
 func (s *monitoringService) DeleteMeasurementsOlderThan(ctx context.Context, period time.Duration) (int64, error) {
 	compare := time.Now().Add(-period)
-	return s.DBProvider.DeleteMeasurementsBefore(ctx, compare)
+
+	// DeleteMeasurementsBefore removes at most MaxDeletedEntries timestamps per
+	// call to avoid a stop-the-world delete; loop until the backlog is drained
+	// so a large accumulation clears in one cleanup pass instead of one chunk
+	// every interval.
+	var total int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
+		deleted, err := s.DBProvider.DeleteMeasurementsBefore(ctx, compare)
+		total += deleted
+		if err != nil {
+			return total, err
+		}
+		if deleted < MaxDeletedEntries {
+			break
+		}
+	}
+	return total, nil
+}
+
+func (s *monitoringService) Vacuum(ctx context.Context) error {
+	return s.DBProvider.Vacuum(ctx)
 }
 
 func (s *monitoringService) ListClientGraphMetrics(ctx context.Context, clientID string, lo *query.ListOptions, ri *query.RequestInfo, netLan bool, netWan bool) (*api.SuccessPayload, error) {

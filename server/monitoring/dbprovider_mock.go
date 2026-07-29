@@ -50,6 +50,10 @@ func (p *DBProviderMock) DeleteMeasurementsBefore(ctx context.Context, compare t
 	return 0, nil
 }
 
+func (p *DBProviderMock) Vacuum(ctx context.Context) error {
+	return nil
+}
+
 func (p *DBProviderMock) Close() error {
 	return nil
 }

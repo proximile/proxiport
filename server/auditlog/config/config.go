@@ -16,6 +16,10 @@ type Config struct {
 	Enable           bool   `mapstructure:"enable_audit_log"`
 	UseIPObfuscation bool   `mapstructure:"use_ip_obfuscation"`
 	Rotation         string `mapstructure:"audit_log_rotation"`
+	// Retention is the number of rotated audit-log files to keep. Zero (the
+	// default) keeps every rotated file forever — the historical behaviour and
+	// the safe default for audit data; set it to bound on-disk growth.
+	Retention int `mapstructure:"audit_log_retention"`
 }
 
 func (c *Config) Validate() error {

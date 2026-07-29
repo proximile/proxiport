@@ -2,9 +2,12 @@ package logger
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"sync"
+
+	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
 type LogLevel int
@@ -40,9 +43,38 @@ func ParseLogLevel(str string) (LogLevel, error) {
 	return LogLevelError, fmt.Errorf("invalid log level: %q", str)
 }
 
+// RotationConfig controls size-based rotation of a log file. A zero MaxSizeMB
+// disables rotation: the file is opened for plain appending and grows without
+// bound, matching the historical behaviour.
+type RotationConfig struct {
+	MaxSizeMB  int  // rotate once the active file reaches this many megabytes
+	MaxBackups int  // number of rotated files to keep (0 = keep all)
+	MaxAgeDays int  // maximum age in days of a rotated file (0 = no age limit)
+	Compress   bool // gzip rotated files
+}
+
+// OpenRotating opens path for logging. When rc.MaxSizeMB > 0 the returned
+// writer rotates the file at that size and prunes old segments per MaxBackups
+// / MaxAgeDays (optionally gzip-compressing them); otherwise it is a plain
+// append-only file. The caller owns Close.
+func OpenRotating(path string, rc RotationConfig) (io.WriteCloser, error) {
+	if rc.MaxSizeMB > 0 {
+		return &lumberjack.Logger{
+			Filename:   path,
+			MaxSize:    rc.MaxSizeMB,
+			MaxBackups: rc.MaxBackups,
+			MaxAge:     rc.MaxAgeDays,
+			Compress:   rc.Compress,
+		}, nil
+	}
+	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+}
+
 type LogOutput struct {
-	File     *os.File
+	File     io.Writer
 	filePath string
+	Rotation RotationConfig
+	closer   io.Closer
 }
 
 func NewLogOutput(filePath string) LogOutput {
@@ -57,17 +89,18 @@ func (o *LogOutput) Start() error {
 		return nil
 	}
 
-	var err error
-	o.File, err = os.OpenFile(o.filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	w, err := OpenRotating(o.filePath, o.Rotation)
 	if err != nil {
 		return fmt.Errorf("can't open log file %s: %s", o.filePath, err)
 	}
+	o.File = w
+	o.closer = w
 	return nil
 }
 
 func (o *LogOutput) Shutdown() {
-	if o.File != nil && o.File != os.Stdout {
-		_ = o.File.Close()
+	if o.closer != nil {
+		_ = o.closer.Close()
 	}
 }
 
