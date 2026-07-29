@@ -266,20 +266,27 @@
 
       if (storeInLibrary) {
         try {
+          // The stored-tunnel record's own columns are name/scheme/remote_ip/
+          // remote_port/public_port/acl; everything else (auto-close, the TLS
+          // proxy settings) rides in the further_options JSON blob. client_id
+          // is taken from the URL path server-side, so it must NOT be sent —
+          // the API rejects unknown body fields.
+          const furtherOptions: Record<string, unknown> = {};
+          if (autoClose) furtherOptions.auto_close = autoClose;
+          if (tlsProxy && tlsProxyAvailable()) {
+            furtherOptions.http_proxy = true;
+            if (tlsHostname.trim()) furtherOptions.host_header = tlsHostname.trim();
+            if (skipTlsVerify && sch === 'https') furtherOptions.skip_tls_verify = true;
+          }
           const body: Record<string, unknown> = {
             name: libraryName || `${sch} ${buildRemote()}`,
-            client_id: id,
-            remote_port: Number(remotePort),
-            scheme: sch
+            scheme: sch,
+            remote_port: Number(remotePort)
           };
-          if (service === 'forwarding' && destHost) body.remote_host = destHost;
-          if (publicPortMode === 'specify' && publicPort) body.local_port = Number(publicPort);
+          if (service === 'forwarding' && destHost) body.remote_ip = destHost;
+          if (publicPortMode === 'specify' && publicPort) body.public_port = Number(publicPort);
           if (acl) body.acl = acl;
-          if (autoClose) body.auto_close = autoClose;
-          if (tlsProxy && tlsProxyAvailable()) {
-            body.http_proxy = true;
-            if (tlsHostname.trim()) body.host_header = tlsHostname.trim();
-          }
+          if (Object.keys(furtherOptions).length) body.further_options = furtherOptions;
           await apiPost(`/clients/${id}/stored-tunnels`, body);
         } catch (libErr) {
           pushToast('warn', 'Tunnel created, but couldn\'t save to library: ' +
@@ -308,6 +315,42 @@
       await load(id);
     } catch (err) {
       pushToast('bad', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // Recreate a live tunnel from a stored-library template, reconstructing the
+  // full request — including the TLS-proxy settings kept in further_options —
+  // so a saved tunnel round-trips faithfully ("one-click recreation").
+  async function recreateFromStored(s: any) {
+    const id = $page.params.id;
+    if (!id || creating) return;
+    creating = true;
+    try {
+      const fo = s.further_options ?? {};
+      const params = new URLSearchParams();
+      params.set('remote', s.remote_ip ? `${s.remote_ip}:${s.remote_port}` : String(s.remote_port));
+      if (s.scheme && s.scheme !== 'other') params.set('scheme', s.scheme);
+      if (s.public_port) params.set('local', String(s.public_port));
+      if (s.acl) params.set('acl', s.acl);
+      if (fo.auto_close) params.set('auto-close', String(fo.auto_close));
+      if (fo.http_proxy) {
+        params.set('http_proxy', 'true');
+        if (fo.host_header) params.set('host_header', String(fo.host_header));
+        if (fo.skip_tls_verify && s.scheme === 'https') params.set('skip_tls_verify', 'true');
+      } else if (s.scheme === 'http') {
+        // A plaintext-HTTP tunnel with no TLS proxy needs the explicit override
+        // the create form also requires; the template was saved with consent.
+        params.set('allow_insecure_http', 'true');
+      }
+      await apiPut(`/clients/${id}/tunnels?${params}`);
+      pushToast('good', 'Tunnel created from stored template.');
+      await load(id);
+    } catch (err) {
+      pushToast('bad', 'Could not create tunnel: ' +
+        (err instanceof ApiException ? (err.errors[0]?.title || err.message)
+          : (err instanceof Error ? err.message : String(err))));
+    } finally {
+      creating = false;
     }
   }
 
@@ -611,17 +654,25 @@
     {:else}
       <table class="tbl">
         <thead>
-          <tr><th>Name</th><th>Local</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Auto-close</th></tr>
+          <tr><th>Name</th><th>Local</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Auto-close</th><th></th></tr>
         </thead>
         <tbody>
           {#each stored as s}
+            {@const fo = s.further_options ?? {}}
             <tr>
               <td>{s.name || '—'}</td>
-              <td class="font-mono">{s.local_host ?? ''}:{s.local_port ?? ''}</td>
-              <td class="font-mono">{s.remote_host ?? ''}:{s.remote_port ?? ''}</td>
-              <td>{s.scheme || '—'}</td>
+              <td class="font-mono">{s.public_port ?? '(auto)'}</td>
+              <td class="font-mono">{s.remote_ip ? `${s.remote_ip}:` : ''}{s.remote_port ?? ''}</td>
+              <td>
+                <span class="pill pill-info">{s.scheme || '—'}</span>
+                {#if fo.http_proxy}<span class="pill pill-info ml-1">TLS</span>{/if}
+                {#if fo.skip_tls_verify}<span class="pill pill-warn ml-1" title="target certificate not verified">no-verify</span>{/if}
+              </td>
               <td class="font-mono text-xs">{s.acl || '—'}</td>
-              <td>{s.auto_close ?? '—'}</td>
+              <td>{fo.auto_close ?? '—'}</td>
+              <td class="text-right">
+                <button class="btn btn-ghost btn-sm" disabled={creating} onclick={() => recreateFromStored(s)}>Use</button>
+              </td>
             </tr>
           {/each}
         </tbody>
