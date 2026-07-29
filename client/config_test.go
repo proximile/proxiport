@@ -242,6 +242,7 @@ func TestConfigParseAndValidateProxyURL(t *testing.T) {
 
 func TestConfigParseAndValidateRemotes(t *testing.T) {
 	schemeHTTP := "http"
+	schemeHTTPS := "https"
 
 	testCases := []struct {
 		Name            string
@@ -359,6 +360,68 @@ func TestConfigParseAndValidateRemotes(t *testing.T) {
 			Remotes:       []string{"8000"},
 			TunnelAllowed: []string{"8001"},
 			ExpectedError: `remote "8000" is not allowed by "tunnel_allowed" config`,
+		},
+		{
+			Name:    "per-tunnel scheme overrides global default",
+			Remotes: []string{"8000 scheme=https", "8001"},
+			TunnelsConfig: clientconfig.TunnelsConfig{
+				Scheme: schemeHTTP,
+			},
+			ExpectedRemotes: []*models.Remote{
+				{
+					Protocol:   models.ProtocolTCP,
+					RemoteHost: "127.0.0.1",
+					RemotePort: "8000",
+					Scheme:     &schemeHTTPS,
+				},
+				{
+					Protocol:   models.ProtocolTCP,
+					RemoteHost: "127.0.0.1",
+					RemotePort: "8001",
+					Scheme:     &schemeHTTP,
+				},
+			},
+		},
+		{
+			Name:    "per-tunnel reverse_proxy and host_header",
+			Remotes: []string{"8443:pikvm.lan:443 scheme=https reverse_proxy host_header=pikvm.lan"},
+			ExpectedRemotes: []*models.Remote{
+				{
+					Protocol:   models.ProtocolTCP,
+					LocalHost:  "0.0.0.0",
+					LocalPort:  "8443",
+					RemoteHost: "pikvm.lan",
+					RemotePort: "443",
+					Scheme:     &schemeHTTPS,
+					HTTPProxy:  true,
+					HostHeader: "pikvm.lan",
+				},
+			},
+		},
+		{
+			Name:    "per-tunnel reverse_proxy=false overrides global",
+			Remotes: []string{"8000 reverse_proxy=false"},
+			TunnelsConfig: clientconfig.TunnelsConfig{
+				ReverseProxy: true,
+			},
+			ExpectedRemotes: []*models.Remote{
+				{
+					Protocol:   models.ProtocolTCP,
+					RemoteHost: "127.0.0.1",
+					RemotePort: "8000",
+					HTTPProxy:  false,
+				},
+			},
+		},
+		{
+			Name:          "per-tunnel host_header without reverse_proxy",
+			Remotes:       []string{"8000 host_header=x.dev"},
+			ExpectedError: `invalid remote "8000 host_header=x.dev": host_header requires reverse_proxy to be enabled`,
+		},
+		{
+			Name:          "unknown per-tunnel option",
+			Remotes:       []string{"8000 bogus=1"},
+			ExpectedError: `failed to decode remote "8000 bogus=1": unknown tunnel option "bogus" (supported: scheme=, reverse_proxy[=bool], host_header=)`,
 		},
 	}
 
