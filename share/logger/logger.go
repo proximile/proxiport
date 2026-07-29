@@ -112,9 +112,17 @@ type Logger struct {
 }
 
 func NewLogger(prefix string, output LogOutput, level LogLevel) *Logger {
+	w := output.File
+	if w == nil {
+		// A LogOutput that was never Start()ed (as several tests construct)
+		// carries a nil writer; log.New would then panic on the first write.
+		// Discard, matching the pre-rotation behaviour when File was a typed-nil
+		// *os.File whose Write silently errored.
+		w = io.Discard
+	}
 	l := &Logger{
 		prefix: prefix,
-		logger: log.New(output.File, "", log.Ldate|log.Ltime),
+		logger: log.New(w, "", log.Ldate|log.Ltime),
 		output: output,
 		Level:  level,
 	}
