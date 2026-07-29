@@ -44,6 +44,10 @@ const (
 	DefaultExcludedPorts                    = "1-1024"
 	DefaultServerAddress                    = "0.0.0.0:8080"
 	DefaultLogLevel                         = "info"
+	DefaultLogMaxSizeMB                     = 100
+	DefaultLogMaxBackups                    = 7
+	DefaultLogMaxAgeDays                    = 28
+	DefaultLogCompress                      = true
 	DefaultRunRemoteCmdTimeoutSec           = 60
 	DefaultMonitoringDataStorageDuration    = "7d"
 	DefaultPairingURL                       = "https://pairing.proxiport.net"
@@ -333,6 +337,10 @@ func init() {
 	viperCfg.SetConfigType("toml")
 
 	viperCfg.SetDefault("logging.log_level", DefaultLogLevel)
+	viperCfg.SetDefault("logging.log_max_size_mb", DefaultLogMaxSizeMB)
+	viperCfg.SetDefault("logging.log_max_backups", DefaultLogMaxBackups)
+	viperCfg.SetDefault("logging.log_max_age_days", DefaultLogMaxAgeDays)
+	viperCfg.SetDefault("logging.log_compress", DefaultLogCompress)
 	viperCfg.SetDefault("server.address", DefaultServerAddress)
 	viperCfg.SetDefault("server.used_ports", []string{DefaultUsedPorts})
 	viperCfg.SetDefault("server.excluded_ports", []string{DefaultExcludedPorts})
@@ -489,6 +497,7 @@ func runMain(*cobra.Command, []string) {
 		log.Fatal("By default running as root is not allowed.")
 	}
 
+	cfg.Logging.LogOutput.Rotation = cfg.Logging.RotationConfig()
 	err = cfg.Logging.LogOutput.Start()
 	if err != nil {
 		log.Fatal(err)

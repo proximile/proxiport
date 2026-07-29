@@ -28,6 +28,7 @@ type DBProvider interface {
 	ListMountpointsByClientID(context.Context, string, *query.ListOptions) ([]*ClientMountpointsPayload, error)
 	ListProcessesByClientID(context.Context, string, *query.ListOptions) ([]*ClientProcessesPayload, error)
 	CountByClientID(context.Context, string, *query.ListOptions) (int, error)
+	Vacuum(context.Context) error
 	Close() error
 }
 
@@ -320,6 +321,15 @@ func (p *SqliteProvider) DeleteMeasurementsBefore(ctx context.Context, compare t
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+// Vacuum rewrites the database file to reclaim space left by deleted
+// measurements (SQLite does not shrink the file on DELETE alone). It is
+// relatively expensive and briefly locks the DB, so callers should run it
+// sparingly (e.g. once a day after a cleanup that actually removed rows).
+func (p *SqliteProvider) Vacuum(ctx context.Context) error {
+	_, err := p.db.ExecContext(ctx, "VACUUM")
+	return err
 }
 
 func (p *SqliteProvider) Close() error {

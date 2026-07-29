@@ -127,6 +127,7 @@ func runClient(pFlags *pflag.FlagSet) error {
 		return fmt.Errorf("invalid config: %v. Check your config file", err)
 	}
 
+	config.Logging.LogOutput.Rotation = config.Logging.RotationConfig()
 	err = config.Logging.LogOutput.Start()
 	if err != nil {
 		return fmt.Errorf("failed starting log output: %v", err)

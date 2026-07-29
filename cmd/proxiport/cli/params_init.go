@@ -113,6 +113,10 @@ func SetPFlags(pFlags *pflag.FlagSet) {
 func SetViperConfigDefaults(viperCfg *viper.Viper) {
 
 	viperCfg.SetDefault("logging.log_level", "info")
+	viperCfg.SetDefault("logging.log_max_size_mb", 100)
+	viperCfg.SetDefault("logging.log_max_backups", 7)
+	viperCfg.SetDefault("logging.log_max_age_days", 28)
+	viperCfg.SetDefault("logging.log_compress", true)
 
 	viperCfg.SetDefault("connection.max_retry_count", -1)
 	viperCfg.SetDefault("connection.keep_alive", "3m")

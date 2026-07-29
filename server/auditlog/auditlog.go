@@ -94,6 +94,7 @@ func New(l *logger.Logger, cg ClientGetter, dataDir string, cfg config.Config, d
 		rotation, err := newRotationProvider(
 			l,
 			cfg.RotationPeriod(),
+			cfg.Retention,
 			dataDir,
 			dataSourceOptions,
 			hmacKey,
