@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -229,7 +230,12 @@ func (c *ClientConfigHolder) parseRemotes() error {
 	}
 
 	for _, s := range c.Client.Remotes {
-		r, err := models.NewRemote(s)
+		spec, ov, err := parseRemoteEntry(s)
+		if err != nil {
+			return fmt.Errorf("failed to decode remote %q: %v", s, err)
+		}
+
+		r, err := models.NewRemote(spec)
 		if err != nil {
 			return fmt.Errorf("failed to decode remote %q: %v", s, err)
 		}
@@ -242,11 +248,74 @@ func (c *ClientConfigHolder) parseRemotes() error {
 			return fmt.Errorf(`remote %q is not allowed by "tunnel_allowed" config`, s)
 		}
 
-		r = c.applyTunnelsConfig(r)
+		r = c.applyTunnelsConfig(r, ov)
+
+		if err := validateTunnelProxy(r); err != nil {
+			return fmt.Errorf("invalid remote %q: %v", s, err)
+		}
 
 		c.Client.Tunnels = append(c.Client.Tunnels, r)
 	}
 	return nil
+}
+
+// tunnelOverrides holds the per-tunnel proxy settings parsed from a single
+// remotes entry. A nil field means "not set on this tunnel — inherit the
+// global [tunnels] default".
+type tunnelOverrides struct {
+	scheme       *string
+	reverseProxy *bool
+	hostHeader   *string
+}
+
+// parseRemoteEntry splits one remotes[] entry into its host:port spec and an
+// optional whitespace-separated list of per-tunnel proxy options, e.g.
+//
+//	"8443:pikvm.lan:443 scheme=https reverse_proxy host_header=pikvm.lan"
+//
+// A tunnel spec never contains whitespace, so the first field is always the
+// spec and any remaining fields are options. Supported options:
+//
+//	scheme=<scheme>          per-tunnel scheme (overrides [tunnels] scheme)
+//	reverse_proxy[=true|false]  enable/disable the TLS-terminating proxy
+//	host_header=<host>       Host header forwarded to the target
+func parseRemoteEntry(entry string) (spec string, ov tunnelOverrides, err error) {
+	fields := strings.Fields(entry)
+	if len(fields) == 0 {
+		return "", ov, errors.New("empty remote")
+	}
+	spec = fields[0]
+
+	for _, opt := range fields[1:] {
+		key, val, hasVal := strings.Cut(opt, "=")
+		switch key {
+		case "scheme":
+			if !hasVal || val == "" {
+				return "", ov, fmt.Errorf("option %q requires a value (scheme=<scheme>)", opt)
+			}
+			v := val
+			ov.scheme = &v
+		case "reverse_proxy":
+			b := true
+			if hasVal {
+				b, err = strconv.ParseBool(val)
+				if err != nil {
+					return "", ov, fmt.Errorf("invalid reverse_proxy value %q: must be true or false", val)
+				}
+			}
+			ov.reverseProxy = &b
+		case "host_header":
+			if !hasVal || val == "" {
+				return "", ov, fmt.Errorf("option %q requires a value (host_header=<host>)", opt)
+			}
+			v := val
+			ov.hostHeader = &v
+		default:
+			return "", ov, fmt.Errorf("unknown tunnel option %q (supported: scheme=, reverse_proxy[=bool], host_header=)", key)
+		}
+	}
+
+	return spec, ov, nil
 }
 
 func (c *ClientConfigHolder) parseTunnelsConfig() error {
@@ -257,15 +326,42 @@ func (c *ClientConfigHolder) parseTunnelsConfig() error {
 	return nil
 }
 
-func (c *ClientConfigHolder) applyTunnelsConfig(r *models.Remote) *models.Remote {
-	if c.Tunnels.Scheme != "" {
-		r.Scheme = &c.Tunnels.Scheme
+// applyTunnelsConfig sets a tunnel's proxy fields, preferring a per-tunnel
+// override when present and otherwise falling back to the global [tunnels]
+// default.
+func (c *ClientConfigHolder) applyTunnelsConfig(r *models.Remote, ov tunnelOverrides) *models.Remote {
+	scheme := c.Tunnels.Scheme
+	if ov.scheme != nil {
+		scheme = *ov.scheme
+	}
+	if scheme != "" {
+		s := scheme
+		r.Scheme = &s
 	}
 
-	r.HTTPProxy = c.Tunnels.ReverseProxy
-	r.HostHeader = c.Tunnels.HostHeader
+	reverseProxy := c.Tunnels.ReverseProxy
+	if ov.reverseProxy != nil {
+		reverseProxy = *ov.reverseProxy
+	}
+	r.HTTPProxy = reverseProxy
+
+	hostHeader := c.Tunnels.HostHeader
+	if ov.hostHeader != nil {
+		hostHeader = *ov.hostHeader
+	}
+	r.HostHeader = hostHeader
 
 	return r
+}
+
+// validateTunnelProxy enforces the proxy invariant on a tunnel's effective
+// (post-override) settings: a host header is only meaningful when the
+// reverse proxy terminates the connection.
+func validateTunnelProxy(r *models.Remote) error {
+	if r.HostHeader != "" && !r.HTTPProxy {
+		return errors.New("host_header requires reverse_proxy to be enabled")
+	}
+	return nil
 }
 
 func parseHeader(h string) (string, string, error) {
