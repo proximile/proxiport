@@ -71,10 +71,15 @@ func OpenRotating(path string, rc RotationConfig) (io.WriteCloser, error) {
 }
 
 type LogOutput struct {
-	File     io.Writer
-	filePath string
-	Rotation RotationConfig
-	closer   io.Closer
+	// File and Rotation are runtime state, not persisted config. The agent's
+	// whole config (including this LogOutput) is JSON-serialized into the
+	// server's clients DB and read back on restart; File is an interface that
+	// JSON cannot unmarshal into, so it MUST stay json:"-" or the server fails
+	// to start. (When File was a *os.File it round-tripped as {} by accident.)
+	File     io.Writer      `json:"-"`
+	filePath string         // unexported: never serialized
+	Rotation RotationConfig `json:"-"`
+	closer   io.Closer      // unexported: never serialized
 }
 
 func NewLogOutput(filePath string) LogOutput {
