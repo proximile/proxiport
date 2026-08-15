@@ -2,6 +2,8 @@ module github.com/proximile/proxiport
 
 go 1.25.0
 
+toolchain go1.25.13
+
 require (
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
