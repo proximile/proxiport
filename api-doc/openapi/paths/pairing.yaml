@@ -1,0 +1,74 @@
+post:
+ tags:
+ - Client Auth Credentials
+ summary: >-
+ Broker a pairing deposit with the configured pairing service and return the
+ pairing code plus ready-to-paste installer commands. Require admin access.
+ The server forwards the deposit to server.pairing_url server-to-server, so
+ the browser never issues a cross-origin request. Returns 409 (ERR_CODE_PAIRING_DISABLED)
+ when no pairing service is configured, and 502 (ERR_CODE_PAIRING_UPSTREAM) when the
+ pairing service is unreachable or rejects the deposit.
+ operationId: PairingPost
+ requestBody:
+ description: The client's connection details and freshly-created credential to deposit.
+ required: true
+ content:
+ application/json:
+ schema:
+ type: object
+ properties:
+ connect_url:
+ type: string
+ description: The URL the agent will connect back to.
+ example: https://port.example.com:443
+ fingerprint:
+ type: string
+ description: The server's key fingerprint the agent pins.
+ client_id:
+ type: string
+ description: The client-auth ID just created.
+ password:
+ type: string
+ description: The client-auth credential just created.
+ responses:
+ '200':
+ description: Successful Operation
+ content:
+ application/json:
+ schema:
+ type: object
+ properties:
+ data:
+ type: object
+ properties:
+ pairing_code:
+ type: string
+ expires:
+ type: string
+ format: date-time
+ installers:
+ type: object
+ properties:
+ linux:
+ type: string
+ windows:
+ type: string
+ '400':
+ description: Invalid request body
+ content:
+ application/json:
+ schema:
+ $ref: ../components/schemas/ErrorPayload.yaml
+ '409':
+ description: 'No pairing service configured. Err code: ERR_CODE_PAIRING_DISABLED'
+ content:
+ application/json:
+ schema:
+ $ref: ../components/schemas/ErrorPayload.yaml
+ '502':
+ description: 'Pairing service unreachable or rejected the deposit. Err code: ERR_CODE_PAIRING_UPSTREAM'
+ content:
+ application/json:
+ schema:
+ $ref: ../components/schemas/ErrorPayload.yaml
+ x-codegen-request-body-name: body

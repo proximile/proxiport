@@ -99,6 +99,8 @@ paths:
  $ref: paths/clients-auth.yaml
  /clients-auth/{client_auth_id}:
  $ref: paths/clients-auth_{client_auth_id}.yaml
+ /pairing:
+ $ref: paths/pairing.yaml
  /client-groups:
  $ref: paths/client-groups.yaml
  /client-groups/{group_id}:

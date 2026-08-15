@@ -156,6 +156,10 @@ func (al *APIListener) initRouter() {
 	adminOnly.HandleFunc("/clients-auth", al.handlePostClientsAuth).Methods(http.MethodPost)
 	adminOnly.HandleFunc("/clients-auth/{client_auth_id}", al.handleDeleteClientAuth).Methods(http.MethodDelete)
 
+	// Broker a pairing deposit server-to-server so the SPA never has to call
+	// the (separate-origin) pairing service cross-origin from the browser.
+	adminOnly.HandleFunc("/pairing", al.handlePostPairing).Methods(http.MethodPost)
+
 	adminOnly.HandleFunc("/notification-logs", al.handleGetNotifications).Methods(http.MethodGet)
 	adminOnly.HandleFunc("/notification-logs/{notification_id}", al.handleGetNotificationDetails).Methods(http.MethodGet)
 

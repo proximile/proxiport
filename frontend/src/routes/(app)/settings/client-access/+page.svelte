@@ -155,22 +155,19 @@
     pairingLoading = true;
     pairingError = '';
     try {
-      const url = pairingUrl.replace(/\/+$/, '') + '/';
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          connect_url: connectUrl,
-          fingerprint,
-          client_id: newId,
-          password: newPassword
-        })
+      // The pairing service lives on its own origin, so the server brokers the
+      // deposit for us: we POST it same-origin (with our session) and proxiportd
+      // forwards it server-to-server. No cross-origin browser call is involved.
+      const j = await apiPost<{
+        pairing_code?: string;
+        expires?: string;
+        installers?: { linux?: string; windows?: string };
+      }>('/pairing', {
+        connect_url: connectUrl,
+        fingerprint,
+        client_id: newId,
+        password: newPassword
       });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(`pairing service returned ${res.status}: ${t || res.statusText}`);
-      }
-      const j = await res.json();
       pairingCode = j.pairing_code ?? '';
       pairingExpires = j.expires ?? '';
       pairingLinux = j.installers?.linux ?? '';
