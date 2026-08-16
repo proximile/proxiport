@@ -303,6 +303,14 @@ curl https://pairing.proxiport.net/<code> | sudo sh
 and the installer drops a working binary plus `proxiport.conf` into
 place. Source for the pairing service: <https://github.com/proximile/proxiport-pairing>.
 
+When you generate a pairing code from the web UI, the server brokers the
+request: the browser posts to `POST /api/v1/pairing` on your own server
+(same origin, using your session), and the server forwards it to the pairing
+service. This means pairing works from any deployment's own hostname, and
+your server needs outbound network access to `pairing_url` (the
+`pairing.proxiport.net` default, or your own instance). Set `pairing_url = ""`
+in the server config to disable the pairing button entirely.
+
 The agent ships in the same three package formats as the server, plus
 tarballs for a wider platform list: linux (amd64, arm64, i386, armv6,
 armv7, mips/mipsle/mips64/mips64le hard- and softfloat, s390x), macOS
