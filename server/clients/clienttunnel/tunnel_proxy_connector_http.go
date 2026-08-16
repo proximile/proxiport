@@ -83,10 +83,10 @@ func (tc *TunnelProxyConnectorHTTP) targetTLSConfig() *tls.Config {
 }
 
 func (tc *TunnelProxyConnectorHTTP) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	if tc.tunnelProxy.Tunnel.Remote.AuthUser != "" && tc.tunnelProxy.Tunnel.Remote.AuthPassword != "" {
+	if tc.tunnelProxy.Tunnel.AuthUser != "" && tc.tunnelProxy.Tunnel.AuthPassword != "" {
 		user, password, ok := r.BasicAuth()
-		if !ok || !constantTimeEqual(user, tc.tunnelProxy.Tunnel.Remote.AuthUser) ||
-			!constantTimeEqual(password, tc.tunnelProxy.Tunnel.Remote.AuthPassword) {
+		if !ok || !constantTimeEqual(user, tc.tunnelProxy.Tunnel.AuthUser) ||
+			!constantTimeEqual(password, tc.tunnelProxy.Tunnel.AuthPassword) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
