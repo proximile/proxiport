@@ -112,7 +112,7 @@ func (srv *TwoFAService) SetTotPLoginSession(username string, loginSessionTTL ti
 func (srv *TwoFAService) ValidateTotPCode(user *users.User, code string) error {
 	srv.mu.RLock()
 	t := srv.tokensByUser[user.Username]
-	defer srv.mu.RUnlock()
+	srv.mu.RUnlock()
 
 	if t == nil {
 		return errors2.APIError{
@@ -149,9 +149,14 @@ func (srv *TwoFAService) ValidateTotPCode(user *users.User, code string) error {
 		}
 	}
 
-	srv.mu.RLock()
-	delete(srv.tokensByUser, user.Username)
-	defer srv.mu.RUnlock()
+	// Consume the login session so the code can't be reused. The map is mutated
+	// only under a write lock, and only if the entry we validated is still
+	// current (a concurrent login may have replaced it).
+	srv.mu.Lock()
+	if cur := srv.tokensByUser[user.Username]; cur == t {
+		delete(srv.tokensByUser, user.Username)
+	}
+	srv.mu.Unlock()
 
 	return nil
 }
@@ -159,7 +164,7 @@ func (srv *TwoFAService) ValidateTotPCode(user *users.User, code string) error {
 func (srv *TwoFAService) ValidateToken(username, token string) error {
 	srv.mu.RLock()
 	t := srv.tokensByUser[username]
-	defer srv.mu.RUnlock()
+	srv.mu.RUnlock()
 
 	if t == nil {
 		return errors2.APIError{
@@ -181,6 +186,15 @@ func (srv *TwoFAService) ValidateToken(username, token string) error {
 			HTTPStatus: http.StatusUnauthorized,
 		}
 	}
+
+	// Single-use: consume the OTP on success so it can't be replayed within its
+	// TTL. Mutate the map only under a write lock, and only if the entry we
+	// validated is still current.
+	srv.mu.Lock()
+	if cur := srv.tokensByUser[username]; cur == t {
+		delete(srv.tokensByUser, username)
+	}
+	srv.mu.Unlock()
 
 	return nil
 }

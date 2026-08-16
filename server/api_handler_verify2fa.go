@@ -61,34 +61,45 @@ func (al *APIListener) parseAndValidate2FATokenRequest(req *http.Request) (usern
 		}
 	}
 
+	// Both the TotP and the email/SMS flows carry the 2FA-pending bearer token
+	// minted by the password step. Bind the session that is about to be issued to
+	// the identity inside that token, never to the client-supplied username, so a
+	// verified caller cannot mint a session for someone else.
+	bearerToken, bearerAuthProvided := bearer.GetBearerToken(req)
+	if !bearerAuthProvided {
+		return reqBody.Username, errors2.APIError{
+			HTTPStatus: http.StatusBadRequest,
+			Message:    "token is required",
+		}
+	}
+
+	isAuthorized, token, err := al.checkBearerToken(req.Context(), bearerToken, req.URL.Path, req.Method)
+	if err != nil {
+		return reqBody.Username, err
+	}
+
+	if !isAuthorized {
+		return reqBody.Username, errors2.APIError{
+			HTTPStatus: http.StatusForbidden,
+			Message:    "access denied",
+		}
+	}
+
+	username = token.AppClaims.Username
+	if reqBody.Username != username {
+		return username, errors2.APIError{
+			HTTPStatus: http.StatusForbidden,
+			Message:    "username does not match the pending login session",
+		}
+	}
+
 	if al.config.API.TotPEnabled {
-		bearerToken, bearerAuthProvided := bearer.GetBearerToken(req)
-
-		if !bearerAuthProvided {
-			return reqBody.Username, errors2.APIError{
-				HTTPStatus: http.StatusBadRequest,
-				Message:    "token is required",
-			}
-		}
-
-		isAuthorized, token, err := al.checkBearerToken(req.Context(), bearerToken, req.URL.Path, req.Method)
-		if err != nil {
-			return reqBody.Username, err
-		}
-
-		if !isAuthorized {
-			return reqBody.Username, errors2.APIError{
-				HTTPStatus: http.StatusForbidden,
-				Message:    "access denied",
-			}
-		}
-
-		user, err := al.userService.GetByUsername(token.AppClaims.Username)
+		user, err := al.userService.GetByUsername(username)
 		if err != nil {
 			return "", err
 		}
-		return token.AppClaims.Username, al.twoFASrv.ValidateTotPCode(user, reqBody.Token)
+		return username, al.twoFASrv.ValidateTotPCode(user, reqBody.Token)
 	}
 
-	return reqBody.Username, al.twoFASrv.ValidateToken(reqBody.Username, reqBody.Token)
+	return username, al.twoFASrv.ValidateToken(username, reqBody.Token)
 }

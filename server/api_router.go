@@ -2,6 +2,7 @@ package chserver
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
@@ -271,6 +272,7 @@ func (al *APIListener) initRouter() {
 		}).Handler)
 	}
 
+	r.Use(securityHeadersMiddleware)
 	r.Use(handlers.CompressHandler)
 	r.Use(handlers.RecoveryHandler(
 		handlers.PrintRecoveryStack(true),
@@ -278,4 +280,46 @@ func (al *APIListener) initRouter() {
 	))
 
 	al.router = r
+}
+
+// contentSecurityPolicy is applied to every response the API/SPA listener
+// serves. The SPA is fully self-contained (all scripts, styles, fonts and
+// images ship with the bundle and every API/WebSocket call is same-origin),
+// so locking sources to 'self' does not break it while it blocks external
+// script injection and, crucially, stops an injected script from exfiltrating
+// a session token to an attacker origin (connect-src 'self'). 'unsafe-inline'
+// is retained only because the static bundle emits an inline bootstrap script
+// and inline styles; tightening that to hashes/nonces is a build-time follow-up.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data:; " +
+	"font-src 'self' data:; " +
+	"connect-src 'self'; " +
+	"object-src 'none'; " +
+	"base-uri 'none'; " +
+	"frame-ancestors 'none'; " +
+	"form-action 'self'"
+
+// securityHeadersMiddleware sets defense-in-depth response headers on every
+// response from the API/SPA listener: a content-security-policy, anti-framing
+// and MIME-sniffing protection, a conservative referrer policy, and — only over
+// a secure transport — HSTS. The tunnel-proxy listeners are separate and are
+// intentionally left untouched so in-browser RDP/VNC framing keeps working.
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		// Only advertise HSTS when the request actually arrived over TLS
+		// (directly or via a TLS-terminating proxy); browsers ignore it over
+		// plain HTTP anyway, and sending it there could pin a dev host to HTTPS.
+		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
 }

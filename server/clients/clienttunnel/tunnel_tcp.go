@@ -26,7 +26,7 @@ type tunnelTCP struct {
 	acl     atomic.Pointer[TunnelACL] // parsed Remote.ACL field
 
 	stopFn                    func()
-	connectionIDAutoIncrement int
+	connectionIDAutoIncrement int32
 	connCount                 int32
 	wg                        sync.WaitGroup // TODO: verify whether wait group is needed here
 }
@@ -137,12 +137,11 @@ func (t *tunnelTCP) LastActive() time.Time {
 }
 
 func (t *tunnelTCP) accept(ctx context.Context, src io.ReadWriteCloser) {
-	defer src.Close()
-	t.connectionIDAutoIncrement++
+	defer func() { _ = src.Close() }()
+	cid := atomic.AddInt32(&t.connectionIDAutoIncrement, 1)
 	atomic.AddInt32(&t.connCount, 1)
 	defer atomic.AddInt32(&t.connCount, -1)
 
-	cid := t.connectionIDAutoIncrement
 	l := t.Fork("conn#%d", cid)
 
 	l.Debugf("Accept")

@@ -2,6 +2,7 @@ package clienttunnel
 
 import (
 	_ "embed" //to embed html templates
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -139,7 +140,7 @@ func (tc *TunnelProxyConnectorRDP) connectToGuacamole(r *http.Request) (guac.Tun
 	guacToken := tc.guacTokenStore.Get(token)
 	if guacToken == nil {
 		tc.tunnelProxy.Logger.Errorf("Cannot find guac token %s", token)
-		return nil, err
+		return nil, fmt.Errorf("unknown or expired guac token %q", token)
 	}
 	tc.guacTokenStore.Delete(token)
 

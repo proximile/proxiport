@@ -90,6 +90,12 @@ func (al *APIListener) handlePostPairing(w http.ResponseWriter, req *http.Reques
 		return
 	}
 	upstreamReq.Header.Set("Content-Type", "application/json")
+	// When the pairing service is configured to require a shared secret on
+	// deposits (its deposit_auth_token), present it. Default is empty on both
+	// sides, so this is a no-op unless the operator opts in.
+	if token := al.config.Server.PairingAuthToken; token != "" {
+		upstreamReq.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := pairingProxyClient.Do(upstreamReq)
 	if err != nil {
