@@ -59,6 +59,12 @@ sudo chown proxiport /var/lib/proxiport/client-auth.json
 sudo chmod 0640 /var/lib/proxiport/client-auth.json
 ```
 
+Deleting a credential from the **Client Access** page also removes any
+clients still bound to it — including disconnected ones — so the
+credential and its bound agents are cleared together once you confirm.
+A bound agent cannot reconnect afterward; add a fresh credential to pair
+a replacement.
+
 On disk-only changes, send the daemon a SIGUSR1 to re-read the file:
 
 ```bash
