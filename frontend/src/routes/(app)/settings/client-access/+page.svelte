@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiGet, apiPost, apiDelete } from '$lib/api';
+  import { apiGet, apiPost, apiDelete, ApiException } from '$lib/api';
   import type { ClientAuthEntry } from '$lib/types';
   import Spinner from '$lib/components/Spinner.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
@@ -197,10 +197,27 @@
   }
   async function confirmDelete() {
     if (!pendingDelete) return;
-    deletingId = pendingDelete;
+    const id = pendingDelete;
+    deletingId = id;
     pendingDelete = null;
     try {
-      await apiDelete(`/clients-auth/${encodeURIComponent(deletingId)}`);
+      const path = `/clients-auth/${encodeURIComponent(id)}`;
+      try {
+        await apiDelete(path);
+      } catch (err) {
+        // The server refuses to delete a credential while any client is still
+        // bound to it (active or disconnected), e.g. a stale disconnected agent.
+        // The user already confirmed the delete in this dialog, so remove those
+        // bound clients along with the credential by retrying with force.
+        if (
+          err instanceof ApiException &&
+          err.errors.some((e) => e.code === 'ERR_CODE_CLIENT_AUTH_HAS_CLIENT')
+        ) {
+          await apiDelete(`${path}?force=true`);
+        } else {
+          throw err;
+        }
+      }
       await loadRows();
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
@@ -502,7 +519,8 @@ fingerprint = "{fingerprint}"</code>
       <h2 class="text-lg font-semibold">Delete credential</h2>
       <p class="text-sm text-slate-400">
         Remove <code class="font-mono text-slate-200">{pendingDelete}</code>?
-        Any agent currently using this credential will be unable to reconnect after its next disconnect.
+        Any clients still bound to it — including disconnected ones — are removed
+        too, and an agent using this credential will be unable to reconnect.
       </p>
       <div class="flex justify-end gap-2 pt-2">
         <button class="btn btn-ghost" onclick={cancelDelete}>Cancel</button>
