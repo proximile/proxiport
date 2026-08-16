@@ -65,29 +65,64 @@ jobs:
           npm ci --no-audit --no-fund
           npm run build
 
-      - name: Download proxiportd binary from the release
+      # cosign verifies the keyless Sigstore signature over checksums.txt before
+      # we trust any hash from it.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Download and verify the proxiportd binary from the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           mkdir -p stage
           TAG="${{ steps.tag.outputs.tag }}"
           # Strip leading 'v' from tag; release artifacts use the bare semver.
           VER="${TAG#v}"
           ASSET="proxiportd_${VER}_linux_x86_64.tar.gz"
+
+          # Pull the asset plus the signed checksum manifest and its cosign
+          # signature + certificate.
           gh release download "$TAG" \
               --repo "${{ github.repository }}" \
               --pattern "$ASSET" \
+              --pattern "checksums.txt" \
+              --pattern "checksums.txt.sig" \
+              --pattern "checksums.txt.pem" \
               --dir stage/
+
+          # 1) Verify checksums.txt was signed by this repo's release workflow.
+          cosign verify-blob \
+              --certificate stage/checksums.txt.pem \
+              --signature stage/checksums.txt.sig \
+              --certificate-identity-regexp 'https://github.com/${{ github.repository }}' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              stage/checksums.txt
+
+          # 2) Verify the downloaded asset matches its entry in the signed manifest.
+          ( cd stage && grep " ${ASSET}\$" checksums.txt | sha256sum -c - )
+
           tar -C stage -xzf "stage/$ASSET"
           file stage/proxiportd
           stat -c '%s' stage/proxiportd
 
       - name: Configure SSH
+        env:
+          # Optional: pin the droplet's SSH host key. When set, we trust exactly
+          # this key instead of trust-on-first-use from ssh-keyscan (which a
+          # runner-side MITM could poison). Populate with the droplet's
+          # `/etc/ssh/ssh_host_ed25519_key.pub` in known_hosts format.
+          DEMO_KNOWN_HOSTS: ${{ secrets.DEMO_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.DEMO_DEPLOY_SSH_KEY }}" > ~/.ssh/demo_deploy
           chmod 0600 ~/.ssh/demo_deploy
-          ssh-keyscan -H "$DEMO_HOST" >> ~/.ssh/known_hosts
+          if [[ -n "$DEMO_KNOWN_HOSTS" ]]; then
+            printf '%s\n' "$DEMO_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+          else
+            echo "::warning::DEMO_KNOWN_HOSTS not set; falling back to TOFU ssh-keyscan"
+            ssh-keyscan -H "$DEMO_HOST" >> ~/.ssh/known_hosts
+          fi
 
       - name: Push binary + SPA to droplet
         run: |

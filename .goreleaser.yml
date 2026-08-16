@@ -10,42 +10,64 @@ builds:
     ldflags:
       - '-s -w -X {{.Env.PROJECT}}/share.BuildVersion={{.Version}}'
       - "-extldflags '-static'"
-    goos:
-      - linux
-      - darwin
-      - windows
-      - freebsd
-    goarch:
-      - 386
-      - amd64
-      - arm
-      - arm64
-      - mips
-      - mipsle
-      - mips64
-      - mips64le
-      - s390x
-    goarm:
-      - 6
-      - 7
-    gomips:
-      - hardfloat
-      - softfloat
-    ignore:
-      - goos: windows
-        goarch: arm64
-      - goos: darwin
-        goarch: 386
-      - goos: windows
-        goarch: arm
-      - goos: windows
-        goarch: 386
+    # Reproducible builds: -trimpath strips local $GOPATH/module paths from the
+    # binary; mod_timestamp pins the embedded build time to the commit's, so the
+    # same tag rebuilds byte-for-byte.
+    flags:
+      - -trimpath
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    # Explicit target list rather than a goos×goarch cross-product: the agent is
+    # CGO-free, so it cross-compiles cleanly, and an explicit list ships exactly
+    # the intended binaries with no exotic combination sneaking in. Every entry
+    # is present in `go tool dist list` and has been build-verified.
+    targets:
+      # Linux
+      - linux_386
+      - linux_amd64
+      - linux_arm_6
+      - linux_arm_7
+      - linux_arm64
+      - linux_riscv64
+      - linux_ppc64
+      - linux_ppc64le
+      - linux_loong64
+      - linux_s390x
+      - linux_mips_hardfloat
+      - linux_mips_softfloat
+      - linux_mipsle_hardfloat
+      - linux_mipsle_softfloat
+      - linux_mips64_hardfloat
+      - linux_mips64_softfloat
+      - linux_mips64le_hardfloat
+      - linux_mips64le_softfloat
+      # macOS
+      - darwin_amd64
+      - darwin_arm64
+      # Windows (arm/arm64/386 intentionally omitted)
+      - windows_amd64
+      # FreeBSD
+      - freebsd_386
+      - freebsd_amd64
+      - freebsd_arm_6
+      - freebsd_arm_7
+      - freebsd_arm64
+      # freebsd_riscv64 omitted: gopsutil/v3/disk has no freebsd/riscv64 port.
+      # OpenBSD
+      - openbsd_386
+      - openbsd_amd64
+      - openbsd_arm64
+      # NetBSD
+      - netbsd_amd64
+      - netbsd_arm64
   - id: proxiportd
     main: ./cmd/proxiportd
     binary: proxiportd
     ldflags:
       - '-s -w -X {{.Env.PROJECT}}/share.BuildVersion={{.Version}}'
       - "-extldflags '-static'"
+    flags:
+      - -trimpath
+    mod_timestamp: '{{ .CommitTimestamp }}'
     env:
       - CGO_ENABLED=1
       # When cross-compiling for linux/arm64 from the x86_64 runner, use
@@ -57,11 +79,12 @@ builds:
         {{- else -}}
           CC=gcc
         {{- end -}}
-    goos:
-      - linux
-    goarch:
-      - amd64
-      - arm64
+    # CGO=1 (mattn/go-sqlite3) confines the server to the two arches whose C
+    # cross-toolchains the release workflow installs. Widening this set requires
+    # dropping CGO (pure-Go sqlite), tracked separately.
+    targets:
+      - linux_amd64
+      - linux_arm64
 archives:
   - id: proxiport-only
     name_template: >-
@@ -245,9 +268,13 @@ signs:
     artifacts: checksum
     output: true
 
-# Per-archive SBOMs (Syft) so downstreams can audit the shipped dependencies.
+# Per-artifact SBOMs (Syft) so downstreams can audit the shipped dependencies.
+# Cover both the tarballs/zips and the deb/rpm packages.
 sboms:
-  - artifacts: archive
+  - id: archive
+    artifacts: archive
+  - id: package
+    artifacts: package
 
 snapshot:
   version_template: '{{ .Tag }}'
