@@ -2,7 +2,6 @@ import { writable, derived, type Writable, type Readable } from 'svelte/store';
 import { browser } from '$app/environment';
 
 const TOKEN_KEY = 'proxiport.jwt';
-const VAULT_PASS_KEY = 'proxiport.vault.passphrase'; // kept in sessionStorage only
 
 // Matches the server-side constants in server/vault/model.go:
 //   DbStatusInit    = "setup-completed"
@@ -27,20 +26,10 @@ function persistedToken(): Writable<string | null> {
   return s;
 }
 
-function sessionVault(): Writable<string | null> {
-  const initial = browser ? sessionStorage.getItem(VAULT_PASS_KEY) : null;
-  const s = writable<string | null>(initial);
-  if (browser) {
-    s.subscribe((v) => {
-      if (v) sessionStorage.setItem(VAULT_PASS_KEY, v);
-      else sessionStorage.removeItem(VAULT_PASS_KEY);
-    });
-  }
-  return s;
-}
-
 export const tokenStore = persistedToken();
-export const vaultPassphrase = sessionVault();
+// In-memory only: the master passphrase is never persisted (no localStorage /
+// sessionStorage). Unlock state is read from vaultStatus/vaultUnlocked below.
+export const vaultPassphrase = writable<string | null>(null);
 export const sidebarCollapsed = writable<boolean>(false);
 // Mobile-only: whether the off-canvas sidebar drawer is open. Desktop ignores this.
 export const sidebarMobileOpen = writable<boolean>(false);

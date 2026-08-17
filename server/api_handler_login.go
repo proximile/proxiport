@@ -46,7 +46,12 @@ func (al *APIListener) handleGetLogin(w http.ResponseWriter, req *http.Request) 
 }
 
 func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPasswordValidation bool, w http.ResponseWriter, req *http.Request) {
-	if al.bannedUsers.IsBanned(username) {
+	// Throttle failed logins per (source IP, username) rather than by username
+	// alone, so a third party cannot lock a victim's account out just by spraying
+	// bad passwords at their username. Per-IP abuse is still caught separately by
+	// the bannedIPs machinery via handleBannedIPs.
+	loginBanKey := chshare.RemoteIP(req) + "|" + username
+	if al.bannedUsers.IsBanned(loginBanKey) {
 		al.jsonErrorResponseWithTitle(w, http.StatusTooManyRequests, ErrTooManyRequests.Error())
 		return
 	}
@@ -67,7 +72,7 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 	}
 
 	if !authorized {
-		al.bannedUsers.Add(username)
+		al.bannedUsers.Add(loginBanKey)
 		al.jsonErrorResponseWithTitle(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}

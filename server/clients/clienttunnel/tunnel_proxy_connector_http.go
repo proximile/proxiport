@@ -1,6 +1,8 @@
 package clienttunnel
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
 	"net"
 	"net/http"
@@ -81,15 +83,25 @@ func (tc *TunnelProxyConnectorHTTP) targetTLSConfig() *tls.Config {
 }
 
 func (tc *TunnelProxyConnectorHTTP) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	if tc.tunnelProxy.Tunnel.Remote.AuthUser != "" && tc.tunnelProxy.Tunnel.Remote.AuthPassword != "" {
+	if tc.tunnelProxy.Tunnel.AuthUser != "" && tc.tunnelProxy.Tunnel.AuthPassword != "" {
 		user, password, ok := r.BasicAuth()
-		if !ok || user != tc.tunnelProxy.Tunnel.Remote.AuthUser || password != tc.tunnelProxy.Tunnel.Remote.AuthPassword {
+		if !ok || !constantTimeEqual(user, tc.tunnelProxy.Tunnel.AuthUser) ||
+			!constantTimeEqual(password, tc.tunnelProxy.Tunnel.AuthPassword) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 	}
 	tc.reverseProxy.ServeHTTP(w, r)
+}
+
+// constantTimeEqual reports whether a and b are equal without leaking their
+// length or content through timing. Both are hashed first so the underlying
+// ConstantTimeCompare always runs over equal-length inputs.
+func constantTimeEqual(a, b string) bool {
+	ah := sha256.Sum256([]byte(a))
+	bh := sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(ah[:], bh[:]) == 1
 }
 
 func (tc *TunnelProxyConnectorHTTP) addHostHeader(next http.Handler) http.Handler {

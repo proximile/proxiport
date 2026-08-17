@@ -69,6 +69,7 @@ func (p *WebsocketTCPProxy) ReadWebSocket() {
 		_, err = p.tcpConn.Write(data)
 		if err != nil {
 			p.logger.Errorf(" error writing websocket buffer to tcp connection: %v", err)
+			p.Teardown()
 			break
 		}
 	}
@@ -88,6 +89,7 @@ func (p *WebsocketTCPProxy) ReadTCP() {
 
 		if err := p.wsConn.WriteMessage(websocket.BinaryMessage, buffer[:bytesRead]); err != nil {
 			p.logger.Errorf(" error writing tcp buffer to websocket: %v", err)
+			p.Teardown()
 			break
 		}
 	}
@@ -95,6 +97,6 @@ func (p *WebsocketTCPProxy) ReadTCP() {
 
 // Teardown the WebSocket and TCP connection.
 func (p *WebsocketTCPProxy) Teardown() {
-	p.tcpConn.Close()
-	p.wsConn.Close()
+	_ = p.tcpConn.Close()
+	_ = p.wsConn.Close()
 }

@@ -32,7 +32,7 @@ func newUDPHandler(logger *logger.Logger, addr string) *udpHandler {
 }
 
 func (h *udpHandler) Handle(stream io.ReadWriteCloser) error {
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	h.channel = comm.NewUDPChannel(stream)
 	for {
@@ -71,6 +71,12 @@ func (h *udpHandler) getConn(id *net.UDPAddr) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Seed the activity timestamp before starting the receive loop so a
+	// re-activated source (whose previous entry was cleared on close) is not
+	// immediately treated as idle by receive's isActive check.
+	h.lastActive[idStr] = time.Now()
+
 	go func() {
 		err := h.receive(id, conn)
 		if err != nil {
@@ -95,6 +101,7 @@ func (h *udpHandler) close(id string) {
 	h.Debugf("Closing connection for client: %v", id)
 	conn.Close()
 	delete(h.conns, id)
+	delete(h.lastActive, id)
 }
 
 func (h *udpHandler) receive(id *net.UDPAddr, conn net.Conn) error {

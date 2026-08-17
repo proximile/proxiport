@@ -3,9 +3,9 @@ package chconfig
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/tls"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -143,6 +143,7 @@ type ServerConfig struct {
 	ListenAddress                        string                                 `mapstructure:"address"`
 	URL                                  []string                               `mapstructure:"url"`
 	PairingURL                           string                                 `mapstructure:"pairing_url"`
+	PairingAuthToken                     string                                 `mapstructure:"pairing_auth_token"`
 	KeySeed                              string                                 `mapstructure:"key_seed"`
 	Auth                                 string                                 `mapstructure:"auth"`
 	AuthFile                             string                                 `mapstructure:"auth_file"`
@@ -252,13 +253,13 @@ func (c *SMTPConfig) Validate() error {
 		if err != nil {
 			return fmt.Errorf("could not init smtp client to smtp.server: %v", err)
 		}
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 	} else {
 		client, err = smtp.Dial(c.Server)
 		if err != nil {
 			return fmt.Errorf("could not connect to smtp.server: %v", err)
 		}
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 
 		// use TLS if available
 		if ok, _ := client.Extension("STARTTLS"); ok {
@@ -717,11 +718,19 @@ func convertHourOrDayStringToDuration(desc string, inputStr string) (duration ti
 		return 0, fmt.Errorf("'%s' must be simple value: %w", desc, err)
 	}
 
+	// Guard the uint64 -> time.Duration (int64 ns) conversion: reject values so
+	// large they would overflow rather than silently wrapping to a negative
+	// duration.
+	maxHours := uint64(math.MaxInt64 / int64(time.Hour))
+	if (isHours && dur > maxHours) || (isDays && dur > maxHours/24) {
+		return 0, fmt.Errorf("'%s' is out of range", desc)
+	}
+
 	if isHours {
-		duration = time.Duration(dur) * time.Hour
+		duration = time.Duration(dur) * time.Hour // #nosec G115 -- bounded above by maxHours
 	}
 	if isDays {
-		duration = time.Duration(dur) * time.Hour * 24
+		duration = time.Duration(dur) * time.Hour * 24 // #nosec G115 -- bounded above by maxHours/24
 	}
 
 	return duration, nil
@@ -924,11 +933,11 @@ func (d *DatabaseConfig) DsnForLogs() string {
 }
 
 func generateJWTSecret() (string, error) {
-	data := make([]byte, 10)
+	data := make([]byte, 32)
 	if _, err := rand.Read(data); err != nil {
 		return "", fmt.Errorf("can't generate API JWT secret: %s", err)
 	}
-	return fmt.Sprintf("%x", sha256.Sum256(data)), nil
+	return fmt.Sprintf("%x", data), nil
 }
 
 func parseAndValidateCORS(mLog *logger.MemLogger, cors []string) []string {
