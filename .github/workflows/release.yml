@@ -25,11 +25,12 @@ jobs:
 
       - name: Set up Go
         # Build released binaries with the 1.25.x PATCH that clears known stdlib
-        # CVEs (not the exact `go 1.25.0` floor in go.mod). Pinned to 1.25.12
-        # (GO-2026-5856 / crypto/tls); mirrors ci.yml. Bump as new fixes ship.
+        # CVEs (not the exact `go 1.25.0` floor in go.mod). Kept in lockstep with
+        # ci.yml — 1.25.13 clears GO-2026-6089/6090/6091/6218 on top of
+        # GO-2026-5856. Bump both files together as new fixes ship.
         uses: actions/setup-go@v7
         with:
-          go-version: "1.25.12"
+          go-version: "1.25.13"
 
       - name: Set up Node
         uses: actions/setup-node@v7
@@ -59,6 +60,16 @@ jobs:
         uses: sigstore/cosign-installer@v3
       - name: Install syft
         uses: anchore/sbom-action/download-syft@v0
+
+      # Gate the release on a call-graph-aware vulnerability scan: never publish
+      # binaries built against a reachable known-vulnerable dependency or stdlib.
+      # ci.yml runs the same scan on every push, but a vuln can be disclosed
+      # between the last green CI run and the tag, so re-check at release time.
+      # CGO=1 so the sqlite-linked server packages analyze as they build.
+      - name: govulncheck (dependency vulnerability scan)
+        env:
+          CGO_ENABLED: "1"
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
       - name: Run goreleaser
         uses: goreleaser/goreleaser-action@v7
