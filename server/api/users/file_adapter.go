@@ -152,6 +152,9 @@ func (fa *FileAdapter) Update(dataToChange *User, usernameToFind string) error {
 	if dataToChange.TotP != "" {
 		users[userFound].TotP = dataToChange.TotP
 	}
+	if dataToChange.TwoFASendTo != "" {
+		users[userFound].TwoFASendTo = dataToChange.TwoFASendTo
+	}
 
 	err = fa.FileProvider.SaveUsersToFile(users)
 	if err != nil {

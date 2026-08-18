@@ -275,10 +275,26 @@ func (d *UserDatabase) ListGroups() ([]Group, error) {
 		}
 	}
 
+	// Normalize the built-in Administrators group to its full permission set so
+	// the listing (and the UI built on it) always reflects the invariant, even
+	// if a reduced group-details row exists.
+	for i := range groups {
+		if groups[i].Name == Administrators {
+			groups[i] = AdministratorsGroup
+		}
+	}
+
 	return groups, nil
 }
 
 func (d *UserDatabase) GetGroup(name string) (Group, error) {
+	// The built-in Administrators group always grants every permission,
+	// regardless of any stored group-details row. Enforcing it here (the one
+	// place every permission check resolves a group) keeps a stale or reduced
+	// `Administrators` row from silently stripping admin access.
+	if name == Administrators {
+		return AdministratorsGroup, nil
+	}
 	if d.groupDetailsTableName == "" {
 		return NewGroup(name, nil, nil), nil
 	}
@@ -384,6 +400,11 @@ func (d *UserDatabase) Add(usr *User) error {
 	params := []interface{}{
 		usr.Username,
 		usr.Password,
+	}
+
+	if usr.PasswordExpired != nil {
+		columns = append(columns, "`password_expired`")
+		params = append(params, usr.PasswordExpired)
 	}
 
 	if d.twoFAOn {
