@@ -413,13 +413,13 @@ per `auditlog.<date>.db` file.
 ## User and group admin
 
 User groups gate which API endpoints (and therefore which SPA
-sections) each user can reach. The default `admin` group has every
-permission set; build new groups by ticking only the columns the
-role needs.
+sections) each user can reach. The built-in `Administrators` group has
+every permission set and cannot be edited; build new groups by ticking
+only the columns the role needs. A user's effective permissions are the
+union across its groups.
 
-![User Groups — RBAC columns for clients, tunnels, commands,
-schedules, vault, library, audit, monitoring, users, client-auth,
-client-groups, and api-tokens.](screenshots/19-user-groups-rbac-columns.png)
+![User Groups — RBAC columns for tunnels, commands, scripts, scheduler,
+monitoring, auditlog, uploads, and vault.](screenshots/19-user-groups-rbac-columns.png)
 
 Client groups are operator-side labels you can attach to any
 agent. They are useful as targeting filters for the multi-target

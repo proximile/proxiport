@@ -64,8 +64,9 @@ curl -s -u admin:e83d40e4-e237-43d6-bb99-35972ded631b \
 
 Tokens carry an expiry date and a scope (`read`, `read+write`). Mint
 them from **Settings → API Tokens** in the SPA, or via
-`POST /api/v1/me/token`. Revoke them by deleting the row — the
-underlying JWT becomes unverifiable immediately.
+`POST /api/v1/me/tokens`. List them with `GET /api/v1/me/tokens` and
+revoke one with `DELETE /api/v1/me/tokens/{prefix}` — the underlying JWT
+becomes unverifiable immediately.
 
 ## User stores
 
@@ -202,8 +203,9 @@ alongside a note explaining why. Switch to the JSON file or the database
 
 **Settings → Users** lists every account. *New user* and *Edit* set the
 username, password, and group membership; *Delete* removes the account;
-and — when a second factor is enabled — *Reset 2FA* clears a user's
-enrolled TOTP secret so they re-enroll on next login. Tick a group to
+and — when TOTP authenticator 2FA is enabled — *Reset 2FA* clears a
+user's enrolled TOTP secret so they re-enroll on next login (out-of-band
+email/push 2FA has no per-user secret to reset). Tick a group to
 assign it, or type a new name to create one on the spot. Passwords must
 meet the server's minimum length, and *Require password change* forces a
 reset at next login. Out-of-band 2FA (email/push) also needs a delivery

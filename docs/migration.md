@@ -82,11 +82,13 @@ client-auth credentials.
   `data_dir`, `keep_lost_clients`, `tunnel_*`, `used_ports`,
   `excluded_ports`.
 - `[api]` block options: `address`, `auth`, `auth_file`,
-  `auth_user_table`, `auth_group_table`, `jwt_secret`,
-  `doc_root`, `cert_file`, `key_file`, `access_log_file`,
+  `auth_user_table`, `auth_group_table`, `auth_group_details_table`,
+  `jwt_secret`, `doc_root`, `cert_file`, `key_file`, `access_log_file`,
   `user_login_wait`, `max_failed_login`, `ban_time`,
   `totp_enabled`, `totp_login_session_ttl`,
-  `totp_account_name`.
+  `totp_account_name`. (`auth_group_details_table` is required for
+  per-group permission editing in the database store; see
+  [API authentication](api-authentication.md#database).)
 - `[logging]`, `[database]`, `[caddy-integration]`, `[monitoring]`,
   `[notifications]`, `[pushover]`, `[smtp]` blocks — same option
   names as upstream. (There is no separate `[client-auth]` block —
