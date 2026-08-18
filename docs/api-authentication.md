@@ -180,6 +180,54 @@ INSERT INTO users (username, password)
 INSERT INTO groups (username, "group") VALUES ('admin', 'Administrators');
 ```
 
+## Managing users in the SPA
+
+**Settings → Users** and **Settings → User groups** manage the user
+store from the web UI, backed by the same `POST`/`PUT`/`DELETE /users`
+and `PUT`/`DELETE /user-groups` endpoints. What you can do depends on
+which store is active:
+
+| Store | Add / edit / delete users | Edit group permissions |
+|---|---|---|
+| Inline single user | — | — |
+| JSON user file | Yes | — (every user is a full admin) |
+| Database | Yes | Yes |
+
+On the inline single-user store both pages are read-only: the API
+rejects user and group writes, and the SPA shows the current account
+alongside a note explaining why. Switch to the JSON file or the database
+(above) to manage more than one operator.
+
+### Users
+
+**Settings → Users** lists every account. *New user* and *Edit* set the
+username, password, and group membership; *Delete* removes the account;
+and — when a second factor is enabled — *Reset 2FA* clears a user's
+enrolled TOTP secret so they re-enroll on next login. Tick a group to
+assign it, or type a new name to create one on the spot. Passwords must
+meet the server's minimum length, and *Require password change* forces a
+reset at next login. Out-of-band 2FA (email/push) also needs a delivery
+address per user.
+
+### User groups and permissions
+
+A user's permissions are the **union of the permissions of its groups** —
+there are no per-user grants. Each group toggles eight areas: tunnels,
+commands, scripts, scheduler, monitoring, auditlog, uploads, and vault.
+The built-in **Administrators** group grants all eight and cannot be
+edited.
+
+**Settings → User groups** shows each group's permissions. In the
+database store the checkboxes are editable and *Save* writes them back;
+in the JSON-file store they are read-only, because that store grants
+every user the full permission set. Create a group by assigning its name
+to a user on the **Users** page, then set what it grants here.
+
+!!! note "Group-permission editing needs the database store"
+    Fine-grained per-group permissions require the
+    `auth_group_details_table`. The JSON file has no place to store them,
+    so file-store deployments treat every user as an administrator.
+
 ## Two-factor authentication
 
 ProxiPort supports two second-factor flows. Both require the JSON file
