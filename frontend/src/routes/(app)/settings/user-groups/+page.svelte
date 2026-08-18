@@ -3,6 +3,7 @@
   import { apiGet, apiPut, apiDelete } from '$lib/api';
   import type { Group, ServerStatus } from '$lib/types';
   import Spinner from '$lib/components/Spinner.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
   import { pushToast } from '$lib/stores';
 
@@ -56,9 +57,17 @@
       // never silently drops them.
       if (g.tunnels_restricted != null) payload.tunnels_restricted = g.tunnels_restricted;
       if (g.commands_restricted != null) payload.commands_restricted = g.commands_restricted;
-      await apiPut(`/user-groups/${encodeURIComponent(g.name)}`, payload);
+      const updated = await apiPut<Group>(`/user-groups/${encodeURIComponent(g.name)}`, payload);
       pushToast('good', `Permissions saved for "${g.name}".`);
-      await load();
+      // Sync only this row from the server response. A full reload would
+      // rebuild `edited` from scratch and discard unsaved toggles the admin
+      // may have made in other rows.
+      const idx = groups.findIndex((x) => x.name === g.name);
+      if (updated && idx >= 0) {
+        groups[idx] = updated;
+        const perms = updated.permissions ?? {};
+        edited[g.name] = Object.fromEntries(PERM_KEYS.map((k) => [k, !!perms[k]]));
+      }
     } catch (err) {
       pushToast('bad', err instanceof Error ? err.message : String(err));
     } finally {
@@ -100,6 +109,8 @@
   <div class="card overflow-x-auto">
     {#if loading}
       <div class="p-6 flex justify-center"><Spinner /></div>
+    {:else if !groups.length}
+      <EmptyState title="No user groups" />
     {:else}
       <table class="tbl">
         <thead>
@@ -120,7 +131,7 @@
               {#each PERM_KEYS as k}
                 <td>
                   {#if editable && !isAdmin}
-                    <input type="checkbox" bind:checked={edited[g.name][k]} />
+                    <input type="checkbox" bind:checked={edited[g.name][k]} aria-label={`${g.name}: ${k}`} />
                   {:else if isAdmin || g.permissions?.[k]}
                     <span class="pill pill-good">on</span>
                   {:else}

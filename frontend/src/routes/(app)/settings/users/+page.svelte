@@ -13,6 +13,7 @@
   let users: User[] = $state([]);
   let groups: Group[] = $state([]);
   let twoFaEnabled = $state(false);
+  let twoFaMethod = $state('');
   let minLen = $state(0);
   let meUsername = $state('');
   let authSource = $state('');
@@ -24,6 +25,13 @@
   // refuses every user-management call. There's nothing to add or edit, so we
   // hide the controls and explain why instead of surfacing 400s.
   const staticMode = $derived(authSource === 'Static Credentials');
+
+  // `two_fa_enabled` is the union of TOTP and delivery-based 2FA, but the two
+  // are mutually exclusive and behave differently: only TOTP has a per-user
+  // secret to reset, and only delivery-based 2FA uses a `two_fa_send_to`
+  // recipient. Split them so controls match the actual mode.
+  const totpMode = $derived(twoFaMethod === 'totp_authenticator_app');
+  const deliveryTwoFa = $derived(twoFaEnabled && !totpMode);
 
   // Edit/create form state. `editing` holds the username being edited, or
   // '' for a brand-new user; `formOpen` gates the form card's visibility.
@@ -49,6 +57,7 @@
         apiGet<User>('/me').catch(() => null)
       ]);
       twoFaEnabled = !!s?.two_fa_enabled;
+      twoFaMethod = s?.two_fa_delivery_method ?? '';
       minLen = s?.password_min_length ?? 0;
       meUsername = me?.username ?? '';
       authSource = s?.users_auth_source ?? '';
@@ -117,6 +126,7 @@
 
   function closeForm() {
     formOpen = false;
+    fPassword = ''; // don't leave a typed password sitting in component state
   }
 
   function addCustomGroup() {
@@ -145,17 +155,19 @@
         // Always send `groups` (a non-nil array) so the request is never a
         // no-op; password is sent only when set, so a blank field keeps the
         // existing one. `password_expired` is always sent so it can be
-        // toggled on or off.
+        // toggled on or off. The 2FA recipient only exists for delivery-based
+        // 2FA, so only send it in that mode.
         const payload: Record<string, unknown> = {
           groups: fGroups,
-          two_fa_send_to: fTwoFaSendTo,
           password_expired: fExpire
         };
+        if (deliveryTwoFa) payload.two_fa_send_to = fTwoFaSendTo;
         if (fPassword) payload.password = fPassword;
         await apiPut(`/users/${encodeURIComponent(editing)}`, payload);
         pushToast('good', `User "${editing}" updated.`);
       }
       formOpen = false;
+      fPassword = '';
       await load();
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
@@ -238,15 +250,17 @@
             />
             {#if minLen > 0}<span class="text-slate-500 normal-case">Minimum {minLen} characters.</span>{/if}
           </label>
-          <label class="text-xs md:col-span-2">
-            <span class="text-slate-400 uppercase">2FA recipient {twoFaEnabled ? '(required)' : ''}</span>
-            <input
-              bind:value={fTwoFaSendTo}
-              required={twoFaEnabled && editing === ''}
-              placeholder={twoFaEnabled ? 'email or phone the 2FA code is sent to' : '2FA is disabled on this server'}
-              class="font-mono"
-            />
-          </label>
+          {#if deliveryTwoFa}
+            <label class="text-xs md:col-span-2">
+              <span class="text-slate-400 uppercase">2FA recipient (required)</span>
+              <input
+                bind:value={fTwoFaSendTo}
+                required={editing === ''}
+                placeholder="email or phone the 2FA code is sent to"
+                class="font-mono"
+              />
+            </label>
+          {/if}
         </div>
 
         <fieldset class="space-y-2">
@@ -273,6 +287,7 @@
             <input
               bind:value={fNewGroup}
               placeholder="new group name…"
+              aria-label="New group name"
               class="text-sm"
               onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomGroup(); } }}
             />
@@ -328,7 +343,7 @@
                 {#if !staticMode}
                   <div class="flex gap-2 justify-end">
                     <button class="btn btn-ghost" onclick={() => openEdit(u)}>Edit</button>
-                    {#if twoFaEnabled}
+                    {#if totpMode}
                       <button class="btn btn-ghost" onclick={() => reset2fa(u)}>Reset 2FA</button>
                     {/if}
                     <button
