@@ -51,6 +51,7 @@ export type User = {
   username: string;
   groups?: string[];
   two_fa_send_to?: string;
+  password_expired?: boolean;
   effective_user_permissions?: Record<string, boolean>;
   effective_extended_permissions?: Record<string, unknown>;
 };
@@ -58,6 +59,10 @@ export type User = {
 export type Group = {
   name: string;
   permissions?: Record<string, boolean>;
+  // Extended per-group tunnel/command restrictions. Not edited in this UI, but
+  // round-tripped on save so a plain permissions edit doesn't drop them.
+  tunnels_restricted?: unknown;
+  commands_restricted?: unknown;
 };
 
 export type ClientAuthEntry = {
@@ -138,5 +143,7 @@ export type ServerStatus = {
   clients_auth_source?: string;
   clients_auth_mode?: string;
   users_auth_source?: string;
+  group_permissions_enabled?: boolean;
+  password_min_length?: number;
   auth_provider_settings?: Record<string, unknown>;
 };
