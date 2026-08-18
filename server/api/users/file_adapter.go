@@ -43,7 +43,7 @@ func (fa *FileAdapter) load() error {
 		return err
 	}
 	fa.Infof("Loaded %v users from file.", len(users))
-	fa.UserCache.Load(users)
+	fa.Load(users)
 	return nil
 }
 
