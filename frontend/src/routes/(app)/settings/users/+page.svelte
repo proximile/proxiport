@@ -152,6 +152,21 @@
         await apiPost('/users', payload);
         pushToast('good', `User "${fUsername.trim()}" created.`);
       } else {
+        // Guard against self-lockout: removing your own Administrators group
+        // strips your admin access (a stronger lockout than the self-delete the
+        // table already blocks). Warn before letting it through.
+        if (editing === meUsername && !fGroups.includes(ADMIN_GROUP)) {
+          const self = users.find((u) => u.username === meUsername);
+          if (
+            self?.groups?.includes(ADMIN_GROUP) &&
+            !confirm(
+              'You are about to remove your own Administrators access. You may lock yourself out of user management. Continue?'
+            )
+          ) {
+            saving = false;
+            return;
+          }
+        }
         // Always send `groups` (a non-nil array) so the request is never a
         // no-op; password is sent only when set, so a blank field keeps the
         // existing one. `password_expired` is always sent so it can be
@@ -255,7 +270,7 @@
               <span class="text-slate-400 uppercase">2FA recipient (required)</span>
               <input
                 bind:value={fTwoFaSendTo}
-                required={editing === ''}
+                required
                 placeholder="email or phone the 2FA code is sent to"
                 class="font-mono"
               />

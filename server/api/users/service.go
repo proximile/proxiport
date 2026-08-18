@@ -115,6 +115,12 @@ func (as *APIService) GetGroup(name string) (Group, error) {
 }
 
 func (as *APIService) UpdateGroup(name string, g Group) (Group, error) {
+	if name == Administrators {
+		return Group{}, errors2.APIError{
+			Message:    "The built-in Administrators group grants every permission and cannot be modified.",
+			HTTPStatus: http.StatusBadRequest,
+		}
+	}
 	err := as.Provider.UpdateGroup(name, g)
 	if err != nil {
 		return Group{}, err
@@ -123,6 +129,12 @@ func (as *APIService) UpdateGroup(name string, g Group) (Group, error) {
 }
 
 func (as *APIService) DeleteGroup(name string) error {
+	if name == Administrators {
+		return errors2.APIError{
+			Message:    "The built-in Administrators group cannot be deleted.",
+			HTTPStatus: http.StatusBadRequest,
+		}
+	}
 	return as.Provider.DeleteGroup(name)
 }
 
