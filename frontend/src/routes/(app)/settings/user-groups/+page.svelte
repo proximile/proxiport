@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiGet, apiPut, apiDelete } from '$lib/api';
+  import { apiGet, apiPut, apiDelete, ApiException } from '$lib/api';
   import type { Group, ServerStatus } from '$lib/types';
   import Spinner from '$lib/components/Spinner.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -26,10 +26,16 @@
     error = '';
     try {
       const [g, s] = await Promise.all([
-        // Rejected in static-credentials / single-user mode — fall back to an
-        // empty list; the read-only notice below explains why.
-        apiGet<Group[]>('/user-groups').catch(() => [] as Group[]),
-        apiGet<ServerStatus>('/status').catch(() => ({}) as ServerStatus)
+        // Static-credentials / single-user providers reject /user-groups with
+        // HTTP 400 — treat only that as "no editable groups" and fall back to an
+        // empty list (the read-only notice below explains why). Any other error
+        // (500, network) must propagate so it surfaces instead of masquerading
+        // as an empty, read-only page.
+        apiGet<Group[]>('/user-groups').catch((err) => {
+          if (err instanceof ApiException && err.status === 400) return [] as Group[];
+          throw err;
+        }),
+        apiGet<ServerStatus>('/status')
       ]);
       groups = g ?? [];
       editable = !!s?.group_permissions_enabled;
