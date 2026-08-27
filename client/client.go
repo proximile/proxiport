@@ -150,6 +150,11 @@ func (c *Client) Run(ctx context.Context) (err error) {
 	return nil
 }
 
+// deprecatedMD5PinWarnOnce keeps the MD5-pin migration notice to once per
+// process; verifyServer runs on every SSH handshake, so without it the notice
+// repeats on every reconnect.
+var deprecatedMD5PinWarnOnce sync.Once
+
 func (c *Client) verifyServer(hostname string, remote net.Addr, key ssh.PublicKey) error {
 	md5FP := chshare.FingerprintKey(key)
 	sha256FP := chshare.FingerprintKeySHA256(key)
@@ -182,7 +187,9 @@ func (c *Client) verifyServer(hostname string, remote net.Addr, key ssh.PublicKe
 		if !strings.HasPrefix(md5FP, pin) {
 			return fmt.Errorf("invalid fingerprint (%s)", md5FP)
 		}
-		c.Infof("Server fingerprint verified against a deprecated MD5 pin (%s). Migrate 'fingerprint' to %s", md5FP, sha256FP)
+		deprecatedMD5PinWarnOnce.Do(func() {
+			c.Infof("Server fingerprint verified against a deprecated MD5 pin (%s). Migrate the 'fingerprint' setting in the [client] section of your config file to %s", md5FP, sha256FP)
+		})
 		return nil
 	}
 }
@@ -409,7 +416,7 @@ func (c *Client) showConnectionError(connerr error, attempt int) {
 	}
 	c.Errorf(msg)
 	if strings.Contains(msg, "previous session was not properly closed") {
-		c.Infof("Server will clean up orphaned sessions within its {check_clients_connection_interval} automatically.")
+		c.Infof("The server will clean up the previous orphaned session automatically within its configured check interval.")
 	}
 }
 
@@ -628,7 +635,26 @@ func (c *Client) sendConnectionRequest(ctx context.Context, sshConn ssh.Conn, mi
 		c.Infof("Local port %s has become available on %s", r.Remote(), serverStr)
 	}
 
+	ephemeralTunnelWarnOnce.Do(c.warnEphemeralServerPorts)
+
 	return nil
+}
+
+// ephemeralTunnelWarnOnce keeps the ephemeral-server-port warning to once per
+// process, so it does not repeat on every reconnect.
+var ephemeralTunnelWarnOnce sync.Once
+
+// warnEphemeralServerPorts warns for each configured tunnel that has no fixed
+// server-side port. The server then assigns a random public port on every
+// connect, so the tunnel's public URL changes on each reconnect; pinning a
+// server port keeps a bookmarkable URL stable.
+func (c *Client) warnEphemeralServerPorts() {
+	for _, t := range c.configHolder.Client.Tunnels {
+		if t == nil || t.IsLocalSpecified() {
+			continue
+		}
+		c.Infof("tunnel %q has no fixed server port; its public URL will change on every reconnect. Pin it, e.g. %q.", t.Remote(), "<port>:"+t.Remote())
+	}
 }
 
 // afterPutCapabilities is the place to do things dependent on server capabilities

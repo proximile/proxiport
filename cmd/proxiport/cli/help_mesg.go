@@ -164,6 +164,11 @@ var ClientHelp = `
     --host-header, Inject a static header "host: " with the specified value when using --enable-reverse-proxy.
     By default the FQDN of the proxiport server is sent.
 
+    Config-file equivalents of --scheme / --enable-reverse-proxy / --host-header live in the
+    [tunnels] section as 'scheme', 'reverse_proxy' and 'host_header'. A single remote can override
+    them inline, appended space-separated to its spec, e.g.
+    '8443:target.lan:443 scheme=https reverse_proxy host_header=target.lan'.
+
     --config, -c, An optional arg to define a path to a config file. If it is set then
     configuration will be loaded from the file. Note: command arguments and env variables will override them.
     MonitoringConfig file should be in TOML format. You can find an example "proxiport.example.conf" in the release archive.

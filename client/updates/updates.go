@@ -106,7 +106,11 @@ func (u *Updates) refreshStatus(ctx context.Context) {
 	newStatus.Refreshed = time.Now()
 
 	if newStatus.Error != "" {
-		u.logger.Infof("Refreshing OS patch level (pending updates) failed: %v", newStatus.Error)
+		// Non-fatal and cosmetic (the tunnel works regardless): common on
+		// hardened hosts where the package manager needs privileges the client
+		// user does not have. Kept at debug so it does not surface on every
+		// reconnect; set updates_interval=0 to disable the subsystem entirely.
+		u.logger.Debugf("Refreshing OS patch level (pending updates) failed: %v", newStatus.Error)
 	} else {
 		u.logger.Infof("OS patch level (pending updates) refreshed, %v updates available (%v security)",
 			newStatus.UpdatesAvailable, newStatus.SecurityUpdatesAvailable)

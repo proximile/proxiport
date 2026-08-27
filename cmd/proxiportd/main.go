@@ -333,6 +333,26 @@ func init() {
 		return nil
 	})
 
+	// check-config validates the configuration file without starting the
+	// server, so a config error can be caught before a deploy instead of only
+	// by restarting production into a crash-loop. It reuses the same
+	// decode+validate path as the `service install` pre-check and respects
+	// -c/--config; command-line and env overrides are intentionally not applied.
+	RootCmd.AddCommand(&cobra.Command{
+		Use:   "check-config",
+		Short: "Validate the configuration file and exit",
+		Long: "Load and validate the server configuration without starting the server. " +
+			"Exits 0 if the configuration is valid, or non-zero with the reason otherwise.",
+		Run: func(*cobra.Command, []string) {
+			mLog := logger.NewMemLogger()
+			if err := decodeAndValidateConfig(&mLog); err != nil {
+				fmt.Fprintf(os.Stderr, "Invalid config: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("Config is valid.")
+		},
+	})
+
 	viperCfg = viper.New()
 	viperCfg.SetConfigType("toml")
 
@@ -494,7 +514,7 @@ func runMain(*cobra.Command, []string) {
 	}
 
 	if !cfg.Server.AllowRoot && chshare.IsRunningAsRoot() {
-		log.Fatal("By default running as root is not allowed.")
+		log.Fatal("By default running as root is not allowed. Pass --allow-root to override, or run as the dedicated proxiport service user.")
 	}
 
 	cfg.Logging.LogOutput.Rotation = cfg.Logging.RotationConfig()
