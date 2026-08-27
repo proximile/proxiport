@@ -175,7 +175,7 @@ func isServiceManager(pFlags *pflag.FlagSet) (bool, error) {
 
 func checkRootOK(config *chclient.ClientConfigHolder) error {
 	if !config.Client.AllowRoot && chshare.IsRunningAsRoot() {
-		return errors.New("by default running as root is not allowed")
+		return errors.New("by default running as root is not allowed; pass --allow-root to override, or run as the dedicated proxiport service user")
 	}
 	return nil
 }
