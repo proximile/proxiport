@@ -361,6 +361,19 @@ func (s *ClientServiceProvider) StartClient(
 			clog.Infof("old tunnels to re-establish %d: %v", len(oldTunnels), oldTunnels)
 			req.Remotes = append(req.Remotes, oldTunnels...)
 		}
+
+		// A new session is reclaiming this client id (a genuine session resume is
+		// handled above and keeps its connection). The previous session's tunnel
+		// listeners can still be bound: their goroutines outlive the connection
+		// until it is reaped, which for a dropped WebSocket may be minutes away or
+		// only at daemon restart. Release them now, before the tunnels are rebuilt
+		// below, so the reconnecting client can reclaim its own pinned ports instead
+		// of being refused "port already in use" by its own orphaned listener. The
+		// remotes to recreate were captured above; NewClientFromConnRequest then
+		// resets the tunnel list, so this only needs to close the live listeners.
+		if !sessionReUsed {
+			s.releaseTunnelsForReconnect(client)
+		}
 	}
 
 	// check if client auth ID is already used by another client
@@ -934,8 +947,8 @@ func (s *ClientServiceProvider) startTunnelWithProxy(
 	t.InternalTunnelProxy = tProxy
 
 	// reconfigure original tunnel remote host addr to be the new proxy tunnel
-	t.Remote.LocalHost = t.InternalTunnelProxy.Host
-	t.Remote.LocalPort = t.InternalTunnelProxy.Port
+	t.LocalHost = t.InternalTunnelProxy.Host
+	t.LocalPort = t.InternalTunnelProxy.Port
 
 	clientLogger.Debugf("client %s started tunnel with proxy: %#v", clientID, t)
 	clientLogger.Debugf("internal tunnel proxy: %#v", t.InternalTunnelProxy)
@@ -982,7 +995,7 @@ func (s *ClientServiceProvider) cleanupAfterAutoClose(c *clientdata.Client, t *c
 		if err := t.InternalTunnelProxy.Stop(c.GetContext()); err != nil {
 			clientLogger.Errorf("error while stopping tunnel proxy: %v", err)
 		}
-		if t.Remote.HasSubdomainTunnel() {
+		if t.HasSubdomainTunnel() {
 			_ = s.removeCaddyDownstreamProxy(c, t)
 		}
 	}
@@ -1011,7 +1024,7 @@ func (s *ClientServiceProvider) TerminateTunnel(c *clientdata.Client, t *clientt
 		if err := t.InternalTunnelProxy.Stop(c.GetContext()); err != nil {
 			clientLogger.Errorf("error while stopping tunnel proxy: %v", err)
 		}
-		if t.Remote.HasSubdomainTunnel() {
+		if t.HasSubdomainTunnel() {
 			_ = s.removeCaddyDownstreamProxy(c, t)
 		}
 		if err != nil {
@@ -1030,11 +1043,37 @@ func (s *ClientServiceProvider) TerminateTunnel(c *clientdata.Client, t *clientt
 	return nil
 }
 
+// releaseTunnelsForReconnect force-closes every live tunnel listener the client
+// currently holds and stops any associated proxies. It runs when a client
+// reconnects as a new session: the previous session's tunnel goroutines may
+// still be listening (their sockets bound) because the old connection has not
+// necessarily been reaped yet. Releasing the listeners here lets the reconnecting
+// client rebind its own pinned ports immediately. The caller resets the client's
+// tunnel list (via NewClientFromConnRequest) and recreates the tunnels from the
+// captured remotes, so this deliberately neither removes entries nor saves.
+func (s *ClientServiceProvider) releaseTunnelsForReconnect(c *clientdata.Client) {
+	for _, t := range c.GetTunnels() {
+		if err := t.Terminate(true); err != nil {
+			c.Log().Debugf("reconnect: could not terminate stale tunnel %s: %v", t.ID, err)
+			continue
+		}
+		if t.InternalTunnelProxy != nil {
+			if err := t.InternalTunnelProxy.Stop(c.GetContext()); err != nil {
+				c.Log().Debugf("reconnect: could not stop stale tunnel proxy %s: %v", t.ID, err)
+			}
+			if t.HasSubdomainTunnel() {
+				_ = s.removeCaddyDownstreamProxy(c, t)
+			}
+		}
+		c.Log().Debugf("reconnect: released stale listener for tunnel %s (port %s)", t.ID, t.LocalPort)
+	}
+}
+
 func (s *ClientServiceProvider) SetTunnelACL(c *clientdata.Client, t *clienttunnel.Tunnel, aclStr *string) error {
 	var err error
 	var acl *clienttunnel.TunnelACL
 
-	t.Remote.ACL = aclStr
+	t.ACL = aclStr
 
 	if aclStr != nil {
 		acl, err = clienttunnel.ParseTunnelACL(*aclStr)
@@ -1042,7 +1081,7 @@ func (s *ClientServiceProvider) SetTunnelACL(c *clientdata.Client, t *clienttunn
 			return err
 		}
 	}
-	t.TunnelProtocol.SetACL(acl)
+	t.SetACL(acl)
 	if t.InternalTunnelProxy != nil {
 		t.InternalTunnelProxy.SetACL(acl)
 	}
@@ -1058,9 +1097,9 @@ func (s *ClientServiceProvider) SetTunnelACL(c *clientdata.Client, t *clienttunn
 func (s *ClientServiceProvider) removeCaddyDownstreamProxy(c *clientdata.Client, t *clienttunnel.Tunnel) (err error) {
 	clientLogger := c.Log()
 
-	clientLogger.Infof("removing downstream caddy proxy at %s", t.Remote.TunnelURL)
+	clientLogger.Infof("removing downstream caddy proxy at %s", t.TunnelURL)
 
-	subdomain, _, err := t.Remote.GetTunnelDomains()
+	subdomain, _, err := t.GetTunnelDomains()
 	if err != nil {
 		return err
 	}
@@ -1074,7 +1113,7 @@ func (s *ClientServiceProvider) removeCaddyDownstreamProxy(c *clientdata.Client,
 		return fmt.Errorf("failed to delete downstream caddy proxy: status_code: %d", res.StatusCode)
 	}
 
-	clientLogger.Infof("removed downstream caddy proxy at %s", t.Remote.TunnelURL)
+	clientLogger.Infof("removed downstream caddy proxy at %s", t.TunnelURL)
 	return nil
 }
 

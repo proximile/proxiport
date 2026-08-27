@@ -132,8 +132,8 @@ func TestStartClientConcurrency(t *testing.T) {
 		sourceOptions,
 	)
 	require.NoError(t, err)
-	defer os.Remove("./clients.db")
-	defer os.Remove("./clients.db-shm")
+	defer func() { _ = os.Remove("./clients.db") }()
+	defer func() { _ = os.Remove("./clients.db-shm") }()
 
 	pd := ports.NewPortDistributor(mapset.NewSet())
 
@@ -265,6 +265,63 @@ func TestStartClientRejectsDifferentCredential(t *testing.T) {
 		context.Background(), "credential-B", "bound-client", connMock, true,
 		&chshare.ConnectionRequest{Name: "multiuse", Version: "0.7.0"}, testLog)
 	assert.NoError(t, err)
+}
+
+// TestStartClientReclaimsPinnedPortOnReconnect reproduces the pinned-port
+// lockout: when a client reconnects as a new session, its previous session's
+// listener for a pinned port may still be bound (the old connection has not been
+// reaped). The reconnecting client must be able to reclaim that port rather than
+// be refused "Local port <n> already in use." by its own orphaned listener.
+func TestStartClientReclaimsPinnedPortOnReconnect(t *testing.T) {
+	// Pick a currently-free port to pin.
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	pinned := probe.Addr().(*net.TCPAddr).Port
+	require.NoError(t, probe.Close())
+
+	pinnedRemote := func() *models.Remote {
+		r, rErr := models.NewRemote(fmt.Sprintf("%d:127.0.0.1:22", pinned))
+		require.NoError(t, rErr)
+		return r
+	}
+
+	now := time.Now()
+	cs := NewClientService(
+		&clienttunnel.InternalTunnelProxyConfig{},
+		ports.NewPortDistributor(mapset.NewSetFromSlice([]interface{}{pinned})),
+		NewClientRepository([]*clientdata.Client{{
+			ID:             "pinned-client",
+			ClientAuthID:   "test-client-auth",
+			DisconnectedAt: &now,
+		}}, &hour, testLog),
+		testLog,
+		nil,
+	)
+
+	connMock1 := test.NewConnMock()
+	connMock1.ReturnRemoteAddr = &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 2345}
+
+	// First session binds the server-side listener on the pinned port.
+	c1, err := cs.StartClient(
+		context.Background(), "test-client-auth", "pinned-client", connMock1, false,
+		&chshare.ConnectionRequest{Version: "0.7.0", Remotes: []*models.Remote{pinnedRemote()}}, testLog)
+	require.NoError(t, err)
+	require.Len(t, c1.GetTunnels(), 1)
+
+	// Simulate a disconnect whose listener has NOT been reaped: the client is
+	// marked disconnected but its tunnel goroutine (and bound socket) live on.
+	c1.SetDisconnectedNow()
+
+	// Reconnect as a new session requesting the same pinned port. Before the fix
+	// this failed with "Local port <pinned> already in use."
+	connMock2 := test.NewConnMock()
+	connMock2.ReturnRemoteAddr = &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 2346}
+	c2, err := cs.StartClient(
+		context.Background(), "test-client-auth", "pinned-client", connMock2, false,
+		&chshare.ConnectionRequest{Version: "0.7.0", Remotes: []*models.Remote{pinnedRemote()}}, testLog)
+	require.NoError(t, err)
+	require.Len(t, c2.GetTunnels(), 1)
+	assert.Equal(t, strconv.Itoa(pinned), c2.GetTunnels()[0].LocalPort)
 }
 
 func TestDeleteOfflineClient(t *testing.T) {
@@ -1022,7 +1079,7 @@ func TestShouldStartTunnelsWithSubdomains(t *testing.T) {
 
 			assert.Equal(t, requestedRemote.RemoteHost, newTunnel.RemoteHost)
 			assert.Equal(t, requestedRemote.RemotePort, newTunnel.RemotePort)
-			assert.Equal(t, requestedRemote.TunnelURL, newTunnel.Remote.TunnelURL)
+			assert.Equal(t, requestedRemote.TunnelURL, newTunnel.TunnelURL)
 
 			err = clientService.TerminateTunnel(c1, newTunnel, true)
 			require.NoError(t, err)
