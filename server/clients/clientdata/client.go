@@ -555,6 +555,21 @@ func (c *Client) RemoveTunnelByID(tunnelID string) {
 	c.Tunnels = updatedTunnelList
 }
 
+// OwnsTunnel reports whether t is one of the client's current tunnel objects,
+// compared by pointer identity (not by ID). A reconnect rebuilds the tunnel list
+// with fresh objects, so a stale goroutine that still holds a superseded tunnel
+// gets false here even when a new tunnel with the same ID exists.
+func (c *Client) OwnsTunnel(t *clienttunnel.Tunnel) bool {
+	c.flock.RLock()
+	defer c.flock.RUnlock()
+	for _, tunnel := range c.Tunnels {
+		if tunnel == t {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Client) Banner() string {
 	clientID := c.GetID()
 	clientName := c.GetName()

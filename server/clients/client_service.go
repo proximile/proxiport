@@ -362,18 +362,22 @@ func (s *ClientServiceProvider) StartClient(
 			req.Remotes = append(req.Remotes, oldTunnels...)
 		}
 
-		// A new session is reclaiming this client id (a genuine session resume is
-		// handled above and keeps its connection). The previous session's tunnel
-		// listeners can still be bound: their goroutines outlive the connection
-		// until it is reaped, which for a dropped WebSocket may be minutes away or
-		// only at daemon restart. Release them now, before the tunnels are rebuilt
-		// below, so the reconnecting client can reclaim its own pinned ports instead
-		// of being refused "port already in use" by its own orphaned listener. The
-		// remotes to recreate were captured above; NewClientFromConnRequest then
-		// resets the tunnel list, so this only needs to close the live listeners.
-		if !sessionReUsed {
-			s.releaseTunnelsForReconnect(client)
-		}
+		// A new physical connection is taking over this client id. Whether or not
+		// the incoming SessionID matches the stored one, NewClientFromConnRequest
+		// below resets the tunnel list and the tunnels are rebuilt from the remotes
+		// captured above, so the previous connection's listeners are always
+		// orphaned and must be released first. Their goroutines outlive the
+		// connection until it is reaped, which for a dropped WebSocket may be
+		// minutes away or only at daemon restart; without this the reconnecting
+		// client is refused "port already in use" on its own pinned ports.
+		//
+		// This must run on BOTH paths, not just !sessionReUsed: the client's
+		// SessionID is generated once per process and resent on every reconnect
+		// (see client.NewClient), so an in-process WebSocket-drop reconnect — the
+		// common case — arrives with sessionReUsed == true. Gating the release on
+		// !sessionReUsed would skip it exactly when it is needed most and cover
+		// only the rarer process-restart reconnect.
+		s.releaseTunnelsForReconnect(client)
 	}
 
 	// check if client auth ID is already used by another client
@@ -988,6 +992,17 @@ func (s *ClientServiceProvider) terminateTunnelOnIdleTimeout(ctx context.Context
 func (s *ClientServiceProvider) cleanupAfterAutoClose(c *clientdata.Client, t *clienttunnel.Tunnel) {
 	clientLogger := c.Log()
 
+	// Guard against a stale idle/auto-close goroutine from a superseded
+	// connection. A reconnect rebuilds the client's tunnel list with fresh
+	// objects, so if t is no longer one the client currently owns, this goroutine
+	// belongs to a connection that has been taken over. Proceeding would remove
+	// the (deterministically-keyed) caddy route that the reconnected tunnel now
+	// depends on, tearing down a live tunnel. Skip cleanup for a superseded tunnel.
+	if !c.OwnsTunnel(t) {
+		clientLogger.Debugf("skipping auto-close cleanup for tunnel %s: superseded by a reconnect", t.ID)
+		return
+	}
+
 	clientLogger.Infof("Auto closing tunnel %s ...", t.ID)
 
 	// stop tunnel proxy
@@ -1044,13 +1059,14 @@ func (s *ClientServiceProvider) TerminateTunnel(c *clientdata.Client, t *clientt
 }
 
 // releaseTunnelsForReconnect force-closes every live tunnel listener the client
-// currently holds and stops any associated proxies. It runs when a client
-// reconnects as a new session: the previous session's tunnel goroutines may
-// still be listening (their sockets bound) because the old connection has not
-// necessarily been reaped yet. Releasing the listeners here lets the reconnecting
-// client rebind its own pinned ports immediately. The caller resets the client's
-// tunnel list (via NewClientFromConnRequest) and recreates the tunnels from the
-// captured remotes, so this deliberately neither removes entries nor saves.
+// currently holds and stops any associated proxies. It runs on every reconnect
+// that reaches this client id — new session or resumed SessionID alike — because
+// the previous connection's tunnel goroutines may still be listening (their
+// sockets bound) as the old connection has not necessarily been reaped yet.
+// Releasing the listeners here lets the reconnecting client rebind its own pinned
+// ports immediately. The caller resets the client's tunnel list (via
+// NewClientFromConnRequest) and recreates the tunnels from the captured remotes,
+// so this deliberately neither removes entries nor saves.
 func (s *ClientServiceProvider) releaseTunnelsForReconnect(c *clientdata.Client) {
 	for _, t := range c.GetTunnels() {
 		if err := t.Terminate(true); err != nil {

@@ -451,9 +451,17 @@ func (cl *ClientListener) handleWebsocket(w http.ResponseWriter, req *http.Reque
 	}
 	clientLog.Debugf("close %s", clientBanner)
 
-	err = cl.getClientService().Terminate(client)
-	if err != nil {
-		cl.log().Errorf("could not terminate client: %s", err)
+	// Only reap if this handler's connection is still the client's current one.
+	// A reconnect with the same client id overwrites client.Connection with the
+	// new session's sshConn (NewClientFromConnRequest). If that has happened, a
+	// newer session now owns this shared client object and the old connection's
+	// teardown must not mark it disconnected or delete it.
+	if client.GetConnection() == sshConn {
+		if err = cl.getClientService().Terminate(client); err != nil {
+			cl.log().Errorf("could not terminate client: %s", err)
+		}
+	} else {
+		clientLog.Debugf("not terminating client %s: a newer session has taken over the connection", client.GetID())
 	}
 }
 

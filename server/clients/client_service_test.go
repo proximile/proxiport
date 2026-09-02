@@ -324,6 +324,69 @@ func TestStartClientReclaimsPinnedPortOnReconnect(t *testing.T) {
 	assert.Equal(t, strconv.Itoa(pinned), c2.GetTunnels()[0].LocalPort)
 }
 
+// TestStartClientReclaimsPinnedPortOnSameSessionReconnect covers the common
+// in-process reconnect: the client keeps one process-stable SessionID and
+// resends it after a dropped WebSocket, so the server takes the sessionReUsed
+// path. The stale listener release must still happen on that path (it was
+// previously gated on !sessionReUsed and skipped here), otherwise the client is
+// refused its own pinned port. It also asserts the client's current connection
+// is swapped to the new session, which is the identity the reap guard keys on so
+// the old connection's teardown does not clobber the live reconnected client.
+func TestStartClientReclaimsPinnedPortOnSameSessionReconnect(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	pinned := probe.Addr().(*net.TCPAddr).Port
+	require.NoError(t, probe.Close())
+
+	pinnedRemote := func() *models.Remote {
+		r, rErr := models.NewRemote(fmt.Sprintf("%d:127.0.0.1:22", pinned))
+		require.NoError(t, rErr)
+		return r
+	}
+
+	const sessionID = "stable-session-id"
+	now := time.Now()
+	cs := NewClientService(
+		&clienttunnel.InternalTunnelProxyConfig{},
+		ports.NewPortDistributor(mapset.NewSetFromSlice([]interface{}{pinned})),
+		NewClientRepository([]*clientdata.Client{{
+			ID:             "pinned-client",
+			ClientAuthID:   "test-client-auth",
+			DisconnectedAt: &now,
+		}}, &hour, testLog),
+		testLog,
+		nil,
+	)
+
+	connMock1 := test.NewConnMock()
+	connMock1.ReturnRemoteAddr = &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 2345}
+	c1, err := cs.StartClient(
+		context.Background(), "test-client-auth", "pinned-client", connMock1, false,
+		&chshare.ConnectionRequest{SessionID: sessionID, Version: "0.7.0", Remotes: []*models.Remote{pinnedRemote()}}, testLog)
+	require.NoError(t, err)
+	require.Len(t, c1.GetTunnels(), 1)
+
+	// Dropped WebSocket: the client is marked disconnected but its bound listener
+	// lives on (the old connection has not been reaped).
+	c1.SetDisconnectedNow()
+
+	// Reconnect in-process: SAME SessionID => the server's sessionReUsed branch.
+	connMock2 := test.NewConnMock()
+	connMock2.ReturnRemoteAddr = &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 2346}
+	c2, err := cs.StartClient(
+		context.Background(), "test-client-auth", "pinned-client", connMock2, false,
+		&chshare.ConnectionRequest{SessionID: sessionID, Version: "0.7.0", Remotes: []*models.Remote{pinnedRemote()}}, testLog)
+	require.NoError(t, err)
+	require.Len(t, c2.GetTunnels(), 1)
+	assert.Equal(t, strconv.Itoa(pinned), c2.GetTunnels()[0].LocalPort)
+
+	// The client object's current connection is the new session's; the reap guard
+	// in the listener uses exactly this comparison to skip the old connection's
+	// Terminate so it cannot mark the live reconnected client disconnected.
+	assert.True(t, c2.GetConnection() == connMock2, "current connection should be the new session's conn")
+	assert.False(t, c2.GetConnection() == connMock1, "current connection must no longer be the old session's conn")
+}
+
 func TestDeleteOfflineClient(t *testing.T) {
 	c1Active := New(t).Logger(testLog).Build()
 	c2Active := New(t).Logger(testLog).Build()
