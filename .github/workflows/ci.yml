@@ -37,7 +37,7 @@ jobs:
         # (net/http, crypto/tls, html/template, net/url).
         uses: actions/setup-go@v7
         with:
-          go-version: "1.25.13"
+          go-version: "1.26.8"
           cache: true
 
       - name: go vet
