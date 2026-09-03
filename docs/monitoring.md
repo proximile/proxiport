@@ -65,7 +65,7 @@ controls what the agent sends:
 ```toml
 [monitoring]
   enabled = true
-  interval = 60
+  interval = '60s'
 
   fs_type_include = ['ext3','ext4','xfs','jfs','ntfs','btrfs','hfs','apfs','exfat','smbfs','nfs']
   fs_path_exclude = []
@@ -73,16 +73,18 @@ controls what the agent sends:
   fs_identify_mountpoints_by_device = true
 
   pm_enabled = true
-  pm_enable_kerneltask_monitoring = true
-  pm_max_number_monitored_processes = 500
+  pm_kerneltasks_enabled = true
+  pm_max_number_processes = 500
 
   net_lan = ['eth0', '1000']
   net_wan = ['', '1000']
 ```
 
-`interval` is the sample period in seconds. Values below 60 are
-clamped to 60 — the storage rate is the bottleneck, not the
-collection rate.
+`interval` is the sample period, written as a **quoted duration string**
+(e.g. `'60s'`, `'5m'`) like the other duration keys. A bare integer is
+decoded as nanoseconds, not seconds, so write `interval = '5m'`, not
+`interval = 300`. Values below 60 seconds are clamped up to `'60s'` — the
+storage rate is the bottleneck, not the collection rate.
 
 `fs_type_include` whitelists filesystem types the agent will report.
 `fs_path_exclude` is a list of paths (or globs, with
@@ -152,7 +154,7 @@ yet. Until alerting lands as an OSS module, wire one of these:
   that pipeline for alerting. ProxiPort then sits alongside the
   existing observability stack rather than replacing it.
 
-Alerting based on monitoring thresholds is planned for v0.2 — tracked
+Alerting based on monitoring thresholds is planned but not yet shipped — tracked
 as an OSS reimplementation of upstream functionality previously gated
 behind a proprietary plugin. See [Changes from openrport](changes-from-openrport.md).
 

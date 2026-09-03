@@ -6,7 +6,7 @@
 //   - retries with capped exponential backoff per sink,
 //   - records delivery state somewhere durable so a restart does
 //     not silently drop in-flight alerts.
-// See docs/alerting-design.md for the agreed delivery semantics.
+// The delivery semantics (retries, durability) are still to be finalized.
 
 package alerting
 

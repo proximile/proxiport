@@ -6,7 +6,7 @@
 //     but Issuer empty),
 //   - and refuse to start if RedirectURI is not an HTTPS URL outside
 //     of a local-dev override.
-// See docs/oidc-design.md for the agreed config shape.
+// The config shape is still to be finalized.
 
 package oidc
 
@@ -55,8 +55,8 @@ type Config struct {
 }
 
 // Validate is a no-op while the package is scaffolding. A real
-// implementation will reject incomplete configs; see docs/oidc-design.md.
+// implementation will reject incomplete configs.
 func (c *Config) Validate() error {
-	// TODO(v0.2): enforce required fields and URL shape.
+	// TODO: enforce required fields and URL shape.
 	return nil
 }

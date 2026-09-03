@@ -1,8 +1,8 @@
 // TODO(v0.2): Replace the disabledProvider with a real OIDC client
 // (likely backed by github.com/coreos/go-oidc/v3 and
 // golang.org/x/oauth2). The interface below is the contract a real
-// provider has to satisfy; see docs/oidc-design.md in the workspace
-// for the full milestone plan and threat model.
+// provider has to satisfy. The full milestone plan and threat model
+// are tracked separately and not yet finalized.
 //
 // Open work items before a real implementation lands:
 //   - Persist nonce/state/PKCE verifier across the redirect round-trip
