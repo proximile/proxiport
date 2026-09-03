@@ -113,7 +113,7 @@ The pieces that gave rport / openrport their value are kept exactly:
 | `rportd.conf` | `proxiportd.conf` |
 | `rport.conf` | `proxiport.conf` |
 
-## Planned for v0.2 and beyond
+## Planned (not yet shipped)
 
 These are tracked, not promised. Filed here so contributors can
 see the direction of travel before any code lands.

@@ -5,8 +5,8 @@
 // The package is scaffolding. The default Dispatcher returned by
 // NewDispatcher() is a no-op that returns ErrDisabled for every
 // Notify call. Sink stubs live in server/alerting/sinks. The design
-// rationale, threat model, and milestone plan live in
-// docs/alerting-design.md in the workspace.
+// rationale, threat model, and milestone plan are tracked separately
+// and not yet finalized.
 //
 // This package is intentionally separate from server/notifications,
 // which already exists as a generic per-user notification queue.

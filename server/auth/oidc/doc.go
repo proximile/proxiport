@@ -3,8 +3,8 @@
 //
 // The package is scaffolding only. The default Provider returned by
 // New() is a disabled stub that returns ErrDisabled for every call;
-// see provider_disabled.go. A real implementation is planned for
-// ProxiPort v0.2 and is tracked in docs/oidc-design.md.
+// see provider_disabled.go. A real implementation is planned but not
+// yet shipped.
 //
 // The exported surface is deliberately narrow so a future
 // implementation can be dropped in without rippling through callers:

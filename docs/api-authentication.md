@@ -27,7 +27,7 @@ script integrations is the personal API token below.
 
 ### JWT bearer token
 
-`POST /api/v1/login` with basic auth returns a short-lived JWT. The
+`GET /api/v1/login` with basic auth returns a short-lived JWT. The
 default lifetime is 10 minutes; request a longer one with
 `?token-lifetime=<seconds>`. The SvelteKit SPA asks for 24 hours.
 
@@ -57,8 +57,12 @@ Each user can mint named, scoped API tokens. They authenticate via HTTP
 basic with the **username + token in place of the password**, so they
 work even when TOTP is enabled on the account:
 
+The token is the `<prefix>_<secret>` string returned by
+`POST /api/v1/me/tokens` — use it verbatim (the leading `prefix_` is
+required; a bare secret without it does not authenticate):
+
 ```bash
-curl -s -u admin:e83d40e4-e237-43d6-bb99-35972ded631b \
+curl -s -u admin:Ab3xK9pq_e83d40e4-e237-43d6-bb99-35972ded631b \
   https://proxiport.example.com/api/v1/clients | jq
 ```
 

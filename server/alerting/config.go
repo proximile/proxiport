@@ -1,7 +1,7 @@
-// TODO(v0.2): Add a YAML loader for Config. Picking YAML over TOML
-// so the rule and sink blocks can nest cleanly. See
-// docs/alerting-design.md for the example config block and for the
-// secret-handling rules sink configs must follow.
+// TODO: Add a YAML loader for Config. Picking YAML over TOML so the
+// rule and sink blocks can nest cleanly. The config block shape and
+// the secret-handling rules that sink configs must follow are still to
+// be finalized.
 
 package alerting
 

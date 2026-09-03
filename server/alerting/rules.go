@@ -4,7 +4,7 @@
 //   - hysteresis (don't refire within X seconds),
 //   - resolution alerts ("OK" follow-ups when a firing rule clears),
 //   - rule groups so operators can mute a whole family at once.
-// See docs/alerting-design.md.
+// These are planned, not yet implemented.
 
 package alerting
 
