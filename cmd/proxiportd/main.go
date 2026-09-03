@@ -83,6 +83,11 @@ var serverHelp = `
     ./proxiportd user
     commands for user management, run './proxiportd user help' for more options
 
+    ./proxiportd check-config -c /etc/proxiport/proxiportd.conf
+    validates the configuration file and exits without starting the server
+    (exit 0 if valid, non-zero with the reason otherwise); useful as a
+    pre-deploy check
+
   Options:
 
     --addr, -a, Defines the IP address and port the HTTP server listens on.
@@ -337,7 +342,8 @@ func init() {
 	// server, so a config error can be caught before a deploy instead of only
 	// by restarting production into a crash-loop. It reuses the same
 	// decode+validate path as the `service install` pre-check and respects
-	// -c/--config; command-line and env overrides are intentionally not applied.
+	// -c/--config; command-line (pflag) overrides are intentionally not applied
+	// (env-var overrides are not wired for the server at all).
 	RootCmd.AddCommand(&cobra.Command{
 		Use:   "check-config",
 		Short: "Validate the configuration file and exit",
@@ -349,6 +355,10 @@ func init() {
 				fmt.Fprintf(os.Stderr, "Invalid config: %v\n", err)
 				os.Exit(1)
 			}
+			// Surface the deprecation notices, interval clamps, and other
+			// non-fatal warnings captured during validation instead of dropping
+			// them — that pre-deploy signal is the point of the command.
+			mLog.Flush(logger.NewLogger("check-config", logger.LogOutput{File: os.Stderr}, logger.LogLevelDebug))
 			fmt.Println("Config is valid.")
 		},
 	})

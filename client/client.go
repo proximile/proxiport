@@ -392,7 +392,7 @@ func (c *Client) handleConnectionError(backoff *backoff.Backoff, connerr error) 
 		d = time.Duration(rand.Intn(int(backoff.Attempt()))) * BackoffOnServerTimeoutMaxDuration
 	}
 	msg := fmt.Sprintf("Retrying in %s...", d)
-	c.Infof(msg)
+	c.Infof("%s", msg)
 	c.watchdog.Ping(WatchdogStateReconnecting, msg)
 	chshare.SleepSignal(d)
 
@@ -414,7 +414,7 @@ func (c *Client) showConnectionError(connerr error, attempt int) {
 		}
 		msg += fmt.Sprintf(" (attempt: %d of %s)", attempt, maxAttemptStr)
 	}
-	c.Errorf(msg)
+	c.Errorf("%s", msg)
 	if strings.Contains(msg, "previous session was not properly closed") {
 		c.Infof("The server will clean up the previous orphaned session automatically within its configured check interval.")
 	}
