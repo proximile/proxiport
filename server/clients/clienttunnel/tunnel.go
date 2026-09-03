@@ -25,11 +25,18 @@ type MultiProtocolTunnel struct {
 }
 
 func (mt *MultiProtocolTunnel) Start(ctx context.Context) error {
+	started := make([]TunnelProtocol, 0, len(mt.Protocols))
 	for _, tp := range mt.Protocols {
-		err := tp.Start(ctx)
-		if err != nil {
+		if err := tp.Start(ctx); err != nil {
+			// Roll back the protocols already started so a partial start (e.g.
+			// TCP bound, then the UDP bind fails) does not leave an orphaned
+			// listener/port bound until the client context is canceled at reap.
+			for _, s := range started {
+				_ = s.Terminate(true)
+			}
 			return err
 		}
+		started = append(started, tp)
 	}
 	return nil
 }

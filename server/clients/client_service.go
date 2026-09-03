@@ -1070,8 +1070,10 @@ func (s *ClientServiceProvider) TerminateTunnel(c *clientdata.Client, t *clientt
 func (s *ClientServiceProvider) releaseTunnelsForReconnect(c *clientdata.Client) {
 	for _, t := range c.GetTunnels() {
 		if err := t.Terminate(true); err != nil {
+			// Log but do not skip the rest: still attempt to stop the proxy and
+			// remove the caddy route so cleanup is best-effort complete even if a
+			// future Terminate implementation can error here.
 			c.Log().Debugf("reconnect: could not terminate stale tunnel %s: %v", t.ID, err)
-			continue
 		}
 		if t.InternalTunnelProxy != nil {
 			if err := t.InternalTunnelProxy.Stop(c.GetContext()); err != nil {
