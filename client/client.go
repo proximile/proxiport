@@ -386,10 +386,16 @@ func (c *Client) handleConnectionError(backoff *backoff.Backoff, connerr error) 
 	var d = backoff.Duration()
 	if _, ok := connerr.(comm.TimeoutError); ok {
 		c.Debugf("reseting backoff timer")
-		// Timeout means the server isn't offline, so reset the backoff and use an initial short retry duration
+		// Timeout means the server isn't offline, so reset the backoff and use an initial short retry
+		// duration, spread over the attempts made so far so a fleet reconnecting after a server stall
+		// doesn't come back in lockstep. Read the attempt count *before* Reset() zeroes it: reading it
+		// after made this rand.Intn(0), which panics on every single server timeout.
+		attempts := int(backoff.Attempt())
 		backoff.Reset()
-		rand.Seed(time.Now().UnixNano())
-		d = time.Duration(rand.Intn(int(backoff.Attempt()))) * BackoffOnServerTimeoutMaxDuration
+		if attempts < 1 {
+			attempts = 1
+		}
+		d = time.Duration(rand.Intn(attempts)+1) * BackoffOnServerTimeoutMaxDuration
 	}
 	msg := fmt.Sprintf("Retrying in %s...", d)
 	c.Infof("%s", msg)

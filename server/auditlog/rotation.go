@@ -3,6 +3,7 @@ package auditlog
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -33,9 +34,16 @@ type RotationProvider struct {
 	dataSourceOptions sqlite.DataSourceOptions
 	hmacKey           []byte
 
+	done chan struct{}
+
 	mtx    sync.RWMutex
 	sqlite *SQLiteProvider
 }
+
+// errAuditLogUnavailable is returned when a rotation could not reopen the
+// database. Callers get an error instead of a nil dereference, which from the
+// client listener would be an unrecovered panic.
+var errAuditLogUnavailable = errors.New("audit log is unavailable: rotation failed to reopen the database")
 
 func newRotationProvider(l *logger.Logger, period time.Duration, retention int, dataDir string, dataSourceOptions sqlite.DataSourceOptions, hmacKey []byte) (*RotationProvider, error) {
 	sqlite, err := newSQLiteProvider(dataDir, dataSourceOptions, hmacKey)
@@ -44,13 +52,15 @@ func newRotationProvider(l *logger.Logger, period time.Duration, retention int, 
 	}
 
 	r := &RotationProvider{
-		logger:    l,
-		period:    period,
-		retention: retention,
-		dataDir:   dataDir,
-		hmacKey:   hmacKey,
-		sqlite:    sqlite,
-		ticker:    time.NewTicker(period),
+		logger:            l,
+		period:            period,
+		retention:         retention,
+		dataDir:           dataDir,
+		dataSourceOptions: dataSourceOptions,
+		hmacKey:           hmacKey,
+		sqlite:            sqlite,
+		ticker:            time.NewTicker(period),
+		done:              make(chan struct{}),
 	}
 	err = r.rotateIfNeeded()
 	if err != nil {
@@ -63,10 +73,15 @@ func newRotationProvider(l *logger.Logger, period time.Duration, retention int, 
 }
 
 func (r *RotationProvider) rotationLoop() {
-	for range r.ticker.C {
-		err := r.rotate()
-		if err != nil {
-			r.logger.Errorf("Could not rotate auditlog: %v", err)
+	for {
+		select {
+		case <-r.done:
+			return
+		case <-r.ticker.C:
+			err := r.rotate()
+			if err != nil {
+				r.logger.Errorf("Could not rotate auditlog: %v", err)
+			}
 		}
 	}
 }
@@ -84,13 +99,24 @@ func (r *RotationProvider) rotate() error {
 	rotatedFn := path.Join(r.dataDir, time.Now().Format(rotatedFilename))
 	err = os.Rename(sqliteFn, rotatedFn)
 	if err != nil {
+		// The live file is still there, just closed. Reopen it so audit writes
+		// keep working until the next attempt.
+		r.reopen()
 		return err
 	}
 
-	r.sqlite, err = newSQLiteProvider(r.dataDir, r.dataSourceOptions, r.hmacKey)
+	// Open into a local first. Assigning the multi-value result directly stored
+	// nil on failure, and every later Save/List dereferenced it.
+	provider, err := newSQLiteProvider(r.dataDir, r.dataSourceOptions, r.hmacKey)
 	if err != nil {
+		// Put the rotated file back so there is something to serve from.
+		if renameErr := os.Rename(rotatedFn, sqliteFn); renameErr != nil {
+			r.logger.Errorf("Could not restore auditlog %s after a failed rotation: %v", rotatedFn, renameErr)
+		}
+		r.reopen()
 		return err
 	}
+	r.sqlite = provider
 
 	if err := r.pruneRotated(); err != nil {
 		// Pruning is best-effort: a fresh, working DB matters more than a
@@ -144,29 +170,61 @@ func (r *RotationProvider) rotateIfNeeded() error {
 	return nil
 }
 
+// reopen restores r.sqlite after a rotation step failed. It is called with the
+// write lock held.
+func (r *RotationProvider) reopen() {
+	provider, err := newSQLiteProvider(r.dataDir, r.dataSourceOptions, r.hmacKey)
+	if err != nil {
+		r.sqlite = nil
+		r.logger.Errorf("Could not reopen auditlog after a failed rotation: %v", err)
+		return
+	}
+	r.sqlite = provider
+}
+
 func (r *RotationProvider) Save(e *Entry) error {
 	r.mtx.RLock()
 	defer r.mtx.RUnlock()
+	if r.sqlite == nil {
+		return errAuditLogUnavailable
+	}
 	return r.sqlite.Save(e)
 }
 func (r *RotationProvider) List(ctx context.Context, l *query.ListOptions) ([]*Entry, error) {
 	r.mtx.RLock()
 	defer r.mtx.RUnlock()
+	if r.sqlite == nil {
+		return nil, errAuditLogUnavailable
+	}
 	return r.sqlite.List(ctx, l)
 }
 func (r *RotationProvider) Count(ctx context.Context, l *query.ListOptions) (int, error) {
 	r.mtx.RLock()
 	defer r.mtx.RUnlock()
+	if r.sqlite == nil {
+		return 0, errAuditLogUnavailable
+	}
 	return r.sqlite.Count(ctx, l)
 }
 func (r *RotationProvider) Verify(ctx context.Context) (ChainVerification, error) {
 	r.mtx.RLock()
 	defer r.mtx.RUnlock()
+	if r.sqlite == nil {
+		return ChainVerification{}, errAuditLogUnavailable
+	}
 	return r.sqlite.Verify(ctx)
 }
 func (r *RotationProvider) Close() error {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
 	r.ticker.Stop()
+	select {
+	case <-r.done:
+	default:
+		close(r.done)
+	}
+	if r.sqlite == nil {
+		return nil
+	}
 	return r.sqlite.Close()
 }

@@ -732,6 +732,14 @@ func (cl *ClientListener) handleSSHChannels(clientLog *logger.Logger, chans <-ch
 		}
 
 		go func() {
+			// Channel requests come straight off the wire from the agent. This
+			// goroutine sits outside any HTTP handler, so a panic here takes the
+			// whole daemon down rather than one request.
+			defer func() {
+				if p := recover(); p != nil {
+					clientLog.Errorf("Recovered from panic handling channel request: %v", p)
+				}
+			}()
 			for req := range reqs {
 				cl.handleReq(req, clientLog)
 			}
@@ -823,7 +831,9 @@ func (cl *ClientListener) handleReq(req *ssh.Request, clientLog *logger.Logger) 
 	switch req.Type {
 	// https://datatracker.ietf.org/doc/html/draft-ietf-secsh-filexfer-02#section-2
 	case "subsystem":
-		if string(req.Payload[4:]) == "sftp" {
+		// The payload is a length-prefixed string (RFC 4254 s6.5); an agent can
+		// send a shorter one, so bounds-check before dropping the length prefix.
+		if len(req.Payload) >= 4 && string(req.Payload[4:]) == "sftp" {
 			ok = true
 		}
 	}
