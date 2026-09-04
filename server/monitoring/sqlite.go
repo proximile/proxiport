@@ -328,8 +328,24 @@ func (p *SqliteProvider) DeleteMeasurementsBefore(ctx context.Context, compare t
 // relatively expensive and briefly locks the DB, so callers should run it
 // sparingly (e.g. once a day after a cleanup that actually removed rows).
 func (p *SqliteProvider) Vacuum(ctx context.Context) error {
-	_, err := p.db.ExecContext(ctx, "VACUUM")
-	return err
+	if _, err := p.db.ExecContext(ctx, "VACUUM"); err != nil {
+		return err
+	}
+
+	// VACUUM rewrites the whole database, and in WAL mode every one of those
+	// pages goes through the write-ahead log first. An automatic checkpoint
+	// only rewinds the WAL for reuse, it never shrinks the file, so the -wal
+	// left behind is as large as the database itself -- the reclaim doubles
+	// the footprint it was meant to reduce. TRUNCATE checkpoints and then
+	// drops the file back to zero.
+	//
+	// Best-effort: the space is already reclaimed in the main database, so a
+	// checkpoint that cannot run right now (a concurrent reader holds it off)
+	// is not worth failing the cleanup over.
+	if _, err := p.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		p.logger.Errorf("could not truncate the write-ahead log after VACUUM: %v", err)
+	}
+	return nil
 }
 
 func (p *SqliteProvider) Close() error {
