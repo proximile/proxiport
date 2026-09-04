@@ -1,12 +1,12 @@
 package chserver
 
 import (
-	"math"
 	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"image/png"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
