@@ -103,12 +103,24 @@ func (ts *MailTestSuite) mailerFromPort(port int) rmailer.Mailer {
 }
 
 func (ts *MailTestSuite) neverRespondingSMTPServer(port int) {
-	logError := ts.NoError
+	// Bind before returning. Opening the listener inside the goroutine let the
+	// caller dial before the port was up: the send then failed instantly with
+	// "connection refused" instead of hitting the context timeout under test,
+	// and TestMailTimeout flaked on its lower time bound.
+	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%v", port))
+	ts.Require().NoError(err)
+	ts.T().Cleanup(func() {
+		_ = listener.Close()
+	})
+
 	go func() {
-		listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%v", port))
-		logError(err)
 		for {
-			_, _ = listener.Accept()
+			// Accept and deliberately never answer; the connections stay open
+			// for the lifetime of the test binary. Accept returns an error once
+			// the listener is closed, which ends the loop.
+			if _, err := listener.Accept(); err != nil {
+				return
+			}
 		}
 	}()
 }
