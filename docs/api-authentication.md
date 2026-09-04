@@ -283,6 +283,29 @@ curl -s -X POST \
   --data-raw '{"username":"alice","token":"123456"}'
 ```
 
+!!! warning "The secret is returned once"
+    Step 2 is the only response that carries the shared secret and the
+    QR image. `GET /api/v1/me/totp-secret` reports enrollment status
+    only — `{"enrolled": true}` — so a leaked session or a read-scoped
+    API token cannot lift the secret and keep minting codes after the
+    session is revoked. Capture the secret at enrollment time, or reset
+    the factor and enroll again.
+
+Removing your own factor with `DELETE /api/v1/me/totp-secret` requires
+the account password in the request body:
+
+```bash
+curl -s -X DELETE \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-raw '{"old_password":"password"}' \
+  https://proxiport.example.com/api/v1/me/totp-secret
+```
+
+Changing your own `two_fa_send_to` delivery address takes the same
+`old_password` step-up, for the same reason: both are one step away
+from moving the second factor to an attacker's device.
+
 Admins can reset a user's TOTP from **Users** in the SPA, or by
 `DELETE /api/v1/users/<username>/totp-secret`.
 
@@ -301,6 +324,54 @@ For sites that prefer email or push, set `two_fa_token_delivery` to
 Configure `[smtp]` or `[pushover]` to match. The flow mirrors TOTP:
 `/login` returns a login token, the server sends a code, and the user
 posts `{username, token}` to `/verify-2fa` to get the final JWT.
+
+## Login throttling and second-factor limits
+
+Failed authentication is rate-limited on two axes. Both are on by
+default; neither needs configuring to be effective.
+
+**Per-IP.** `[api] max_failed_login` consecutive failures from one
+source address ban that address for `ban_time` seconds. A successful
+authentication clears the counter for that address.
+
+**Per-account.** A failed login also bans the *IP and username pair*
+for `ban_time`, so spraying one password across many accounts from a
+single host does not stay under a purely per-account limit, and one
+attacker cannot lock out a legitimate user by burning that user's
+counter from elsewhere.
+
+```toml
+[api]
+  max_failed_login = 10
+  ban_time = 600
+```
+
+Second factors carry their own limits, independent of the settings
+above:
+
+- A pending login accepts at most **five** wrong second-factor codes.
+  On the fifth the pending session is discarded and the user starts
+  over from `/login` with their password.
+- A TOTP code is accepted **once**. The ±1-step skew keeps a code
+  usable for about 90 seconds, so a code that was shoulder-surfed or
+  phished within that window would otherwise still work a second time;
+  the server records the step it accepted and refuses that step and any
+  earlier one.
+- Out-of-band codes are **not re-sent** while the outstanding one still
+  has more than 30 seconds to live. Repeating `/login` returns the same
+  delivery target instead of mailing or pushing another code, so the
+  endpoint cannot be used to flood a user's inbox or phone.
+
+Sessions are invalidated when the password behind them changes —
+whether the user changes it themselves, an admin changes it from
+**Users**, or it is changed during login. Anyone still holding a bearer
+token minted under the old password is logged out.
+
+!!! note "Changing a password at login with 2FA on"
+    `/login` accepts a `new_password` alongside the current one. When a
+    second factor is enabled the new password is held and applied only
+    after the factor is validated, so knowledge of the current password
+    alone cannot change it.
 
 ## Delegated authentication
 
@@ -350,6 +421,8 @@ permissions will end up unreadable by the daemon.
 - Switch off the inline single-user mode as soon as you have more than
   one operator.
 - Enable `totp_enabled = true` if you can.
+- Leave `max_failed_login` and `ban_time` at their defaults or
+  tighter — see [login throttling](#login-throttling-and-second-factor-limits).
 - Sit the API behind TLS — see [HTTPS](https.md).
 - Restrict the username/password basic-auth flow at the reverse proxy
   if you only intend to allow bearer tokens.
