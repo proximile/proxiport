@@ -108,8 +108,8 @@ func (c *Client) HandleRunCmdRequest(ctx context.Context, reqPayload []byte) (*c
 		}
 
 		closeStreamChannels = func() {
-			stdOutCh.Close()
-			stdErrCh.Close()
+			_ = stdOutCh.Close()
+			_ = stdErrCh.Close()
 		}
 	}
 
@@ -391,7 +391,7 @@ func (s *SummaryBuffer) process(r io.Reader) {
 
 // Stop closes and waits for writing to finish
 func (s *SummaryBuffer) Stop() {
-	s.closer.Close()
+	_ = s.closer.Close()
 
 	<-s.done
 }

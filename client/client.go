@@ -231,7 +231,7 @@ func printMemStats(c *Client) {
 		rtm.HeapObjects,
 		rtm.HeapAlloc,
 		rtm.NumGC,
-		time.UnixMilli(int64(rtm.LastGC/1_000_000)),
+		time.UnixMilli(int64(rtm.LastGC/1_000_000)), //nolint:gosec // runtime nanosecond timestamp, always well inside int64
 	)
 }
 
@@ -441,7 +441,7 @@ func (c *Client) handleServerSwitchBack(switchbackCtx context.Context, switchbac
 			}
 			c.Infof("Connected to main server, switching back.")
 			switchbackChan <- switchbackConn
-			sshClientConn.Connection.Close()
+			_ = sshClientConn.Connection.Close()
 			return
 		}
 	}
@@ -800,7 +800,7 @@ func (c *Client) Wait(ctx context.Context) (err error) {
 // Close manually stops the client
 func (c *Client) Close() error {
 	c.stopRunning()
-	c.watchdog.Close()
+	_ = c.watchdog.Close()
 	return c.CloseConnection()
 }
 
@@ -869,7 +869,7 @@ func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
 			}()
 		default:
 			c.Errorf("Unsupported protocol %v for tunnel %v", protocol, remote)
-			stream.Close()
+			_ = stream.Close()
 		}
 	}
 	c.Logger.Debugf("connectStreams finished")
