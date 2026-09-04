@@ -14,6 +14,27 @@
 
 set -e
 
+# Distinguish a first install from an upgrade. dpkg calls this hook as
+# `configure <old-version>`, so $2 is empty only on a first install; rpm calls
+# it with $1 = 1 on an install and 2 or more on an upgrade. An upgrade must
+# restart whatever was already running and skip the first-install banner.
+is_upgrade=0
+case "${1:-}" in
+    configure)
+        if [ -n "${2:-}" ]; then
+            is_upgrade=1
+        fi
+        ;;
+    ''|*[!0-9]*)
+        # Not an rpm-style instance count; treat as a first install.
+        ;;
+    *)
+        if [ "$1" -ge 2 ]; then
+            is_upgrade=1
+        fi
+        ;;
+esac
+
 install -d -o proxiport -g proxiport -m 0750 /var/lib/proxiport
 install -d -o proxiport -g proxiport -m 0750 /var/log/proxiport
 install -d -o root -g root -m 0755 /etc/proxiport
@@ -120,6 +141,23 @@ if [ -f /etc/proxiport/proxiport.example.conf ] \
     cp /etc/proxiport/proxiport.example.conf /etc/proxiport/proxiport.conf
     chmod 0640 /etc/proxiport/proxiport.conf
     chown root:proxiport /etc/proxiport/proxiport.conf
+fi
+
+# ----------------------------------------------------------------------
+# upgrade: restart what was running, and skip the first-install banner
+# ----------------------------------------------------------------------
+
+if [ "$is_upgrade" = 1 ]; then
+    if command -v systemctl >/dev/null 2>&1; then
+        for svc in proxiportd proxiport; do
+            if [ -x "/usr/bin/$svc" ]; then
+                # try-restart is a no-op for a unit that is not running, so an
+                # intentionally stopped service stays stopped across upgrades.
+                systemctl try-restart "$svc.service" >/dev/null 2>&1 || true
+            fi
+        done
+    fi
+    exit 0
 fi
 
 # ----------------------------------------------------------------------

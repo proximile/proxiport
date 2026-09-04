@@ -386,6 +386,49 @@ Refresh the SPA. The new agent shows up in the inventory.
 
 ![Inventory with the first agent online.](screenshots/01-inventory-dashboard.png)
 
+## Upgrading
+
+Install the new package over the old one. The state in
+`/var/lib/proxiport` and your `/etc/proxiport/*.conf` are left alone;
+only the binaries, the unit files and the bundled SPA are replaced.
+
+=== "Debian / Ubuntu"
+
+    ```bash
+    curl -fsSLO https://github.com/proximile/proxiport/releases/latest/download/proxiportd_<version>_linux_x86_64.deb
+    sudo dpkg -i proxiportd_<version>_linux_x86_64.deb
+    ```
+
+=== "Fedora / RHEL / openSUSE"
+
+    ```bash
+    sudo rpm -Uvh proxiportd_<version>_linux_x86_64.rpm
+    ```
+
+A service that was running is restarted automatically at the end of the
+upgrade; one that was stopped stays stopped. Check it came back:
+
+```bash
+systemctl status proxiportd
+proxiportd --version
+```
+
+!!! warning "Upgrading from v0.8.3 or earlier"
+    Packages up to v0.8.3 disabled and stopped both services during
+    every upgrade, including unattended ones, and never restarted them
+    — the server stayed down until someone noticed. Upgrading *to*
+    v0.8.4 still runs the old package's hook, so re-enable it once,
+    after which upgrades keep the service running:
+
+    ```bash
+    sudo systemctl enable --now proxiportd
+    ```
+
+Downgrading is the same command with an older package. The client
+database schema is versioned and migrated forward on start, so a
+downgrade across a schema change is not supported — snapshot
+`/var/lib/proxiport` first if you intend to go back.
+
 ## Upgrading from a v0.1.2 install
 
 v0.1.3 changes two things that already-running v0.1.2 installs do not

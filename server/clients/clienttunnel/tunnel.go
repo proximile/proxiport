@@ -81,6 +81,25 @@ type Tunnel struct {
 	CreatedAt           time.Time            `json:"created_at"`
 }
 
+// Terminate stops the tunnel's live protocol handlers.
+//
+// TunnelProtocol is an interface field tagged `json:"-"`, so a Tunnel restored
+// from client storage has none: the record survives a daemon restart but the
+// listeners it describes do not. The promoted TunnelProtocol.Terminate would
+// then be a call through a nil interface, which panics. That is not an edge
+// case — it is the state of every stored tunnel after a restart, and the
+// reconnect path terminates them before rebuilding, so the first client with a
+// stored tunnel to come back would crash its own connection handler and could
+// never reconnect.
+//
+// A record with no live handlers has nothing to stop, so report success.
+func (t *Tunnel) Terminate(force bool) error {
+	if t.TunnelProtocol == nil {
+		return nil
+	}
+	return t.TunnelProtocol.Terminate(force)
+}
+
 func NewTunnel(logger *logger.Logger, ssh ssh.Conn, id string, remote models.Remote, acl *TunnelACL) (*Tunnel, error) {
 	logger = logger.Fork("tunnel#%s:%s", id, remote)
 	logger.Debugf("new tunnel with remote = %#v", remote)
