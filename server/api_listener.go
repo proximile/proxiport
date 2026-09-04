@@ -570,10 +570,6 @@ func (al *APIListener) checkBearerToken(ctx context.Context, bearerToken, uri, m
 // same algorithm, only the identifier differs.
 var bcryptPrefixes = []string{"$2y$", "$2a$", "$2b$"}
 
-// htpasswdBcryptPrefix is kept for backward compatibility with callers
-// (e.g. server/api/users/file.go) that quote it in error messages.
-const htpasswdBcryptPrefix = "$2y$"
-
 func hasBcryptPrefix(s string) bool {
 	for _, p := range bcryptPrefixes {
 		if strings.HasPrefix(s, p) {

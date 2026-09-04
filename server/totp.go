@@ -1,6 +1,7 @@
 package chserver
 
 import (
+	"math"
 	"bytes"
 	"encoding/base64"
 	"errors"
@@ -224,9 +225,11 @@ func CheckTotPCodeStep(code string, totP *TotP) (step int64, ok bool) {
 		return 0, false
 	}
 
-	period := int64(totP.TotPKey.Period())
-	if period <= 0 {
-		period = 30
+	// Period() is a uint64 parsed out of the otpauth URL, so clamp rather than
+	// converting blindly; 30s is the RFC 6238 default.
+	period := int64(30)
+	if raw := totP.TotPKey.Period(); raw > 0 && raw <= math.MaxInt32 {
+		period = int64(raw)
 	}
 
 	// Skew 0 per candidate, walked manually, so a match identifies its step.

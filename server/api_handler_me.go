@@ -207,7 +207,8 @@ func (al *APIListener) handleManageTotP(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	if action == "create" {
+	switch action {
+	case "create":
 		al.auditLog.Entry(auditlog.ApplicationAuthUserTotP, auditlog.ActionCreate).
 			WithHTTPRequest(req).
 			WithID(userDataToChange.Username).
@@ -215,7 +216,7 @@ func (al *APIListener) handleManageTotP(w http.ResponseWriter, req *http.Request
 
 		al.Debugf("Users time based one time secret is created for user [%s].", user.Username)
 		al.writeJSONResponse(w, http.StatusOK, totP)
-	} else if action == "delete" {
+	case "delete":
 		al.auditLog.Entry(auditlog.ApplicationAuthUserTotP, auditlog.ActionDelete).
 			WithHTTPRequest(req).
 			WithID(userDataToChange.Username).
