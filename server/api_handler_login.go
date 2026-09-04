@@ -50,8 +50,8 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 	// alone, so a third party cannot lock a victim's account out just by spraying
 	// bad passwords at their username. Per-IP abuse is still caught separately by
 	// the bannedIPs machinery via handleBannedIPs.
-	loginBanKey := chshare.RemoteIP(req) + "|" + username
-	if al.bannedUsers.IsBanned(loginBanKey) {
+	banKey := loginBanKey(chshare.RemoteIP(req), username)
+	if al.bannedUsers.IsBanned(banKey) {
 		al.jsonErrorResponseWithTitle(w, http.StatusTooManyRequests, ErrTooManyRequests.Error())
 		return
 	}
@@ -72,7 +72,7 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 	}
 
 	if !authorized {
-		al.bannedUsers.Add(loginBanKey)
+		al.bannedUsers.Add(banKey)
 		al.jsonErrorResponseWithTitle(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -91,8 +91,16 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 		return
 	}
 
+	// A second factor is configured, so the password alone has not authenticated
+	// anyone yet. Committing the new password here let someone holding only the
+	// password rotate it — locking the real owner out — without ever completing
+	// a login. Carry it on the pending 2FA session instead and apply it in
+	// /verify-2fa. The expired-password flow still works: the change lands as
+	// soon as the second factor is verified.
+	deferPasswordChange := newpwd != "" && (al.config.API.IsTwoFAOn() || al.config.API.TotPEnabled)
+
 	// Only set the new password after the old password has been verified.
-	if newpwd != "" {
+	if newpwd != "" && !deferPasswordChange {
 		if err := al.userService.Change(
 			&users.User{
 				Password:        newpwd,
@@ -102,9 +110,16 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 			return
 		}
 		user.PasswordExpired = users.PasswordExpired(false) // from here on
+
+		// Rotating a password retires every other session; otherwise a stolen
+		// bearer outlives the rotation meant to revoke it.
+		if err := al.apiSessions.DeleteAllByUser(req.Context(), username); err != nil {
+			al.jsonErrorResponse(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
 
-	if user.PasswordExpired != nil && *user.PasswordExpired {
+	if !deferPasswordChange && user.PasswordExpired != nil && *user.PasswordExpired {
 		al.jsonErrorResponseWithTitle(w, http.StatusUnauthorized, ErrThatPasswordHasExpired.Error())
 		return
 	}
@@ -132,6 +147,10 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 			return
 		}
 
+		if deferPasswordChange {
+			al.twoFASrv.SetPendingPasswordChange(username, newpwd)
+		}
+
 		al.writeJSONResponse(w, http.StatusOK, api.NewSuccessPayload(loginResponse{
 			Token: &tokenStr,
 			TwoFA: &twoFAResponse{
@@ -144,6 +163,9 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 
 	if al.config.API.TotPEnabled {
 		al.twoFASrv.SetTotPLoginSession(username, al.config.API.TotPLoginSessionTimeout)
+		if deferPasswordChange {
+			al.twoFASrv.SetPendingPasswordChange(username, newpwd)
+		}
 
 		loginResp := loginResponse{
 			TwoFA: &twoFAResponse{
@@ -188,7 +210,10 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 		return
 	}
 
-	// login token, normal
+	// login token, normal. 2FA is off, so the password alone completes the
+	// authentication: clear the per-IP failure counter here.
+	al.recordAuthSuccess(req)
+
 	tokenStr, err := bearer.CreateAuthToken(
 		req.Context(),
 		al.apiSessions,
@@ -217,7 +242,12 @@ func (al *APIListener) sendJWTToken(username string, w http.ResponseWriter, req 
 		return
 	}
 
-	// login token, after 2fa
+	// login token, after 2fa. The second factor has been verified, so this is
+	// the completed authentication: clear the per-IP failure counter. Doing this
+	// from the auth middleware instead is what let a /verify-2fa brute force
+	// reset the limiter on every guess.
+	al.recordAuthSuccess(req)
+
 	tokenStr, err := bearer.CreateAuthToken(
 		req.Context(),
 		al.apiSessions,

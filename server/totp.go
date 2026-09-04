@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image/png"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -204,29 +205,52 @@ func StoreTotPCodeInUser(usr *users.User, totP *TotP) {
 }
 
 func CheckTotPCode(code string, totP *TotP) bool {
+	_, ok := CheckTotPCodeStep(code, totP)
+	return ok
+}
+
+// CheckTotPCodeStep validates a TotP code and reports which time step it
+// matched. The caller needs the step to reject a replay: with the +-1 skew a
+// single observed code stays valid for about 90 seconds, so without recording
+// the last accepted step, a code that was phished or shoulder-surfed can be
+// used a second time by anyone who also has the password.
+func CheckTotPCodeStep(code string, totP *TotP) (step int64, ok bool) {
 	algo, err := totP.Algorithm()
 	if err != nil {
-		return false
+		return 0, false
 	}
 
 	digits, err := totP.Digits()
 	if err != nil {
-		return false
+		return 0, false
 	}
 
+	// Period() is a uint64 parsed out of the otpauth URL, so clamp rather than
+	// converting blindly; 30s is the RFC 6238 default.
+	period := int64(30)
+	if raw := totP.TotPKey.Period(); raw > 0 && raw <= math.MaxInt32 {
+		period = int64(raw)
+	}
+
+	// Skew 0 per candidate, walked manually, so a match identifies its step.
+	// This is the same acceptance window as Skew 1 over a single call.
 	validateOpts := totp.ValidateOpts{
-		Period:    uint(totP.TotPKey.Period()),
-		Skew:      1,
+		Period:    uint(period),
+		Skew:      0,
 		Digits:    digits,
 		Algorithm: algo,
 	}
-	isValid, err := totp.ValidateCustom(
-		code,
-		totP.Secret,
-		time.Now().UTC(),
-		validateOpts,
-	)
-	return err == nil && isValid
+
+	now := time.Now().UTC()
+	for _, offset := range []int64{0, -1, 1} {
+		at := now.Add(time.Duration(offset*period) * time.Second)
+		isValid, err := totp.ValidateCustom(code, totP.Secret, at, validateOpts)
+		if err == nil && isValid {
+			return at.Unix() / period, true
+		}
+	}
+
+	return 0, false
 }
 
 func GenerateTotPSecretKey(inpt *TotPInput) (*TotP, error) {

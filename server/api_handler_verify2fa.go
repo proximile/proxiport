@@ -4,28 +4,52 @@ import (
 	"net/http"
 
 	errors2 "github.com/proximile/proxiport/server/api/errors"
+	"github.com/proximile/proxiport/server/api/users"
 	"github.com/proximile/proxiport/server/bearer"
+	chshare "github.com/proximile/proxiport/share"
 )
 
 func (al *APIListener) handlePostVerify2FAToken() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		username, err := al.parseAndValidate2FATokenRequest(req)
+		username, pendingPassword, err := al.parseAndValidate2FATokenRequest(req)
 		if err != nil {
 			if !al.handleBannedIPs(req, false) {
 				return
+			}
+			// Count the failure against the principal too, not just the source
+			// IP. A wrong second factor is a failed authentication and has to be
+			// throttled like one — the request carries a valid 2FA-pending
+			// bearer, so nothing else on the path treats it as a failure.
+			if username != "" {
+				al.bannedUsers.Add(loginBanKey(chshare.RemoteIP(req), username))
 			}
 			al.Errorf(err.Error())
 			al.jsonError(w, err)
 			return
 		}
 
+		// The password change requested during the password step is applied only
+		// now, with the second factor proved.
+		if pendingPassword != "" {
+			if err := al.userService.Change(&users.User{
+				Password:        pendingPassword,
+				PasswordExpired: users.PasswordExpired(false),
+			}, username); err != nil {
+				al.jsonError(w, err)
+				return
+			}
+			if err := al.apiSessions.DeleteAllByUser(req.Context(), username); err != nil {
+				al.Errorf("password changed, unable to delete all sessions for user %q: %v", username, err)
+			}
+		}
+
 		al.sendJWTToken(username, w, req)
 	})
 }
 
-func (al *APIListener) parseAndValidate2FATokenRequest(req *http.Request) (username string, err error) {
+func (al *APIListener) parseAndValidate2FATokenRequest(req *http.Request) (username string, pendingPassword string, err error) {
 	if !al.config.API.IsTwoFAOn() && !al.config.API.TotPEnabled {
-		return "", errors2.APIError{
+		return "", "", errors2.APIError{
 			HTTPStatus: http.StatusConflict,
 			Message:    "2fa is disabled",
 		}
@@ -37,25 +61,25 @@ func (al *APIListener) parseAndValidate2FATokenRequest(req *http.Request) (usern
 	}
 	err = parseRequestBody(req.Body, &reqBody)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	if al.bannedUsers.IsBanned(reqBody.Username) {
-		return reqBody.Username, errors2.APIError{
+		return reqBody.Username, "", errors2.APIError{
 			HTTPStatus: http.StatusTooManyRequests,
 			Err:        ErrTooManyRequests,
 		}
 	}
 
 	if reqBody.Username == "" {
-		return "", errors2.APIError{
+		return "", "", errors2.APIError{
 			HTTPStatus: http.StatusUnauthorized,
 			Message:    "username is required",
 		}
 	}
 
 	if reqBody.Token == "" {
-		return reqBody.Username, errors2.APIError{
+		return reqBody.Username, "", errors2.APIError{
 			HTTPStatus: http.StatusUnauthorized,
 			Message:    "token is required",
 		}
@@ -67,19 +91,19 @@ func (al *APIListener) parseAndValidate2FATokenRequest(req *http.Request) (usern
 	// verified caller cannot mint a session for someone else.
 	bearerToken, bearerAuthProvided := bearer.GetBearerToken(req)
 	if !bearerAuthProvided {
-		return reqBody.Username, errors2.APIError{
+		return reqBody.Username, "", errors2.APIError{
 			HTTPStatus: http.StatusBadRequest,
 			Message:    "token is required",
 		}
 	}
 
-	isAuthorized, token, err := al.checkBearerToken(req.Context(), bearerToken, req.URL.Path, req.Method)
+	isAuthorized, token, err := al.checkBearerToken(req.Context(), bearerToken, req.URL.Path, req.Method, chshare.RemoteIP(req))
 	if err != nil {
-		return reqBody.Username, err
+		return reqBody.Username, "", err
 	}
 
 	if !isAuthorized {
-		return reqBody.Username, errors2.APIError{
+		return reqBody.Username, "", errors2.APIError{
 			HTTPStatus: http.StatusForbidden,
 			Message:    "access denied",
 		}
@@ -87,7 +111,7 @@ func (al *APIListener) parseAndValidate2FATokenRequest(req *http.Request) (usern
 
 	username = token.AppClaims.Username
 	if reqBody.Username != username {
-		return username, errors2.APIError{
+		return username, "", errors2.APIError{
 			HTTPStatus: http.StatusForbidden,
 			Message:    "username does not match the pending login session",
 		}
@@ -96,10 +120,12 @@ func (al *APIListener) parseAndValidate2FATokenRequest(req *http.Request) (usern
 	if al.config.API.TotPEnabled {
 		user, err := al.userService.GetByUsername(username)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		return username, al.twoFASrv.ValidateTotPCode(user, reqBody.Token)
+		pendingPassword, err = al.twoFASrv.ValidateTotPCode(user, reqBody.Token)
+		return username, pendingPassword, err
 	}
 
-	return username, al.twoFASrv.ValidateToken(username, reqBody.Token)
+	pendingPassword, err = al.twoFASrv.ValidateToken(username, reqBody.Token)
+	return username, pendingPassword, err
 }

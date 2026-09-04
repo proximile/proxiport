@@ -1,0 +1,8 @@
+type: object
+properties:
+ enrolled:
+  type: boolean
+  description: >-
+   Whether this account has a time-based one-time-password secret. The
+   secret itself is returned only once, in the response to the POST that
+   creates it.

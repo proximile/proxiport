@@ -85,12 +85,15 @@ func (al *APIListener) handleChangeUser(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	if user.PasswordExpired != nil && *user.PasswordExpired {
-		// this user password was just set to expired, need to kill all his/her sessions
+	// A password set by an admin, or a password marked expired, must retire that
+	// user's sessions: otherwise an attacker's stolen bearer survives the very
+	// rotation performed to lock them out.
+	passwordChanged := userIDExists && user.Password != ""
+	if passwordChanged || (user.PasswordExpired != nil && *user.PasswordExpired) {
 		ctx := req.Context()
 		err := al.apiSessions.DeleteAllByUser(ctx, userID)
 		if err != nil {
-			titleMsg := fmt.Sprintf("password expired, unable to delete all sessions for user \"%s\"", userID)
+			titleMsg := fmt.Sprintf("password changed, unable to delete all sessions for user \"%s\"", userID)
 			al.jsonErrorResponseWithDetail(w, http.StatusInternalServerError, "Unable to delete all User's sessions", titleMsg, err.Error())
 			return
 		}

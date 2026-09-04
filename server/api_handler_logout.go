@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/proximile/proxiport/server/bearer"
+	chshare "github.com/proximile/proxiport/share"
 )
 
 func (al *APIListener) handleDeleteLogout(w http.ResponseWriter, req *http.Request) {
@@ -24,7 +25,7 @@ func (al *APIListener) handleDeleteLogout(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	if al.bannedUsers.IsBanned(tokenCtx.AppClaims.Username) {
+	if al.bannedUsers.IsBanned(loginBanKey(chshare.RemoteIP(req), tokenCtx.AppClaims.Username)) {
 		al.Errorf(
 			"User %s is banned",
 			tokenCtx.AppClaims.Username,
@@ -48,7 +49,7 @@ func (al *APIListener) handleDeleteLogout(w http.ResponseWriter, req *http.Reque
 		return
 	}
 	if !valid {
-		al.bannedUsers.Add(tokenCtx.AppClaims.Username)
+		al.bannedUsers.Add(loginBanKey(chshare.RemoteIP(req), tokenCtx.AppClaims.Username))
 		al.jsonErrorResponse(w, http.StatusBadRequest, fmt.Errorf("token is invalid or expired"))
 		return
 	}

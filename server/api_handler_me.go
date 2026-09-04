@@ -10,6 +10,7 @@ import (
 
 	"github.com/proximile/proxiport/server/api"
 	"github.com/proximile/proxiport/server/api/authorization"
+	errors2 "github.com/proximile/proxiport/server/api/errors"
 	users "github.com/proximile/proxiport/server/api/users"
 	"github.com/proximile/proxiport/server/auditlog"
 	"github.com/proximile/proxiport/server/routes"
@@ -79,7 +80,18 @@ func (al *APIListener) handleGetTotP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	al.writeJSONResponse(w, http.StatusOK, totP)
+	// Report enrollment status only. Returning the secret and its QR on every
+	// GET meant any live session — including a read-scoped API token issued for
+	// a script — could lift the shared secret and mint valid codes forever,
+	// surviving both token revocation and a password change. The secret is
+	// shown exactly once, in the response to the enrolling POST.
+	al.writeJSONResponse(w, http.StatusOK, totPStatus{Enrolled: true})
+}
+
+// totPStatus is the GET /me/totp-secret response: whether this account has a
+// TotP secret, and nothing that would let the caller reproduce codes.
+type totPStatus struct {
+	Enrolled bool `json:"enrolled"`
 }
 
 func (al *APIListener) handlePostTotP(w http.ResponseWriter, req *http.Request) {
@@ -87,7 +99,57 @@ func (al *APIListener) handlePostTotP(w http.ResponseWriter, req *http.Request) 
 }
 
 func (al *APIListener) handleDeleteTotP(w http.ResponseWriter, req *http.Request) {
+	// Removing the second factor is exactly the step an attacker holding a
+	// hijacked session wants: it forces re-enrollment on the next login, which
+	// they can then complete on their own device. Require the account password,
+	// the same step-up a password change already demands.
+	if err := al.requireCurrentPassword(req); err != nil {
+		al.jsonError(w, err)
+		return
+	}
 	al.handleManageCurUserTotP(w, req, "delete")
+}
+
+// stepUpRequest carries the re-authentication a security-relevant self-service
+// change requires.
+type stepUpRequest struct {
+	OldPassword string `json:"old_password"`
+}
+
+// requireCurrentPassword re-authenticates the caller against their own stored
+// password. Accounts with no local password (delegated auth via auth_header,
+// where the provider owns the credential) have nothing to prove here and are
+// allowed through.
+func (al *APIListener) requireCurrentPassword(req *http.Request) error {
+	curUser, err := al.getUserModelForAuth(req.Context())
+	if err != nil {
+		return err
+	}
+
+	if curUser.Password == "" {
+		return nil
+	}
+
+	var body stepUpRequest
+	if req.Body != nil {
+		// A missing or empty body is fine to parse loosely; the checks below are
+		// what actually gate the request.
+		_ = parseRequestBody(req.Body, &body)
+	}
+
+	if body.OldPassword == "" {
+		return errors2.APIError{
+			HTTPStatus: http.StatusForbidden,
+			Message:    "Missing old password.",
+		}
+	}
+	if !verifyPassword(curUser.Password, body.OldPassword) {
+		return errors2.APIError{
+			HTTPStatus: http.StatusForbidden,
+			Message:    "Incorrect old password.",
+		}
+	}
+	return nil
 }
 
 func (al *APIListener) handleManageCurUserTotP(w http.ResponseWriter, req *http.Request, action string) {
@@ -145,7 +207,8 @@ func (al *APIListener) handleManageTotP(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	if action == "create" {
+	switch action {
+	case "create":
 		al.auditLog.Entry(auditlog.ApplicationAuthUserTotP, auditlog.ActionCreate).
 			WithHTTPRequest(req).
 			WithID(userDataToChange.Username).
@@ -153,7 +216,7 @@ func (al *APIListener) handleManageTotP(w http.ResponseWriter, req *http.Request
 
 		al.Debugf("Users time based one time secret is created for user [%s].", user.Username)
 		al.writeJSONResponse(w, http.StatusOK, totP)
-	} else if action == "delete" {
+	case "delete":
 		al.auditLog.Entry(auditlog.ApplicationAuthUserTotP, auditlog.ActionDelete).
 			WithHTTPRequest(req).
 			WithID(userDataToChange.Username).
@@ -185,7 +248,11 @@ func (al *APIListener) handleChangeMe(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	if r.Password != "" {
+	// Changing where the second factor is delivered is as good as owning it, so
+	// it needs the same step-up a password change does. Accounts with no local
+	// password (delegated auth) have nothing to prove.
+	needsStepUp := r.Password != "" || (r.TwoFASendTo != "" && r.TwoFASendTo != curUser.TwoFASendTo)
+	if needsStepUp && curUser.Password != "" {
 		if r.OldPassword == "" {
 			al.jsonErrorResponseWithTitle(w, http.StatusForbidden, "Missing old password.")
 			return
@@ -204,6 +271,19 @@ func (al *APIListener) handleChangeMe(w http.ResponseWriter, req *http.Request) 
 	}, curUser.Username); err != nil {
 		al.jsonError(w, err)
 		return
+	}
+
+	if r.Password != "" {
+		// A password rotation must retire every other session, or a stolen
+		// bearer keeps working until its own expiry — up to the configured max
+		// token lifetime — which defeats the point of rotating.
+		if err := al.apiSessions.DeleteAllByUser(req.Context(), curUser.Username); err != nil {
+			al.jsonErrorResponseWithDetail(w, http.StatusInternalServerError,
+				"Unable to delete all User's sessions",
+				fmt.Sprintf("password changed, unable to delete all sessions for user %q", curUser.Username),
+				err.Error())
+			return
+		}
 	}
 
 	al.auditLog.Entry(auditlog.ApplicationAuthUserMe, auditlog.ActionUpdate).

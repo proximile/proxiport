@@ -14,6 +14,9 @@
   // ---- TOTP enrollment ------------------------------------------------
   // GET/POST/DELETE /me/totp-secret. The endpoints 400 when the server
   // config has totp_enabled = false, 404 when no secret exists yet.
+  // GET reports enrollment status only: the secret and QR come back exactly
+  // once, from the POST that creates them, so they can't be lifted later by
+  // anything holding a session. Keep them in memory for that one page view.
   type TotpSecret = { secret?: string; qr?: string };
   let totpStatus: 'loading' | 'disabled' | 'none' | 'enrolled' = $state('loading');
   let totp: TotpSecret | null = $state(null);
@@ -24,7 +27,7 @@
   async function loadTotp() {
     totpError = '';
     try {
-      totp = await apiGet<TotpSecret>('/me/totp-secret');
+      await apiGet<{ enrolled?: boolean }>('/me/totp-secret');
       totpStatus = 'enrolled';
     } catch (err) {
       if (err instanceof ApiException && err.status === 404) totpStatus = 'none';
@@ -60,10 +63,14 @@
   async function removeTotp() {
     if (totpBusy) return;
     if (!confirm('Remove the TOTP secret? Your authenticator codes will stop working and logins will no longer ask for them.')) return;
+    // The server requires the account password to drop the second factor, so a
+    // hijacked session can't strip 2FA and re-enroll on the attacker's device.
+    const oldPassword = prompt('Enter your account password to confirm removing the second factor:');
+    if (!oldPassword) return;
     totpBusy = true;
     totpError = '';
     try {
-      await apiDelete('/me/totp-secret');
+      await apiDelete('/me/totp-secret', { old_password: oldPassword });
       totp = null;
       showQr = false;
       totpStatus = 'none';
@@ -133,10 +140,12 @@
           </div>
         {/if}
         <div class="flex gap-2">
-          {#if !showQr}
-            <button class="btn btn-ghost" onclick={() => (showQr = true)} disabled={!totp?.qr}>Show QR code</button>
-          {:else}
-            <button class="btn btn-ghost" onclick={() => (showQr = false)}>Hide QR code</button>
+          {#if totp?.qr}
+            {#if !showQr}
+              <button class="btn btn-ghost" onclick={() => (showQr = true)}>Show QR code</button>
+            {:else}
+              <button class="btn btn-ghost" onclick={() => (showQr = false)}>Hide QR code</button>
+            {/if}
           {/if}
           <button class="btn btn-danger" onclick={removeTotp} disabled={totpBusy}>Remove TOTP</button>
         </div>
