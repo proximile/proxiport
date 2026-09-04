@@ -48,7 +48,7 @@ func TestValidateTotPCodeConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				_ = tfaService.ValidateTotPCode(usr, code)
+				_, _ = tfaService.ValidateTotPCode(usr, code)
 			}
 		}()
 

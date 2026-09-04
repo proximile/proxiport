@@ -155,6 +155,16 @@ type AuthUserPass struct {
 	Pass string
 }
 
+// String redacts the password. Config is logged verbatim at debug level during
+// startup, which otherwise wrote the SMTP credential into proxiportd.log (and
+// into whatever ships those logs).
+func (a AuthUserPass) String() string {
+	if a.Pass == "" {
+		return fmt.Sprintf("{User:%s Pass:}", a.User)
+	}
+	return fmt.Sprintf("{User:%s Pass:REDACTED}", a.User)
+}
+
 func NewRMailer(config Config, l *logger.Logger) Mailer {
 	return rMailer{
 		config:    config,
@@ -172,6 +182,12 @@ type Config struct {
 	AuthType     AuthType
 	AuthUserPass AuthUserPass
 	NoNoop       bool
+}
+
+// String keeps the SMTP credential out of logs; see AuthUserPass.String.
+func (c Config) String() string {
+	return fmt.Sprintf("{Host:%s Port:%d Domain:%s From:%s TLS:%t AuthType:%s AuthUserPass:%s NoNoop:%t}",
+		c.Host, c.Port, c.Domain, c.From, c.TLS, c.AuthType, c.AuthUserPass, c.NoNoop)
 }
 
 func ConfigFromSMTPConfig(config chconfig.SMTPConfig) (Config, error) {

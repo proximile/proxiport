@@ -107,9 +107,18 @@ export async function apiPut<T = any>(path: string, payload?: unknown): Promise<
   return (body && 'data' in body ? body.data : body) as T;
 }
 
-export async function apiDelete(path: string): Promise<void> {
+export async function apiDelete(path: string, payload?: unknown): Promise<void> {
   ensureToken();
-  const res = await fetch(`/api/v1${path}`, { method: 'DELETE', headers: { ...authHeader() } });
+  const res = await fetch(`/api/v1${path}`, {
+    method: 'DELETE',
+    headers: {
+      ...authHeader(),
+      ...(payload === undefined ? {} : { 'Content-Type': 'application/json' })
+    },
+    // Some deletes are security-relevant enough to require a step-up (removing
+    // the second factor, for one), so DELETE can carry a body.
+    body: payload === undefined ? undefined : JSON.stringify(payload)
+  });
   if (!res.ok) await raise(res);
 }
 

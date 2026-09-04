@@ -22,6 +22,9 @@ type TwoFAService struct {
 	SendTimeout time.Duration
 
 	tokensByUser map[string]*expirableToken
+	// lastTotPStep is the most recent TotP time step accepted for a user, so the
+	// same code cannot be replayed inside the +-1 skew window.
+	lastTotPStep map[string]int64
 	mu           sync.RWMutex
 }
 
@@ -32,15 +35,65 @@ func NewTwoFAService(tokenTTLSeconds int, sendTimeout time.Duration, userSrv Use
 		MsgSrv:       msgSrv,
 		SendTimeout:  sendTimeout,
 		tokensByUser: make(map[string]*expirableToken),
+		lastTotPStep: make(map[string]int64),
 	}
 }
 
 type expirableToken struct {
-	token  string
-	expiry time.Time
+	token    string
+	expiry   time.Time
+	failures int
+	// pendingPassword is a password change requested during the password step of
+	// a 2FA login. It is applied only once the second factor is verified.
+	pendingPassword string
 }
 
 const twoFATokenLength = 6
+
+// maxTwoFAFailures is how many wrong second factors a single pending login
+// session tolerates before it is discarded and the user must re-authenticate
+// with their password. Without it a pending session lived for its whole TTL and
+// accepted unlimited guesses.
+const maxTwoFAFailures = 5
+
+// minTwoFAResendInterval is how much of a token's remaining lifetime must have
+// elapsed before a new one is sent. While a code is comfortably live, a repeated
+// login returns the same delivery target without sending again.
+const minTwoFAResendInterval = 30 * time.Second
+
+// acceptTotPStep records a TotP time step as used and reports whether it was
+// still unused. Codes from the current or an earlier step are refused, so an
+// observed code cannot be replayed while it is still inside the skew window.
+func (srv *TwoFAService) acceptTotPStep(username string, step int64) bool {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	if srv.lastTotPStep == nil {
+		srv.lastTotPStep = make(map[string]int64)
+	}
+	if last, ok := srv.lastTotPStep[username]; ok && step <= last {
+		return false
+	}
+	srv.lastTotPStep[username] = step
+	return true
+}
+
+// registerFailure counts a wrong second factor against the pending login
+// session and discards the session once the limit is reached. It is a no-op if
+// the session was already replaced by a concurrent login.
+func (srv *TwoFAService) registerFailure(username string, t *expirableToken) {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	cur, ok := srv.tokensByUser[username]
+	if !ok || cur != t {
+		return
+	}
+	cur.failures++
+	if cur.failures >= maxTwoFAFailures {
+		delete(srv.tokensByUser, username)
+	}
+}
 
 func (srv *TwoFAService) SendToken(ctx context.Context, username string, userAgent string, remoteAddress string) (sendTo string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, srv.SendTimeout)
@@ -71,6 +124,16 @@ func (srv *TwoFAService) SendToken(ctx context.Context, username string, userAge
 		}
 	}
 
+	// Every /login with a correct password used to mint and send a fresh code.
+	// That is an SMS/email bombing primitive, and each send also invalidated the
+	// code the real user was in the middle of typing. Reuse the live one instead.
+	srv.mu.RLock()
+	existing := srv.tokensByUser[username]
+	srv.mu.RUnlock()
+	if existing != nil && existing.token != "" && time.Now().Before(existing.expiry.Add(-minTwoFAResendInterval)) {
+		return user.TwoFASendTo, nil
+	}
+
 	token, err := security.NewRandomToken(twoFATokenLength)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate 2fa token: %wv", err)
@@ -80,7 +143,7 @@ func (srv *TwoFAService) SendToken(ctx context.Context, username string, userAge
 		SendTo:        user.TwoFASendTo,
 		Token:         token,
 		TTL:           srv.TokenTTL,
-		Title:         "🔐 RRort Two-Factor Token",
+		Title:         "🔐 ProxiPort Two-Factor Token",
 		RemoteAddress: remoteAddress,
 		UserAgent:     userAgent,
 	}
@@ -101,6 +164,18 @@ func (srv *TwoFAService) SendToken(ctx context.Context, username string, userAge
 	return user.TwoFASendTo, nil
 }
 
+// SetPendingPasswordChange stores a password the user asked to set while
+// logging in, to be applied only after the second factor is verified. Applying
+// it at the password step let anyone holding just the password rotate it and
+// lock the real owner out without ever completing a login.
+func (srv *TwoFAService) SetPendingPasswordChange(username, newPassword string) {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	if t, ok := srv.tokensByUser[username]; ok {
+		t.pendingPassword = newPassword
+	}
+}
+
 func (srv *TwoFAService) SetTotPLoginSession(username string, loginSessionTTL time.Duration) {
 	srv.mu.Lock()
 	srv.tokensByUser[username] = &expirableToken{
@@ -109,20 +184,20 @@ func (srv *TwoFAService) SetTotPLoginSession(username string, loginSessionTTL ti
 	srv.mu.Unlock()
 }
 
-func (srv *TwoFAService) ValidateTotPCode(user *users.User, code string) error {
+func (srv *TwoFAService) ValidateTotPCode(user *users.User, code string) (pendingPassword string, err error) {
 	srv.mu.RLock()
 	t := srv.tokensByUser[user.Username]
 	srv.mu.RUnlock()
 
 	if t == nil {
-		return errors2.APIError{
+		return "", errors2.APIError{
 			Message:    "login request not found for provided username",
 			HTTPStatus: http.StatusUnauthorized,
 		}
 	}
 
 	if time.Now().After(t.expiry) {
-		return errors2.APIError{
+		return "", errors2.APIError{
 			Message:    "login request expired",
 			HTTPStatus: http.StatusUnauthorized,
 		}
@@ -130,21 +205,31 @@ func (srv *TwoFAService) ValidateTotPCode(user *users.User, code string) error {
 
 	totP, err := GetUsersTotPCode(user)
 	if err != nil {
-		return errors2.APIError{
+		return "", errors2.APIError{
 			Err:        err,
 			HTTPStatus: http.StatusInternalServerError,
 		}
 	}
 	if totP == nil || totP.Secret == "" {
-		return errors2.APIError{
+		return "", errors2.APIError{
 			Message:    "time based one time secret key should be generated for this user",
 			HTTPStatus: http.StatusConflict,
 		}
 	}
 
-	if !CheckTotPCode(code, totP) {
-		return errors2.APIError{
+	step, valid := CheckTotPCodeStep(code, totP)
+	if !valid {
+		srv.registerFailure(user.Username, t)
+		return "", errors2.APIError{
 			Message:    "invalid code",
+			HTTPStatus: http.StatusUnauthorized,
+		}
+	}
+
+	if !srv.acceptTotPStep(user.Username, step) {
+		srv.registerFailure(user.Username, t)
+		return "", errors2.APIError{
+			Message:    "code already used, wait for the next one",
 			HTTPStatus: http.StatusUnauthorized,
 		}
 	}
@@ -154,34 +239,36 @@ func (srv *TwoFAService) ValidateTotPCode(user *users.User, code string) error {
 	// current (a concurrent login may have replaced it).
 	srv.mu.Lock()
 	if cur := srv.tokensByUser[user.Username]; cur == t {
+		pendingPassword = cur.pendingPassword
 		delete(srv.tokensByUser, user.Username)
 	}
 	srv.mu.Unlock()
 
-	return nil
+	return pendingPassword, nil
 }
 
-func (srv *TwoFAService) ValidateToken(username, token string) error {
+func (srv *TwoFAService) ValidateToken(username, token string) (pendingPassword string, err error) {
 	srv.mu.RLock()
 	t := srv.tokensByUser[username]
 	srv.mu.RUnlock()
 
 	if t == nil {
-		return errors2.APIError{
+		return "", errors2.APIError{
 			Message:    "2fa token not found for provided username",
 			HTTPStatus: http.StatusUnauthorized,
 		}
 	}
 
 	if time.Now().After(t.expiry) {
-		return errors2.APIError{
+		return "", errors2.APIError{
 			Message:    "2fa token expired",
 			HTTPStatus: http.StatusUnauthorized,
 		}
 	}
 
 	if subtle.ConstantTimeCompare([]byte(t.token), []byte(token)) != 1 {
-		return errors2.APIError{
+		srv.registerFailure(username, t)
+		return "", errors2.APIError{
 			Message:    "invalid token",
 			HTTPStatus: http.StatusUnauthorized,
 		}
@@ -192,9 +279,10 @@ func (srv *TwoFAService) ValidateToken(username, token string) error {
 	// validated is still current.
 	srv.mu.Lock()
 	if cur := srv.tokensByUser[username]; cur == t {
+		pendingPassword = cur.pendingPassword
 		delete(srv.tokensByUser, username)
 	}
 	srv.mu.Unlock()
 
-	return nil
+	return pendingPassword, nil
 }

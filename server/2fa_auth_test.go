@@ -35,10 +35,10 @@ func TestValidateTotPCode(t *testing.T) {
 	code, err := totp.GenerateCode(totP.Secret, time.Now())
 	require.NoError(t, err)
 
-	err = tfaService.ValidateTotPCode(usr, code)
+	_, err = tfaService.ValidateTotPCode(usr, code)
 	require.NoError(t, err)
 
-	err = tfaService.ValidateTotPCode(usr, "dfasdf")
+	_, err = tfaService.ValidateTotPCode(usr, "dfasdf")
 	require.EqualError(t, err, "login request not found for provided username")
 }
 
@@ -59,7 +59,7 @@ func TestInvalidTotPCode(t *testing.T) {
 
 	StoreTotPCodeInUser(usr, totP)
 
-	err = tfaService.ValidateTotPCode(usr, "dfasdf")
+	_, err = tfaService.ValidateTotPCode(usr, "dfasdf")
 	require.EqualError(t, err, "invalid code")
 }
 
@@ -73,7 +73,7 @@ func TestValidateTotPCodeLoginExpired(t *testing.T) {
 	tfaService := NewTwoFAService(100, time.Second, usrService, msgSErvice)
 	tfaService.SetTotPLoginSession(usr.Username, -100)
 
-	err := tfaService.ValidateTotPCode(usr, "123")
+	_, err := tfaService.ValidateTotPCode(usr, "123")
 	require.EqualError(t, err, "login request expired")
 }
 
@@ -88,14 +88,14 @@ func TestValidateTotPCodeInvalidTotPData(t *testing.T) {
 	tfaService := NewTwoFAService(100, time.Second, usrService, msgSErvice)
 	tfaService.SetTotPLoginSession(usr.Username, time.Minute)
 
-	err := tfaService.ValidateTotPCode(usr, "123")
+	_, err := tfaService.ValidateTotPCode(usr, "123")
 	assert.Contains(t, err.Error(), "failed to convert 'w43dfa' to TotP secret data")
 
 	usr2 := &users.User{
 		Username: "no@mail.me",
 		TotP:     "",
 	}
-	err = tfaService.ValidateTotPCode(usr2, "123")
+	_, err = tfaService.ValidateTotPCode(usr2, "123")
 	require.EqualError(t, err, "time based one time secret key should be generated for this user")
 }
 
@@ -106,6 +106,6 @@ func TestValidateTotPCodeWithUnknownUser(t *testing.T) {
 
 	tfaService := NewTwoFAService(100, time.Second, usrService, msgSErvice)
 
-	err := tfaService.ValidateTotPCode(usr, "123")
+	_, err := tfaService.ValidateTotPCode(usr, "123")
 	require.EqualError(t, err, "login request not found for provided username")
 }

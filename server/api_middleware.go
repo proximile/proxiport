@@ -9,6 +9,8 @@ import (
 
 	"github.com/gorilla/mux"
 
+	chshare "github.com/proximile/proxiport/share"
+
 	"github.com/proximile/proxiport/server/api"
 	errors2 "github.com/proximile/proxiport/server/api/errors"
 	"github.com/proximile/proxiport/server/api/users"
@@ -90,7 +92,13 @@ func (al *APIListener) wrapWithAuthMiddleware(isBearerOnly bool) mux.MiddlewareF
 			}
 
 			if !authorized || username == "" {
-				al.bannedUsers.Add(username)
+				// Throttle per (source IP, username). Keying on the username
+				// alone let an unauthenticated third party lock a victim out of
+				// every API path just by spraying bad basic-auth at their name,
+				// and Add("") turned every anonymous 401 into a 429.
+				if username != "" {
+					al.bannedUsers.Add(loginBanKey(chshare.RemoteIP(r), username))
+				}
 				al.jsonErrorResponse(w, http.StatusUnauthorized, errors.New("unauthorized"))
 				return
 			}

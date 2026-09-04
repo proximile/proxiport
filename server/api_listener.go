@@ -402,14 +402,16 @@ var ErrThatTokenHasExpired = errors.New("the provided token has expired")
 
 // lookupUser is used to get the user on every request in auth middleware
 func (al *APIListener) lookupUser(r *http.Request, isBearerOnly bool) (authorized bool, username string, err error) {
+	remoteIP := chshare.RemoteIP(r)
+
 	if !isBearerOnly {
 		if basicUser, basicPwd, basicAuthProvided := r.BasicAuth(); basicAuthProvided {
-			return al.handleBasicAuth(r.Context(), r.Method, r.URL.Path, basicUser, basicPwd)
+			return al.handleBasicAuth(r.Context(), r.Method, r.URL.Path, remoteIP, basicUser, basicPwd)
 		}
 	}
 
 	if bearerToken, bearerAuthProvided := bearer.GetBearerToken(r); bearerAuthProvided {
-		isAuthorized, token, err := al.checkBearerToken(r.Context(), bearerToken, r.URL.Path, r.Method)
+		isAuthorized, token, err := al.checkBearerToken(r.Context(), bearerToken, r.URL.Path, r.Method, remoteIP)
 		if err != nil || !isAuthorized || token == nil {
 			return isAuthorized, "", err
 		}
@@ -417,17 +419,15 @@ func (al *APIListener) lookupUser(r *http.Request, isBearerOnly bool) (authorize
 		return isAuthorized, token.AppClaims.Username, nil
 	}
 
-	// case when no auth method is provided
-	if al.bannedUsers.IsBanned("") {
-		return false, "", ErrTooManyRequests
-	}
-
+	// No auth method provided at all. There is no principal to throttle here —
+	// the empty-username ban entry this used to consult turned every anonymous
+	// 401 into a 429 for the whole ban window. Per-IP throttling still applies.
 	return false, "", nil
 }
 
 // handleBasicAuth checks username and password against either user's password or token
-func (al *APIListener) handleBasicAuth(ctx context.Context, httpverb, urlpath, username, password string) (authorized bool, name string, err error) {
-	if al.bannedUsers.IsBanned(username) {
+func (al *APIListener) handleBasicAuth(ctx context.Context, httpverb, urlpath, remoteIP, username, password string) (authorized bool, name string, err error) {
+	if al.bannedUsers.IsBanned(loginBanKey(remoteIP, username)) {
 		return false, username, ErrTooManyRequests
 	}
 
@@ -477,13 +477,20 @@ func (al *APIListener) handleBasicAuth(ctx context.Context, httpverb, urlpath, u
 		if tokenOk {
 			switch userToken.Scope {
 			case authorization.APITokenRead:
-				if httpverb == "GET" && !strings.Contains(urlpath, "/ws") {
+				// "Any GET" is deliberately broad, but some routes hand back
+				// material a read token must never see, or a way out of the
+				// read scope entirely.
+				if httpverb == "GET" && !readScopeDenied(urlpath) {
 					return true, username, nil
 				}
 			case authorization.APITokenReadWrite:
 				return true, username, nil
 			case authorization.APITokenClientsAuth:
-				if strings.Contains(urlpath, "clients-auth") {
+				// Match the route, not the substring. strings.Contains let a
+				// clients-auth token reach anything whose path merely contained
+				// the word — /users/clients-auth, /user-groups/clients-auth, or
+				// any route under a client that registered with that id.
+				if routeMatches(urlpath, "/clients-auth") {
 					return true, username, nil
 				}
 			}
@@ -494,7 +501,30 @@ func (al *APIListener) handleBasicAuth(ctx context.Context, httpverb, urlpath, u
 	return false, username, nil
 }
 
-func (al *APIListener) checkBearerToken(ctx context.Context, bearerToken, uri, method string) (bool, *bearer.TokenContext, error) {
+// routeMatches reports whether urlpath is the given API route or sits beneath
+// it, rather than merely containing it as a substring.
+func routeMatches(urlpath, route string) bool {
+	const apiPrefix = "/api/v1"
+	full := apiPrefix + route
+	return urlpath == route || urlpath == full ||
+		strings.HasPrefix(urlpath, route+"/") || strings.HasPrefix(urlpath, full+"/")
+}
+
+// readScopeDenied lists the GET routes a read-scoped API token must not reach:
+// the websocket routes and the ticket that opens them (which would escape the
+// read scope altogether), the TotP shared secret, and decrypted vault values.
+// The vault *listing* stays readable; only reading a value back is denied.
+func readScopeDenied(urlpath string) bool {
+	const apiPrefix = "/api/v1"
+	for _, route := range []string{"/ws", "/ws-ticket", "/me/totp-secret"} {
+		if routeMatches(urlpath, route) {
+			return true
+		}
+	}
+	return strings.HasPrefix(urlpath, "/vault/") || strings.HasPrefix(urlpath, apiPrefix+"/vault/")
+}
+
+func (al *APIListener) checkBearerToken(ctx context.Context, bearerToken, uri, method, remoteIP string) (bool, *bearer.TokenContext, error) {
 	tokenCtx, err := bearer.ParseToken(bearerToken, al.config.API.JWTSecret)
 	if err != nil {
 		// An unparseable / bad-algorithm / expired / tampered token is the
@@ -505,10 +535,11 @@ func (al *APIListener) checkBearerToken(ctx context.Context, bearerToken, uri, m
 		return false, nil, nil
 	}
 
-	if al.bannedUsers.IsBanned(tokenCtx.AppClaims.Username) {
+	if al.bannedUsers.IsBanned(loginBanKey(remoteIP, tokenCtx.AppClaims.Username)) {
 		al.Errorf(
-			"User %s is banned",
+			"User %s is banned from %s",
 			tokenCtx.AppClaims.Username,
+			remoteIP,
 		)
 		return false, nil, ErrTooManyRequests
 	}
@@ -632,7 +663,7 @@ func (al *APIListener) wsAuth(f http.Handler) http.HandlerFunc {
 			basicUser, basicPwd, basicAuthProvided := r.BasicAuth()
 
 			if basicAuthProvided {
-				authorized, username, err = al.handleBasicAuth(r.Context(), r.Method, r.URL.Path, basicUser, basicPwd)
+				authorized, username, err = al.handleBasicAuth(r.Context(), r.Method, r.URL.Path, chshare.RemoteIP(r), basicUser, basicPwd)
 			} else {
 				if !al.handleBannedIPs(r, false) {
 					return
@@ -656,7 +687,9 @@ func (al *APIListener) wsAuth(f http.Handler) http.HandlerFunc {
 		}
 
 		if !authorized || username == "" {
-			al.bannedUsers.Add(username)
+			if username != "" {
+				al.bannedUsers.Add(loginBanKey(chshare.RemoteIP(r), username))
+			}
 			al.jsonErrorResponse(w, http.StatusUnauthorized, errUnauthorized)
 			return
 		}
