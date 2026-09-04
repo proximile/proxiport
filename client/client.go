@@ -231,7 +231,7 @@ func printMemStats(c *Client) {
 		rtm.HeapObjects,
 		rtm.HeapAlloc,
 		rtm.NumGC,
-		time.UnixMilli(int64(rtm.LastGC/1_000_000)),
+		time.UnixMilli(int64(rtm.LastGC/1_000_000)), //nolint:gosec // runtime nanosecond timestamp, always well inside int64
 	)
 }
 
@@ -386,10 +386,16 @@ func (c *Client) handleConnectionError(backoff *backoff.Backoff, connerr error) 
 	var d = backoff.Duration()
 	if _, ok := connerr.(comm.TimeoutError); ok {
 		c.Debugf("reseting backoff timer")
-		// Timeout means the server isn't offline, so reset the backoff and use an initial short retry duration
+		// Timeout means the server isn't offline, so reset the backoff and use an initial short retry
+		// duration, spread over the attempts made so far so a fleet reconnecting after a server stall
+		// doesn't come back in lockstep. Read the attempt count *before* Reset() zeroes it: reading it
+		// after made this rand.Intn(0), which panics on every single server timeout.
+		attempts := int(backoff.Attempt())
 		backoff.Reset()
-		rand.Seed(time.Now().UnixNano())
-		d = time.Duration(rand.Intn(int(backoff.Attempt()))) * BackoffOnServerTimeoutMaxDuration
+		if attempts < 1 {
+			attempts = 1
+		}
+		d = time.Duration(rand.Intn(attempts)+1) * BackoffOnServerTimeoutMaxDuration
 	}
 	msg := fmt.Sprintf("Retrying in %s...", d)
 	c.Infof("%s", msg)
@@ -435,7 +441,7 @@ func (c *Client) handleServerSwitchBack(switchbackCtx context.Context, switchbac
 			}
 			c.Infof("Connected to main server, switching back.")
 			switchbackChan <- switchbackConn
-			sshClientConn.Connection.Close()
+			_ = sshClientConn.Connection.Close()
 			return
 		}
 	}
@@ -794,7 +800,7 @@ func (c *Client) Wait(ctx context.Context) (err error) {
 // Close manually stops the client
 func (c *Client) Close() error {
 	c.stopRunning()
-	c.watchdog.Close()
+	_ = c.watchdog.Close()
 	return c.CloseConnection()
 }
 
@@ -863,7 +869,7 @@ func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
 			}()
 		default:
 			c.Errorf("Unsupported protocol %v for tunnel %v", protocol, remote)
-			stream.Close()
+			_ = stream.Close()
 		}
 	}
 	c.Logger.Debugf("connectStreams finished")

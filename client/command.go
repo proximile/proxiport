@@ -81,7 +81,11 @@ func (c *Client) HandleRunCmdRequest(ctx context.Context, reqPayload []byte) (*c
 	limitedStdErrCh := ioutil.Discard
 	closeStreamChannels := func() {}
 	if job.StreamResult {
-		stdOutCh, reqs, err := c.getConn().OpenChannel(models.ChannelStdout, reqPayload)
+		conn := c.getConn()
+		if conn == nil {
+			return nil, errors.New("not connected to the server: cannot open result stream channels")
+		}
+		stdOutCh, reqs, err := conn.OpenChannel(models.ChannelStdout, reqPayload)
 		go ssh.DiscardRequests(reqs)
 		if err != nil {
 			return nil, err
@@ -92,7 +96,7 @@ func (c *Client) HandleRunCmdRequest(ctx context.Context, reqPayload []byte) (*c
 			Limit:   c.configHolder.RemoteCommands.SendBackLimit,
 		}
 
-		stdErrCh, reqs, err := c.getConn().OpenChannel(models.ChannelStderr, reqPayload)
+		stdErrCh, reqs, err := conn.OpenChannel(models.ChannelStderr, reqPayload)
 		go ssh.DiscardRequests(reqs)
 		if err != nil {
 			return nil, err
@@ -104,8 +108,8 @@ func (c *Client) HandleRunCmdRequest(ctx context.Context, reqPayload []byte) (*c
 		}
 
 		closeStreamChannels = func() {
-			stdOutCh.Close()
-			stdErrCh.Close()
+			_ = stdOutCh.Close()
+			_ = stdErrCh.Close()
 		}
 	}
 
@@ -190,9 +194,17 @@ func (c *Client) HandleRunCmdRequest(ctx context.Context, reqPayload []byte) (*c
 			return
 		}
 		c.Debugf("sending job to server: %v", job)
-		_, _, err = c.getConn().SendRequest(comm.RequestTypeCmdResult, false, jobBytes)
-		if err != nil {
-			c.Errorf("failed to send command result to server[jid=%q,pid=%d]: %s", job.JID, cmd.Process.Pid, err)
+		// The connection is nil between a drop and the next successful handshake
+		// (connectionLoop calls setConn(nil)). This runs in a bare goroutine, so
+		// calling through a nil ssh.Conn would panic the whole agent — which is
+		// exactly what any job outliving a connection blip used to do.
+		if conn := c.getConn(); conn != nil {
+			_, _, err = conn.SendRequest(comm.RequestTypeCmdResult, false, jobBytes)
+			if err != nil {
+				c.Errorf("failed to send command result to server[jid=%q,pid=%d]: %s", job.JID, cmd.Process.Pid, err)
+			}
+		} else {
+			c.Errorf("not connected to the server: dropping command result [jid=%q,pid=%d]", job.JID, cmd.Process.Pid)
 		}
 
 		c.Debugf("finished to observe cmd [jid=%q,pid=%d]", job.JID, cmd.Process.Pid)
@@ -379,7 +391,7 @@ func (s *SummaryBuffer) process(r io.Reader) {
 
 // Stop closes and waits for writing to finish
 func (s *SummaryBuffer) Stop() {
-	s.closer.Close()
+	_ = s.closer.Close()
 
 	<-s.done
 }
