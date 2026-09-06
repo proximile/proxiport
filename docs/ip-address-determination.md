@@ -42,6 +42,16 @@ Off by default, for privacy. The discovery makes one outbound HTTPS
 call per refresh interval to a server you do not control. Decide
 whether that is acceptable for your deployment before turning it on.
 
+!!! warning "This call does not use the agent's proxy"
+
+    The lookup builds its own HTTP connection and deliberately dials
+    IPv4 and IPv6 separately, so it does **not** go through `proxy` or
+    `transports`. On an agent routed over Tor or a VPN it would announce
+    the host's real address — which is the one thing that setup exists
+    to hide. With `proxy` set the agent ignores `ip_api_url` and logs a
+    warning; with `transports` set it refuses to start. See
+    [Anonymous transport](anonymous-transport.md).
+
 In
 [`proxiport.conf`](https://github.com/proximile/proxiport/blob/main/proxiport.example.conf)
 under `[client]`:
@@ -55,11 +65,6 @@ under `[client]`:
 `ip_refresh_min` is the refresh interval in minutes. The default is
 30; lower values produce more accurate state at the cost of more
 outbound calls.
-
-The discovery is turned off on an agent that has `proxy` set, and the
-agent logs a warning at startup. The lookup opens its own connection
-rather than going through the proxy, so it would report the address
-of the host the proxy is there to hide.
 
 ## Supported IP-discovery APIs
 

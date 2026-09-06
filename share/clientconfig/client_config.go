@@ -56,6 +56,17 @@ type ClientConfig struct {
 	IPAPIURL        string            `json:"ip_api_url" mapstructure:"ip_api_url"`
 	IPRefreshMin    time.Duration     `json:"ip_refresh_min" mapstructure:"ip_refresh_min"`
 
+	// Transports is the ordered list of egress paths used to reach the server,
+	// each either the word "direct" or a proxy URL. It is json:"-" on purpose:
+	// the whole ClientConfig is shipped to the server in the connection
+	// request, and a chain element may carry proxy credentials in its userinfo.
+	// Which agents are proxied, and which are currently exposed, is also not
+	// the server's business.
+	Transports []string `json:"-" mapstructure:"transports"`
+	// TransportDialTimeout bounds one candidate's dial so a dead transport
+	// cannot hold the sweep open for the full DialTimeout.
+	TransportDialTimeout time.Duration `json:"-" mapstructure:"transport_dial_timeout"`
+
 	// Tunnels is json:"-" for the same reason as Auth and Proxy. The agent
 	// already sends its configured remotes as ConnectionRequest.Remotes, which
 	// is the copy the server actually uses, so this one is pure duplication on

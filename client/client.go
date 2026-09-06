@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"runtime"
@@ -27,10 +27,10 @@ import (
 	"github.com/jpillora/backoff"
 	"github.com/shirou/gopsutil/v3/host"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/net/proxy"
 
 	"github.com/proximile/proxiport/client/monitoring"
 	"github.com/proximile/proxiport/client/system"
+	"github.com/proximile/proxiport/client/transport"
 	"github.com/proximile/proxiport/client/updates"
 	chshare "github.com/proximile/proxiport/share"
 	"github.com/proximile/proxiport/share/comm"
@@ -69,8 +69,21 @@ type Client struct {
 	serverCapabilities *models.Capabilities
 	filesAPI           files.FileAPI
 	watchdog           *Watchdog
+	// chain is the resolved egress list, built once at startup. It lives here
+	// and never on configHolder.Config, which is shipped wholesale to the
+	// server in the connection request.
+	chain transport.Chain
 
 	mu sync.RWMutex
+}
+
+// candidate is one (transport, server) pair the sweep may try.
+type candidate struct {
+	Transport transport.Transport
+	Server    string
+	// Index is the position in the sweep. Index 0 is the preferred candidate:
+	// the first transport and the main server.
+	Index int
 }
 
 type sshClientConnection struct {
@@ -110,6 +123,26 @@ func NewClient(config *ClientConfigHolder, filesAPI files.FileAPI) (*Client, err
 		ipAddressesFetcher: ipAddresses.NewFetcher(logger, config.Client.IPAPIURL, config.Client.IPRefreshMin),
 		filesAPI:           filesAPI,
 		watchdog:           watchdog,
+	}
+
+	// Resolve the egress chain once. An explicit list wins; otherwise a
+	// configured proxy is the single-entry chain, which is exactly today's
+	// behavior; otherwise a plain direct dial. Nothing here ever appends a
+	// direct entry to a list the operator wrote.
+	specs := config.Client.Transports
+	if len(specs) == 0 {
+		if config.Client.Proxy != "" {
+			specs = []string{config.Client.Proxy}
+		} else {
+			specs = []string{transport.DirectSpec}
+		}
+	}
+	client.chain, err = transport.BuildChain(specs)
+	if err != nil {
+		return nil, fmt.Errorf("invalid transports: %w", err)
+	}
+	if len(config.Client.Transports) > 0 {
+		logger.Infof("Egress chain: %s", strings.Join(client.chain.Labels(), " then "))
 	}
 
 	client.sshConfig = &ssh.ClientConfig{
@@ -256,7 +289,7 @@ func (c *Client) keepAliveLoop(ctx context.Context) {
 
 			if err != nil || !res.replyOk {
 				c.Errorf("Failed to send keepalive (client to server ping): %s", err)
-				conn.Close()
+				_ = conn.Close()
 			} else {
 				msg := fmt.Sprintf("ping to %s succeeded within %s", conn.RemoteAddr(), res.rtt)
 				c.Debugf(msg)
@@ -265,7 +298,7 @@ func (c *Client) keepAliveLoop(ctx context.Context) {
 		}
 	}
 
-	c.Logger.Debugf("keepAliveLoop finished")
+	c.Debugf("keepAliveLoop finished")
 }
 
 func (c *Client) connectionLoop(ctx context.Context, withInitialSendRequestDelay bool) {
@@ -287,7 +320,7 @@ func (c *Client) connectionLoop(ctx context.Context, withInitialSendRequestDelay
 			connerr = nil
 		}
 
-		c.Logger.Debugf("conn loop attempt = %d", int(backoff.Attempt())+1)
+		c.Debugf("conn loop attempt = %d", int(backoff.Attempt())+1)
 
 		// make the connection attempt
 		var sshClientConn *sshClientConnection
@@ -301,11 +334,15 @@ func (c *Client) connectionLoop(ctx context.Context, withInitialSendRequestDelay
 			continue
 		default:
 			var err error
-			sshClientConn, isPrimary, err = c.connectToMainOrFallback()
+			var selected candidate
+			sshClientConn, selected, err = c.connectToMainOrFallback(ctx)
 			if err != nil {
 				connerr = err // Setting a connerr causes the loop to sleep and try again later
 				continue
 			}
+			// Index 0 is the preferred candidate: first transport, main server.
+			// Anything else means the switchback poller should try to get back.
+			isPrimary = selected.Index == 0
 		}
 
 		go c.handleSSHRequests(ctx, sshClientConn)
@@ -318,7 +355,7 @@ func (c *Client) connectionLoop(ctx context.Context, withInitialSendRequestDelay
 
 		if withInitialSendRequestDelay {
 			delay := time.Duration(rand.Intn(InitialConnectionRequestSendDelayJitterMilliseconds)) * time.Millisecond
-			c.Logger.Debugf("waiting for %d milliseconds before sending connection request", delay/time.Millisecond)
+			c.Debugf("waiting for %d milliseconds before sending connection request", delay/time.Millisecond)
 			time.Sleep(delay)
 		}
 
@@ -345,13 +382,13 @@ func (c *Client) connectionLoop(ctx context.Context, withInitialSendRequestDelay
 		go func() {
 			<-ctx.Done()
 			_ = c.CloseConnection()
-			c.Logger.Infof("connection closed by ctx.Done")
+			c.Infof("connection closed by ctx.Done")
 		}()
 
 		// now wait with the client handling SSH Requests and Channel Connections
 		err = sshClientConn.Connection.Wait()
 
-		c.Logger.Infof("connection wait stopped")
+		c.Infof("connection wait stopped")
 
 		c.setConn(nil)
 		c.monitor.Stop()
@@ -427,19 +464,34 @@ func (c *Client) showConnectionError(connerr error, attempt int) {
 }
 
 func (c *Client) handleServerSwitchBack(switchbackCtx context.Context, switchbackChan chan *sshClientConnection, sshClientConn *sshClientConnection) {
+	interval := c.configHolder.Client.ServerSwitchbackInterval
+	if interval <= 0 {
+		// A zero timer fires immediately and would spin this loop. Treat a
+		// non-positive interval as "stay where you are".
+		c.Debugf("server_switchback_interval is %s: not polling for the preferred candidate", interval)
+		return
+	}
+
 	for {
-		switchbackTimer := time.NewTimer(c.configHolder.Client.ServerSwitchbackInterval)
+		switchbackTimer := time.NewTimer(interval)
 		select {
 		case <-switchbackCtx.Done():
 			switchbackTimer.Stop()
 			return
 		case <-switchbackTimer.C:
-			switchbackConn, err := c.connect(c.configHolder.Client.Server)
+			// The preferred candidate is the first transport and the main
+			// server. Switchback can therefore only ever move toward index 0,
+			// so it is never itself a route to a weaker transport.
+			preferred := c.candidates()
+			if len(preferred) == 0 {
+				continue
+			}
+			switchbackConn, err := c.connect(switchbackCtx, preferred[0])
 			if err != nil {
 				c.Errorf("Switchback failed: %v", err.Error())
 				continue
 			}
-			c.Infof("Connected to main server, switching back.")
+			c.Infof("Connected to preferred server via %s, switching back.", preferred[0].Transport.Label())
 			switchbackChan <- switchbackConn
 			_ = sshClientConn.Connection.Close()
 			return
@@ -447,41 +499,139 @@ func (c *Client) handleServerSwitchBack(switchbackCtx context.Context, switchbac
 	}
 }
 
-func (c *Client) connectToMainOrFallback() (conn *sshClientConnection, isPrimary bool, err error) {
+// candidates enumerates the sweep in transport-major order: every server over
+// the first transport, then every server over the second, and so on.
+//
+// Transport-major is the load-bearing choice. Privacy is the coarser axis, so
+// the agent must exhaust every server over the preferred transport before it
+// tries any server over a weaker one — server-major ordering would let a single
+// unreachable primary server drop the agent to a later transport even though a
+// fallback server was reachable over the preferred one.
+func (c *Client) candidates() []candidate {
 	servers := append([]string{c.configHolder.Client.Server}, c.configHolder.Client.FallbackServers...)
-	for i, server := range servers {
-		conn, err = c.connect(server)
-		if err != nil {
-			continue // Try the next server in the list
+	out := make([]candidate, 0, len(c.chain)*len(servers))
+	for _, t := range c.chain {
+		for _, server := range servers {
+			if server == "" {
+				continue
+			}
+			// A .onion name can only be resolved by a proxy that speaks to Tor.
+			// Dialing it directly would hand the name to the host's resolver,
+			// which many forward upstream rather than refusing, disclosing the
+			// address to whoever runs it.
+			if t.IsDirect() && isOnionAddress(server) {
+				continue
+			}
+			out = append(out, candidate{Transport: t, Server: server, Index: len(out)})
 		}
-		return conn, i == 0, nil
 	}
-	return nil, false, err
+	return out
 }
 
-func (c *Client) connect(server string) (*sshClientConnection, error) {
-	via := ""
-	if c.configHolder.Client.ProxyURL != nil {
-		via = " via " + c.configHolder.Client.ProxyURL.String()
+// isOnionAddress reports whether a configured server address is a Tor hidden
+// service name.
+func isOnionAddress(server string) bool {
+	host := server
+	if u, err := url.Parse(server); err == nil && u.Host != "" {
+		host = u.Host
 	}
-	c.Infof("Trying to connect to %s%s ...\n", server, via)
-	c.Infof("Will wait up to %0.2f seconds for the server to respond", DialTimeout.Seconds())
-	d, netDialer, err := c.setupDialer()
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return strings.HasSuffix(strings.ToLower(host), ".onion")
+}
+
+// connectToMainOrFallback sweeps the candidate list and keeps the first
+// connection that opens.
+//
+// It stops early — without trying the rest — when the server refuses the
+// agent's credential. The SSH credential is built once and is identical for
+// every candidate, so a refusal at one is a refusal at all of them; continuing
+// could not succeed, and with a chain configured it would walk the agent onto
+// a weaker transport because of a config typo.
+func (c *Client) connectToMainOrFallback(ctx context.Context) (conn *sshClientConnection, selected candidate, err error) {
+	candidates := c.candidates()
+	if len(candidates) == 0 {
+		return nil, candidate{}, stderrors.New("no usable transport and server combination is configured")
+	}
+
+	failures := make([]error, 0, len(candidates))
+	for _, cand := range candidates {
+		conn, err = c.connect(ctx, cand)
+		if err == nil {
+			c.logSelectedCandidate(cand)
+			return conn, cand, nil
+		}
+		if stderrors.Is(err, errEndpointRefused) {
+			return nil, candidate{}, err
+		}
+		c.Debugf("candidate %d failed: %v", cand.Index, err)
+		failures = append(failures, err)
+	}
+	return nil, candidate{}, stderrors.Join(failures...)
+}
+
+// logSelectedCandidate announces the chosen path, and raises an alertable error
+// when that path is the open internet on an agent configured to avoid it.
+//
+// The line is emitted on every such connection with no rate limiting and no
+// latch: a successful clearnet connection on a proxy-configured agent is itself
+// the incident, so it must be visible every time it happens. The prefix is
+// fixed and documented so it can be alerted on.
+func (c *Client) logSelectedCandidate(cand candidate) {
+	if cand.Transport.IsDirect() && len(c.chain) > 1 {
+		c.Errorf("ANONYMITY DOWNGRADE: connected to %s via %q after every earlier transport failed",
+			cand.Server, transport.DirectSpec)
+		return
+	}
+	if !cand.Transport.IsDirect() {
+		c.Debugf("connected to %s via %s", cand.Server, cand.Transport.Label())
+	}
+}
+
+// dialTimeout is the budget for a single candidate.
+//
+// Without a chain the agent keeps the original whole-connection DialTimeout, so
+// an existing config's behavior is unchanged. With a chain, one dead candidate
+// must not be able to hold the sweep open long enough to starve the ones after
+// it.
+func (c *Client) dialTimeout() time.Duration {
+	if len(c.configHolder.Client.Transports) > 0 && c.configHolder.Client.TransportDialTimeout > 0 {
+		return c.configHolder.Client.TransportDialTimeout
+	}
+	return DialTimeout
+}
+
+func (c *Client) connect(ctx context.Context, cand candidate) (*sshClientConnection, error) {
+	via := ""
+	if !cand.Transport.IsDirect() {
+		via = " via " + cand.Transport.Label()
+	}
+	timeout := c.dialTimeout()
+	c.Infof("Trying to connect to %s%s ...\n", cand.Server, via)
+	c.Infof("Will wait up to %0.2f seconds for the server to respond", timeout.Seconds())
+
+	d, netDialer, err := c.setupDialer(cand.Transport, timeout)
 	if err != nil {
 		return nil, err
 	}
-
-	//optionally proxy
-	if c.configHolder.Client.ProxyURL != nil {
-		err := c.addDialerProxySupport(d, netDialer)
-		if err != nil {
-			return nil, err
-		}
+	if err := cand.Transport.Apply(d, netDialer); err != nil {
+		return nil, &transportFailure{Transport: cand.Transport.Label(), Server: cand.Server, Err: err}
 	}
 
-	wsConn, _, err := d.Dial(server, c.configHolder.Connection.HTTPHeaders)
+	// DialContext rather than Dial: Dial uses context.Background() internally
+	// and is therefore uncancellable, which would let one hung candidate pin
+	// the sweep for the whole timeout with no way to abandon it.
+	dialCtx, cancelDial := context.WithTimeout(ctx, timeout)
+	defer cancelDial()
+
+	wsConn, _, err := d.DialContext(dialCtx, cand.Server, c.configHolder.Connection.HTTPHeaders)
 	if err != nil {
-		return nil, ConnectionErrorHints(server, c.Logger, err)
+		return nil, &transportFailure{
+			Transport: cand.Transport.Label(),
+			Server:    cand.Server,
+			Err:       ConnectionErrorHints(cand.Server, c.Logger, err, cand.Transport.IsDirect()),
+		}
 	}
 
 	conn := chshare.NewWebSocketConn(wsConn)
@@ -492,9 +642,12 @@ func (c *Client) connect(server string) (*sshClientConnection, error) {
 	if err != nil {
 		if strings.Contains(err.Error(), "unable to authenticate") {
 			c.Errorf("Authentication failed")
-			return nil, err
+			return nil, fmt.Errorf("%w: %v", errEndpointRefused, err)
 		}
-		return nil, err
+		// Anything else during the handshake — EOF, a key-exchange failure,
+		// protocol garbage — is indistinguishable from a censoring middlebox or
+		// an intercepting proxy, so it counts against the transport.
+		return nil, &transportFailure{Transport: cand.Transport.Label(), Server: cand.Server, Err: err}
 	}
 
 	return &sshClientConnection{
@@ -504,55 +657,47 @@ func (c *Client) connect(server string) (*sshClientConnection, error) {
 	}, nil
 }
 
-func (c *Client) setupDialer() (d *websocket.Dialer, netDialer *net.Dialer, err error) {
+func (c *Client) setupDialer(t transport.Transport, timeout time.Duration) (d *websocket.Dialer, netDialer *net.Dialer, err error) {
 	netDialer = &net.Dialer{}
 	d = &websocket.Dialer{
 		ReadBufferSize:   1024,
 		WriteBufferSize:  1024,
-		HandshakeTimeout: DialTimeout,
+		HandshakeTimeout: timeout,
 		Subprotocols:     []string{chshare.ProtocolVersion},
 		NetDialContext:   netDialer.DialContext,
 	}
-	if c.configHolder.Client.BindInterface != "" {
-		laddr, err := c.localAddrForInterface(c.configHolder.Client.BindInterface)
-		if err != nil {
-			return nil, nil, err
+	if iface := c.configHolder.Client.BindInterface; iface != "" {
+		// LocalAddr binds the first hop, which for a proxied transport is the
+		// hop to the proxy rather than to the server. When the proxy listens on
+		// loopback, forcing that hop onto an external interface breaks the dial
+		// instead of steering it, so skip the bind and say why.
+		if !t.IsDirect() && isLoopbackHost(t.URL.Host) {
+			c.Infof("Ignoring bind_interface %q for transport %s: that transport is reached over loopback.", iface, t.Label())
+		} else {
+			laddr, err := c.localAddrForInterface(iface)
+			if err != nil {
+				return nil, nil, err
+			}
+			netDialer.LocalAddr = laddr
 		}
-		netDialer.LocalAddr = laddr
 	}
 
-	return d, netDialer, err
+	return d, netDialer, nil
 }
 
-func (c *Client) addDialerProxySupport(d *websocket.Dialer, netDialer *net.Dialer) (err error) {
-	if strings.HasPrefix(c.configHolder.Client.ProxyURL.Scheme, "socks") {
-		// SOCKS5 proxy
-		if c.configHolder.Client.ProxyURL.Scheme != "socks" && c.configHolder.Client.ProxyURL.Scheme != "socks5h" {
-			return fmt.Errorf(
-				"unsupported socks proxy type: %s:// (only socks5h:// or socks:// is supported)",
-				c.configHolder.Client.ProxyURL.Scheme)
-		}
-		var auth *proxy.Auth
-		if c.configHolder.Client.ProxyURL.User != nil {
-			pass, _ := c.configHolder.Client.ProxyURL.User.Password()
-			auth = &proxy.Auth{
-				User:     c.configHolder.Client.ProxyURL.User.Username(),
-				Password: pass,
-			}
-		}
-		socksDialer, err := proxy.SOCKS5("tcp", c.configHolder.Client.ProxyURL.Host, auth, netDialer)
-		if err != nil {
-			return err
-		}
-		d.NetDialContext = socksDialer.(proxy.ContextDialer).DialContext
-	} else {
-		// CONNECT proxy
-		d.Proxy = func(*http.Request) (*url.URL, error) {
-			return c.configHolder.Client.ProxyURL, nil
-		}
+// isLoopbackHost reports whether a host:port names the local machine.
+func isLoopbackHost(hostPort string) bool {
+	host := hostPort
+	if h, _, err := net.SplitHostPort(hostPort); err == nil {
+		host = h
 	}
-
-	return nil
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 type sendResponse struct {
@@ -690,11 +835,11 @@ func (c *Client) handlePutCapabilitiesRequest(ctx context.Context, payload []byt
 }
 
 func (c *Client) handleSSHRequests(ctx context.Context, sshClientConn *sshClientConnection) {
-	c.Logger.Debugf("handleSSHRequests started")
+	c.Debugf("handleSSHRequests started")
 
 	for r := range sshClientConn.Requests {
-		c.Logger.Debugf("handling request: %s", r.Type)
-		c.Logger.Debugf("payload: %v", string(r.Payload))
+		c.Debugf("handling request: %s", r.Type)
+		c.Debugf("payload: %v", string(r.Payload))
 		var err error
 		var resp interface{}
 		switch r.Type {
@@ -745,7 +890,7 @@ func (c *Client) handleSSHRequests(ctx context.Context, sshClientConn *sshClient
 		comm.ReplySuccessJSON(c.Logger, r, resp)
 	}
 
-	c.Logger.Debugf("handleSSHRequests finished")
+	c.Debugf("handleSSHRequests finished")
 }
 
 func checkPort(payload []byte) (*comm.CheckPortResponse, error) {
@@ -791,7 +936,7 @@ func (c *Client) Wait(ctx context.Context) (err error) {
 	select {
 	case <-c.runningc:
 	case <-ctx.Done():
-		c.Logger.Debugf("context canceled during client wait")
+		c.Debugf("context canceled during client wait")
 		err = ctx.Err()
 	}
 	return err
@@ -825,7 +970,7 @@ func (c *Client) stopRunning() {
 }
 
 func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
-	c.Logger.Debugf("connectStreams started")
+	c.Debugf("connectStreams started")
 	for ch := range chans {
 		remote := string(ch.ExtraData())
 		protocol := models.ProtocolTCP
@@ -858,11 +1003,11 @@ func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
 
 		switch protocol {
 		case models.ProtocolTCP:
-			l := c.Logger.Fork("tcp conn#%d", c.connStats.New())
+			l := c.Fork("tcp conn#%d", c.connStats.New())
 			go chshare.HandleTCPStream(l, &c.connStats, stream, remote)
 		case models.ProtocolUDP:
 			go func() {
-				err := newUDPHandler(c.Logger.Fork("udp#%s", remote), remote).Handle(stream)
+				err := newUDPHandler(c.Fork("udp#%s", remote), remote).Handle(stream)
 				if err != nil {
 					c.Errorf("Error with UDP: %v", err)
 				}
@@ -872,7 +1017,7 @@ func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
 			_ = stream.Close()
 		}
 	}
-	c.Logger.Debugf("connectStreams finished")
+	c.Debugf("connectStreams finished")
 }
 
 // returns all local ipv4, ipv6 addresses
@@ -948,7 +1093,7 @@ func (c *Client) connectionRequest(ctx context.Context) (*chshare.ConnectionRequ
 
 	info, err := c.systemInfo.HostInfo(ctx)
 	if err != nil {
-		c.Logger.Errorf("Could not get os information: %v", err)
+		c.Errorf("Could not get os information: %v", err)
 	} else {
 		connReq.OSKernel = info.OS
 		connReq.OSFamily = info.PlatformFamily
@@ -956,7 +1101,7 @@ func (c *Client) connectionRequest(ctx context.Context) (*chshare.ConnectionRequ
 
 	os, err := c.getOS(ctx, info)
 	if err != nil {
-		c.Logger.Errorf("Could not get os name: %v", err)
+		c.Errorf("Could not get os name: %v", err)
 	} else {
 		connReq.OS = os
 	}
@@ -968,7 +1113,7 @@ func (c *Client) connectionRequest(ctx context.Context) (*chshare.ConnectionRequ
 
 	oSVirtualizationSystem, oSVirtualizationRole, err := c.systemInfo.VirtualizationInfo(ctx)
 	if err != nil {
-		c.Logger.Errorf("Could not get OS Virtualization Info: %v", err)
+		c.Errorf("Could not get OS Virtualization Info: %v", err)
 	} else {
 		connReq.OSVirtualizationSystem = oSVirtualizationSystem
 		connReq.OSVirtualizationRole = oSVirtualizationRole
@@ -976,12 +1121,12 @@ func (c *Client) connectionRequest(ctx context.Context) (*chshare.ConnectionRequ
 
 	connReq.IPv4, connReq.IPv6, err = c.localIPAddresses()
 	if err != nil {
-		c.Logger.Errorf("Could not get local ips: %v", err)
+		c.Errorf("Could not get local ips: %v", err)
 	}
 
 	hostname, err := c.systemInfo.Hostname()
 	if err != nil {
-		c.Logger.Errorf("Could not get hostname: %v", err)
+		c.Errorf("Could not get hostname: %v", err)
 	} else {
 		connReq.Hostname = hostname
 	}
@@ -989,7 +1134,7 @@ func (c *Client) connectionRequest(ctx context.Context) (*chshare.ConnectionRequ
 	cpuInfo, err := c.systemInfo.CPUInfo(ctx)
 
 	if err != nil {
-		c.Logger.Errorf("Could not get cpu information: %v", err)
+		c.Errorf("Could not get cpu information: %v", err)
 	}
 
 	if len(cpuInfo.CPUs) > 0 {
@@ -1002,7 +1147,7 @@ func (c *Client) connectionRequest(ctx context.Context) (*chshare.ConnectionRequ
 
 	memoryInfo, err := c.systemInfo.MemoryStats(ctx)
 	if err != nil {
-		c.Logger.Errorf("Could not get memory information: %v", err)
+		c.Errorf("Could not get memory information: %v", err)
 	} else if memoryInfo != nil {
 		connReq.MemoryTotal = memoryInfo.Total
 	}

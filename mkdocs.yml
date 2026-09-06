@@ -43,6 +43,7 @@ nav:
   - Server hardening:
     - HTTPS: https.md
     - IP-address determination: ip-address-determination.md
+    - Anonymous transport (Tor / VPN): anonymous-transport.md
   - Working with clients:
     - Command execution: command-execution.md
     - Scripts: scripts.md

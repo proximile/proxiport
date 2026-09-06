@@ -143,6 +143,10 @@ func SetViperConfigDefaults(viperCfg *viper.Viper) {
 	viperCfg.SetDefault("client.data_dir", chclient.DefaultDataDir)
 	viperCfg.SetDefault("client.attributes_file_path", "")
 	viperCfg.SetDefault("client.ip_refresh_min", 30)
+	// No default for client.transports: it must stay nil so "unset" stays
+	// distinguishable from "explicitly empty", and so nothing but the operator
+	// can put an entry in the chain.
+	viperCfg.SetDefault("client.transport_dial_timeout", 45*time.Second)
 
 	viperCfg.SetDefault("monitoring.enabled", true)
 	viperCfg.SetDefault("monitoring.interval", chclient.DefaultMonitoringInterval)

@@ -64,8 +64,15 @@ A single Go binary, `proxiport` (the agent). Responsibilities:
 - execute commands and scripts dispatched by the server (when enabled
   in the agent config) and stream their output back
 
-Agents do not call out to the public internet beyond their server
-connection. They do not require an inbound port.
+Agents do not require an inbound port. Beyond the connection to their
+server they make only a small number of outbound calls, all of which are
+off by default or can be disabled: the optional external-IP lookup
+(`ip_api_url`, see
+[IP-address determination](ip-address-determination.md)) and the
+periodic package-manager refresh (`updates_interval`). If the agent's
+egress must be constrained or routed over Tor or a VPN, see
+[Anonymous transport](anonymous-transport.md), which lists every path
+that stays outside it.
 
 ![Client detail page — identity, OS / kernel / hardware inventory,
 recent heartbeat, and the tabs that group everything you can do

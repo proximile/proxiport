@@ -925,3 +925,87 @@ func TestConfigParseInterpreterAliases(t *testing.T) {
 		})
 	}
 }
+
+// TestConfigParseAndValidateTransports covers the egress chain's validation
+// rules. Each of these is a safety property rather than a convenience: the list
+// is the anonymity policy, so a mistake in it must stop the agent rather than
+// quietly change what the policy means.
+func TestConfigParseAndValidateTransports(t *testing.T) {
+	testCases := []struct {
+		Name          string
+		Transports    []string
+		Proxy         string
+		Server        string
+		Fingerprint   string
+		IPAPIURL      string
+		ExpectedError string
+	}{
+		{
+			Name:       "not set is still valid",
+			Transports: nil,
+		}, {
+			Name:       "tor then clearnet",
+			Transports: []string{"socks5h://127.0.0.1:9050", "direct"},
+		}, {
+			Name:       "vpn then tor, never clearnet",
+			Transports: []string{"socks5h://gluetun:1080", "socks5h://127.0.0.1:9050"},
+		}, {
+			Name:          "cannot be combined with proxy",
+			Transports:    []string{"direct"},
+			Proxy:         "socks5h://127.0.0.1:9050",
+			ExpectedError: "'transports' and 'proxy' cannot both be set: 'proxy' is the single-entry form of 'transports', so list it as the first entry instead",
+		}, {
+			Name:          "direct must be last",
+			Transports:    []string{"direct", "socks5h://127.0.0.1:9050"},
+			ExpectedError: `transports[0]: "direct" must be the last entry — entries after it (transports[1] = "socks5h://127.0.0.1:9050") can never be reached`,
+		}, {
+			Name:          "unknown entry is an error, never a skip",
+			Transports:    []string{"socks5h://127.0.0.1:9050", "tor"},
+			ExpectedError: `transports[1]: unknown transport "tor": expected "direct" or a proxy URL (socks5h://, socks://, socks5://, http://)`,
+		}, {
+			// Over Tor the server is reached as ws:// with no TLS, so the SSH
+			// host-key pin is the only authentication of the server. The address
+			// is quoted in its normalized form because parseServerURL runs
+			// first — which is also the form the dial path sees.
+			Name:          "onion server without a pin is refused",
+			Transports:    []string{"socks5h://127.0.0.1:9050"},
+			Server:        "examplenotarealonionaddress.onion:80",
+			ExpectedError: `server "ws://examplenotarealonionaddress.onion:80" is a .onion address and 'transports' is set, but no 'fingerprint' is pinned: a .onion endpoint is reached over ws:// with no TLS, so the host-key pin is the only authentication of the server`,
+		}, {
+			Name:        "onion server with a pin is accepted",
+			Transports:  []string{"socks5h://127.0.0.1:9050"},
+			Server:      "examplenotarealonionaddress.onion:80",
+			Fingerprint: "SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU",
+		}, {
+			// The external-IP lookup builds its own HTTP transport and cannot
+			// traverse the chain, so leaving it enabled would publish the real
+			// address of a host whose control connection is proxied.
+			Name:          "ip_api_url is refused alongside a chain",
+			Transports:    []string{"socks5h://127.0.0.1:9050"},
+			IPAPIURL:      "https://ifconfig.me/ip",
+			ExpectedError: "'ip_api_url' cannot be used with 'transports': the external-IP lookup builds its own connection, does not go through the transport chain, and would reveal this host's real address — unset 'ip_api_url'",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.Name, func(t *testing.T) {
+			config := getDefaultValidMinConfig()
+			config.Client.Transports = tc.Transports
+			config.Client.Proxy = tc.Proxy
+			config.Client.Fingerprint = tc.Fingerprint
+			config.Client.IPAPIURL = tc.IPAPIURL
+			if tc.Server != "" {
+				config.Client.Server = tc.Server
+			}
+
+			err := config.ParseAndValidate(true)
+
+			if tc.ExpectedError == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Equal(t, tc.ExpectedError, err.Error())
+		})
+	}
+}
