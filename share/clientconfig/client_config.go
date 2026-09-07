@@ -26,33 +26,44 @@ type Config struct {
 }
 
 type ClientConfig struct {
-	AttributesFilePath       string            `json:"-" mapstructure:"attributes_file_path"`
-	Server                   string            `json:"server" mapstructure:"server"`
-	FallbackServers          []string          `json:"fallback_servers" mapstructure:"fallback_servers"`
-	ServerSwitchbackInterval time.Duration     `json:"server_switchback_interval" mapstructure:"server_switchback_interval"`
-	Fingerprint              string            `json:"fingerprint" mapstructure:"fingerprint"`
-	RequireFingerprint       bool              `json:"require_fingerprint" mapstructure:"require_fingerprint"`
-	Auth                     string            `json:"auth" mapstructure:"auth"`
-	Proxy                    string            `json:"proxy" mapstructure:"proxy"`
-	ID                       string            `json:"id" mapstructure:"id"`
-	UseSystemID              bool              `json:"use_system_id" mapstructure:"use_system_id"`
-	Name                     string            `json:"name" mapstructure:"name"`
-	UseHostname              bool              `json:"use_hostname" mapstructure:"use_hostname"`
-	Tags                     []string          `json:"tags" mapstructure:"tags"`
-	Labels                   map[string]string `json:"labels" mapstructure:"labels"`
-	Remotes                  []string          `json:"remotes" mapstructure:"remotes"`
-	TunnelAllowed            []string          `json:"tunnel_allowed" mapstructure:"tunnel_allowed"`
-	AllowRoot                bool              `json:"allow_root" mapstructure:"allow_root"`
-	UpdatesInterval          time.Duration     `json:"updates_interval" mapstructure:"updates_interval"`
-	DataDir                  string            `json:"data_dir" mapstructure:"data_dir"`
-	BindInterface            string            `json:"bind_interface" mapstructure:"bind_interface"`
-	IPAPIURL                 string            `json:"ip_api_url" mapstructure:"ip_api_url"`
-	IPRefreshMin             time.Duration     `json:"ip_refresh_min" mapstructure:"ip_refresh_min"`
+	AttributesFilePath       string        `json:"-" mapstructure:"attributes_file_path"`
+	Server                   string        `json:"server" mapstructure:"server"`
+	FallbackServers          []string      `json:"fallback_servers" mapstructure:"fallback_servers"`
+	ServerSwitchbackInterval time.Duration `json:"server_switchback_interval" mapstructure:"server_switchback_interval"`
+	Fingerprint              string        `json:"fingerprint" mapstructure:"fingerprint"`
+	RequireFingerprint       bool          `json:"require_fingerprint" mapstructure:"require_fingerprint"`
+	// Auth and Proxy are json:"-" because this whole struct is shipped to the
+	// server in the connection request and then persisted and re-served by the
+	// REST API. Auth is the agent's own "<client-auth-id>:<password>"
+	// credential and Proxy may carry proxy credentials in its userinfo; the
+	// server needs neither, and publishing them to every API user would let a
+	// reader authenticate as the agent. See AuthUser/AuthPass/ProxyURL below,
+	// which are derived from these two and excluded for the same reason.
+	Auth            string            `json:"-" mapstructure:"auth"`
+	Proxy           string            `json:"-" mapstructure:"proxy"`
+	ID              string            `json:"id" mapstructure:"id"`
+	UseSystemID     bool              `json:"use_system_id" mapstructure:"use_system_id"`
+	Name            string            `json:"name" mapstructure:"name"`
+	UseHostname     bool              `json:"use_hostname" mapstructure:"use_hostname"`
+	Tags            []string          `json:"tags" mapstructure:"tags"`
+	Labels          map[string]string `json:"labels" mapstructure:"labels"`
+	Remotes         []string          `json:"remotes" mapstructure:"remotes"`
+	TunnelAllowed   []string          `json:"tunnel_allowed" mapstructure:"tunnel_allowed"`
+	AllowRoot       bool              `json:"allow_root" mapstructure:"allow_root"`
+	UpdatesInterval time.Duration     `json:"updates_interval" mapstructure:"updates_interval"`
+	DataDir         string            `json:"data_dir" mapstructure:"data_dir"`
+	BindInterface   string            `json:"bind_interface" mapstructure:"bind_interface"`
+	IPAPIURL        string            `json:"ip_api_url" mapstructure:"ip_api_url"`
+	IPRefreshMin    time.Duration     `json:"ip_refresh_min" mapstructure:"ip_refresh_min"`
 
-	ProxyURL *url.URL         `json:"proxy_url"`
-	Tunnels  []*models.Remote `json:"tunnels"`
-	AuthUser string           `json:"auth_user"`
-	AuthPass string           `json:"auth_pass"`
+	Tunnels []*models.Remote `json:"tunnels"`
+
+	// Derived from Auth and Proxy above, and excluded from JSON for the same
+	// reason: AuthPass is the agent's connection password in clear text, and
+	// ProxyURL carries any proxy credential.
+	ProxyURL *url.URL `json:"-"`
+	AuthUser string   `json:"-"`
+	AuthPass string   `json:"-"`
 }
 
 type TunnelsConfig struct {

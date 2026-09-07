@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -280,4 +281,110 @@ func convertClientList(list []*clientSqlite, l *logger.Logger) []*clientdata.Cli
 		res = append(res, cur.convert(l))
 	}
 	return res
+}
+
+// credentialFields are the client-configuration keys that carry an agent's own
+// credentials. Servers before this change persisted them verbatim, so a
+// clients.db written by one still holds them even though the current code no
+// longer reads or serves them.
+var credentialFields = []string{"auth", "auth_user", "auth_pass", "proxy", "proxy_url"}
+
+// scrubClientDetails removes the credential keys from one stored details blob,
+// reporting whether anything was removed.
+//
+// The blob is decoded into a generic map rather than clientDetails so that keys
+// this version does not know about survive the round trip, and with UseNumber
+// so that integers — byte counts, durations in nanoseconds — are re-encoded
+// exactly as they were stored rather than through float64.
+func scrubClientDetails(raw string) (cleaned string, changed bool, err error) {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
+
+	var details map[string]any
+	if err := dec.Decode(&details); err != nil {
+		return "", false, err
+	}
+
+	cfg, ok := details["client_configuration"].(map[string]any)
+	if !ok {
+		return "", false, nil
+	}
+	clientCfg, ok := cfg["client"].(map[string]any)
+	if !ok {
+		return "", false, nil
+	}
+
+	for _, field := range credentialFields {
+		if _, present := clientCfg[field]; present {
+			delete(clientCfg, field)
+			changed = true
+		}
+	}
+	if !changed {
+		return "", false, nil
+	}
+
+	out, err := json.Marshal(details)
+	if err != nil {
+		return "", false, err
+	}
+	return string(out), true, nil
+}
+
+// ScrubStoredCredentials deletes agent connection credentials that older
+// servers stored in the clients table.
+//
+// The agent ships its whole configuration in the connection request and the
+// server persists it. Until this change that configuration included the
+// agent's own "<client-auth-id>:<password>" credential and any proxy
+// credential, so every row written by an older server still carries them —
+// and so does every backup of that file. The current struct tags stop them
+// being loaded or served, but the values remain on disk until each agent
+// reconnects and overwrites its row, which a disconnected agent never does.
+//
+// Rows are collected before any is written so the read is not interleaved with
+// writes on the same database.
+func (p *SqliteProvider) ScrubStoredCredentials(ctx context.Context, l *logger.Logger) (scrubbed int, err error) {
+	type pendingRow struct {
+		id      string
+		details string
+	}
+	var pending []pendingRow
+
+	rows, err := p.db.QueryContext(ctx, "SELECT id, details FROM clients")
+	if err != nil {
+		return 0, err
+	}
+	for rows.Next() {
+		var id, details string
+		if err := rows.Scan(&id, &details); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		cleaned, changed, err := scrubClientDetails(details)
+		if err != nil {
+			// A record this malformed cannot be loaded or served either, so
+			// leaving it alone costs nothing; say so rather than fail the boot.
+			l.Errorf("could not scrub stored credentials for client %q: %v", id, err)
+			continue
+		}
+		if changed {
+			pending = append(pending, pendingRow{id: id, details: cleaned})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	for _, row := range pending {
+		if _, err := p.db.ExecContext(ctx, "UPDATE clients SET details = ? WHERE id = ?", row.details, row.id); err != nil {
+			return scrubbed, err
+		}
+		scrubbed++
+	}
+	return scrubbed, nil
 }

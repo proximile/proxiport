@@ -65,6 +65,19 @@ func InitClientRepository(
 	logger *logger.Logger,
 ) (*ClientRepository, error) {
 	provider := newSqliteProvider(db, keepDisconnectedClients)
+
+	// Records written by servers that stored the agent's configuration
+	// unredacted still hold the agent's connection credential. The struct tags
+	// stop it being loaded or served, but only rewriting the rows takes it off
+	// disk. A failure here leaves stale values in the file without exposing
+	// them, so report it and carry on rather than refuse to start.
+	scrubbed, err := provider.ScrubStoredCredentials(ctx, logger)
+	if err != nil {
+		logger.Errorf("failed to remove stored client credentials: %v", err)
+	} else if scrubbed > 0 {
+		logger.Infof("removed stored credentials from %d client record(s)", scrubbed)
+	}
+
 	initialClients, err := LoadInitialClients(ctx, provider, logger)
 	if err != nil {
 		return nil, err

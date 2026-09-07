@@ -1,2 +1,5 @@
 type: object
-description: JSON encoded information about client configuration
+description: >-
+  JSON encoded information about client configuration. Credential fields are
+  excluded: the agent's own connection credential and any proxy credential are
+  never sent to the server and are not part of this object.
