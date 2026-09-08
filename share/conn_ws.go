@@ -12,7 +12,19 @@ type wsConn struct {
 	buff []byte
 }
 
+// MaxWebSocketMessageBytes bounds a single frame on the agent transport.
+//
+// gorilla/websocket defaults to no limit, so ReadMessage allocates whatever the
+// peer says the frame is -- and the agent listener reads from an unauthenticated
+// peer, before the SSH handshake. One frame claiming a large size was enough to
+// exhaust the server's memory.
+//
+// Every message here is one SSH packet, and x/crypto/ssh caps those well below
+// this, so the limit is generous for anything legitimate.
+const MaxWebSocketMessageBytes = 1 << 20
+
 func NewWebSocketConn(websocketConn *websocket.Conn) net.Conn {
+	websocketConn.SetReadLimit(MaxWebSocketMessageBytes)
 	c := wsConn{
 		Conn: websocketConn,
 	}
@@ -28,7 +40,7 @@ func (c *wsConn) Read(dst []byte) (int, error) {
 	if len(c.buff) > 0 {
 		src = c.buff
 		c.buff = nil
-	} else if _, msg, err := c.Conn.ReadMessage(); err == nil {
+	} else if _, msg, err := c.ReadMessage(); err == nil {
 		src = msg
 	} else {
 		return 0, err
@@ -52,7 +64,7 @@ func (c *wsConn) Read(dst []byte) (int, error) {
 }
 
 func (c *wsConn) Write(b []byte) (int, error) {
-	if err := c.Conn.WriteMessage(websocket.BinaryMessage, b); err != nil {
+	if err := c.WriteMessage(websocket.BinaryMessage, b); err != nil {
 		return 0, err
 	}
 	n := len(b)
@@ -60,8 +72,8 @@ func (c *wsConn) Write(b []byte) (int, error) {
 }
 
 func (c *wsConn) SetDeadline(t time.Time) error {
-	if err := c.Conn.SetReadDeadline(t); err != nil {
+	if err := c.SetReadDeadline(t); err != nil {
 		return err
 	}
-	return c.Conn.SetWriteDeadline(t)
+	return c.SetWriteDeadline(t)
 }

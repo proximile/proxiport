@@ -315,6 +315,18 @@ func (cl *ClientListener) handleClient(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte{})
 }
 
+const (
+	// sshHandshakeTimeout bounds one SSH handshake, which holds a slot in the
+	// concurrency pool for its whole duration.
+	sshHandshakeTimeout = 15 * time.Second
+
+	// sshHandshakeQueueWait is how long a new connection waits for a slot
+	// before being refused. Long enough for a fleet reconnecting after a
+	// restart to queue through, short enough that waiting goroutines cannot
+	// pile up without bound.
+	sshHandshakeQueueWait = 10 * time.Second
+)
+
 func (cl *ClientListener) nextClientIndex() int32 {
 	return atomic.AddInt32(&cl.clientIndexAutoIncrement, 1)
 }
@@ -322,13 +334,20 @@ func (cl *ClientListener) nextClientIndex() int32 {
 func (cl *ClientListener) acceptSSHConnection(w http.ResponseWriter, req *http.Request) (sshConn *ssh.ServerConn, chans <-chan ssh.NewChannel, reqs <-chan *ssh.Request,
 	clog *logger.DynamicLogger, err error) {
 
-	// throttle concurrent connections
-	// add to pending connections. will block if the chan is full
-	cl.inprogressSSHHandshakes <- struct{}{}
-	defer func() {
-		// on handshake finished, remove from pending connections, which will allow another connection to take place
-		<-cl.inprogressSSHHandshakes
-	}()
+	// Throttle concurrent handshakes. A saturated pool is refused rather than
+	// queued: an unbounded queue of waiting goroutines is the resource the
+	// throttle exists to protect.
+	select {
+	case cl.inprogressSSHHandshakes <- struct{}{}:
+		defer func() {
+			// on handshake finished, remove from pending connections, which will allow another connection to take place
+			<-cl.inprogressSSHHandshakes
+		}()
+	case <-time.After(sshHandshakeQueueWait):
+		cl.log().Errorf("refusing an agent connection from %s: too many handshakes already in progress", req.RemoteAddr)
+		http.Error(w, "too many connections in progress", http.StatusServiceUnavailable)
+		return nil, nil, nil, nil, errors.New("ssh handshake pool is saturated")
+	}
 
 	clog = logger.ForkToDynamicLogger(cl.log(), fmt.Sprintf("client#%d", cl.nextClientIndex()), true, false)
 	clog.SetControl(ClientRequestsLog, ClientRequestsLogEnabled)
@@ -343,6 +362,19 @@ func (cl *ClientListener) acceptSSHConnection(w http.ResponseWriter, req *http.R
 		return nil, nil, nil, nil, err
 	}
 	conn := chshare.NewWebSocketConn(wsConn)
+
+	// Bound the handshake. ssh.NewServerConn blocks reading the peer's version
+	// banner, and nothing else ever set a deadline here -- so a peer that
+	// completed the WebSocket upgrade and then sent nothing held a slot in the
+	// pool above forever, silently, for the cost of one idle socket. With the
+	// pool sized from GOMAXPROCS that is a handful of sockets to lock the whole
+	// fleet out of reconnecting.
+	if deadlineErr := conn.SetDeadline(time.Now().Add(sshHandshakeTimeout)); deadlineErr != nil {
+		clog.Debugf("Failed to set handshake deadline (%s)", deadlineErr)
+		_ = conn.Close()
+		return nil, nil, nil, nil, deadlineErr
+	}
+
 	// perform SSH handshake on net.Conn
 	clog.Debugf("SSH Handshaking...")
 	sshConn, chans, reqs, err = ssh.NewServerConn(conn, cl.sshConfig)
@@ -353,6 +385,11 @@ func (cl *ClientListener) acceptSSHConnection(w http.ResponseWriter, req *http.R
 			clog.Debugf("Failed to handshake (%s) from %s", err, conn.RemoteAddr().String())
 		}
 		return nil, nil, nil, nil, err
+	}
+	// The connection is long-lived from here; an agent may be idle for as long
+	// as its keepalive allows.
+	if deadlineErr := conn.SetDeadline(time.Time{}); deadlineErr != nil {
+		clog.Debugf("Failed to clear handshake deadline (%s)", deadlineErr)
 	}
 	clog.Debugf("SSH Handshake finished after %s", time.Since(ts))
 
