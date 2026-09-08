@@ -68,9 +68,12 @@ var secretKeyAllowList = map[string]bool{
 
 	// clientsauth.ClientAuth is the credential store's own type, and it is the
 	// POST request body as well as the GET response, so the field has to exist.
-	// Both read handlers clear it before writing the response, which is what
-	// TestClientAuthResponsesOmitPassword holds them to. Publishing the stored
-	// value would hand out bcrypt hashes to crack offline.
+	// The read handlers build a separate payload type holding only the id --
+	// they must not clear this one, because two providers hand back a pointer
+	// into their own state and clearing it destroyed the stored credential.
+	// TestGetClientsAuthDoesNotDestroyTheCredential and
+	// TestSingleProviderHandsOutCopies hold that line; publishing the value
+	// would hand out bcrypt hashes to crack offline.
 	"password": true,
 
 	// A client group's match parameters address credentials by id, not by
