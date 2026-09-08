@@ -9,6 +9,7 @@ import (
 
 	"github.com/proximile/proxiport/server/clients"
 	"github.com/proximile/proxiport/server/clients/clienttunnel"
+	"github.com/proximile/proxiport/server/clientsauth"
 	chshare "github.com/proximile/proxiport/share"
 	"github.com/proximile/proxiport/share/clientconfig"
 	"github.com/proximile/proxiport/share/test/jsonsurface"
@@ -59,9 +60,30 @@ var secretKeyAllowList = map[string]bool{
 
 	// The tunnel model itself must keep the password: the HTTP proxy reads it to
 	// check incoming requests, and an empty one makes that check pass entirely.
-	// Redaction belongs at the payload boundary, not here.
+	// Redaction belongs at the payload boundary, not here. The same two keys
+	// cover TunnelPayload, where convertToTunnelPayload clears the value --
+	// asserted by TestConvertToTunnelPayloadRedactsPassword.
 	"auth_password": true,
 	"auth_user":     true,
+
+	// clientsauth.ClientAuth is the credential store's own type, and it is the
+	// POST request body as well as the GET response, so the field has to exist.
+	// Both read handlers clear it before writing the response, which is what
+	// TestClientAuthResponsesOmitPassword holds them to. Publishing the stored
+	// value would hand out bcrypt hashes to crack offline.
+	"password": true,
+
+	// A client group's match parameters address credentials by id, not by
+	// secret. Same reasoning as client_auth_id above.
+	"params.client_auth_id": true,
+
+	// The login response's own token, issued to the caller who just
+	// authenticated. Returning it is the point of the route.
+	"token": true,
+
+	// A boolean, matched by the name check because it contains "password".
+	// Whether a user must change their password is not itself a secret.
+	"password_expired": true,
 }
 
 // assertSurface compares a boundary's published keys against its decision
@@ -387,6 +409,125 @@ func TestBoundarySurfacesAreFrozen(t *testing.T) {
 		})
 	})
 
+	t.Run("tunnel listing served by the API", func(t *testing.T) {
+		// GET /tunnels serves every tunnel the caller can see, gated on the
+		// tunnels permission rather than on admin.
+		assertSurface(t, "server -> any user with the tunnels permission", reflect.TypeOf(TunnelPayload{}), []string{
+			"acl",
+			"auth_password",
+			"auth_user",
+			"auto_close",
+			"client_id",
+			"created_at",
+			"host_header",
+			"http_proxy",
+			"id",
+			"idle_timeout_minutes",
+			"lhost",
+			"lport",
+			"lport_random",
+			"name",
+			"owner",
+			"protocol",
+			"rhost",
+			"rport",
+			"scheme",
+			"skip_tls_verify",
+			"tunnel_url",
+		})
+	})
+
+	t.Run("agent credential record", func(t *testing.T) {
+		assertSurface(t, "server -> admin API user", reflect.TypeOf(clientsauth.ClientAuth{}), []string{
+			"id",
+			"password",
+		})
+	})
+
+	t.Run("user record served by the API", func(t *testing.T) {
+		assertSurface(t, "server -> API user", reflect.TypeOf(UserPayload{}), []string{
+			"effective_extended_permissions.commands_restricted.*",
+			"effective_extended_permissions.tunnels_restricted.*",
+			"effective_user_permissions.*",
+			"group_permissions_enabled",
+			"groups",
+			"password_expired",
+			"two_fa_send_to",
+			"username",
+		})
+	})
+
+	t.Run("client group served by the API", func(t *testing.T) {
+		assertSurface(t, "server -> API user", reflect.TypeOf(ClientGroupPayload{}), []string{
+			"allowed_user_groups",
+			"client_ids",
+			"description",
+			"id",
+			"num_clients",
+			"num_clients_connected",
+			"params.address",
+			"params.client_auth_id",
+			"params.client_id",
+			"params.connection_state",
+			"params.hostname",
+			"params.ipv4",
+			"params.ipv6",
+			"params.name",
+			"params.os",
+			"params.os_arch",
+			"params.os_family",
+			"params.os_kernel",
+			"params.tag",
+			"params.version",
+		})
+	})
+
+	t.Run("command job served by the API", func(t *testing.T) {
+		// Command output is attacker-influenced and often carries whatever the
+		// command printed, so this surface is worth watching even though none of
+		// its keys are credential-shaped.
+		assertSurface(t, "server -> user with the commands permission", reflect.TypeOf(jobPayload{}), []string{
+			"client_id",
+			"client_name",
+			"command",
+			"created_by",
+			"cwd",
+			"error",
+			"finished_at",
+			"interpreter",
+			"is_script",
+			"is_sudo",
+			"jid",
+			"multi_job_id",
+			"pid",
+			"result.stderr",
+			"result.stdout",
+			"result.summary",
+			"schedule_id",
+			"started_at",
+			"status",
+			"timeout_sec",
+		})
+	})
+
+	t.Run("login response", func(t *testing.T) {
+		assertSurface(t, "server -> the caller who just authenticated", reflect.TypeOf(loginResponse{}), []string{
+			"token",
+			"two_fa.delivery_method",
+			"two_fa.send_to",
+			"two_fa.totp_key_status",
+		})
+	})
+
+	t.Run("pairing deposit response", func(t *testing.T) {
+		assertSurface(t, "server -> the caller who requested the pairing", reflect.TypeOf(pairingDepositResponse{}), []string{
+			"expires",
+			"installers.linux",
+			"installers.windows",
+			"pairing_code",
+		})
+	})
+
 	t.Run("tunnel model", func(t *testing.T) {
 		// Embedded in the client payload and in the stored client blob.
 		assertSurface(t, "server -> API user, and server -> disk", reflect.TypeOf(clienttunnel.Tunnel{}), []string{
@@ -423,6 +564,13 @@ func TestSecretKeyAllowListIsCurrent(t *testing.T) {
 		jsonsurface.Of(reflect.TypeOf(chshare.ConnectionRequest{})),
 		jsonsurface.Of(reflect.TypeOf(clients.ClientPayload{})),
 		jsonsurface.Of(reflect.TypeOf(clienttunnel.Tunnel{})),
+		jsonsurface.Of(reflect.TypeOf(TunnelPayload{})),
+		jsonsurface.Of(reflect.TypeOf(clientsauth.ClientAuth{})),
+		jsonsurface.Of(reflect.TypeOf(UserPayload{})),
+		jsonsurface.Of(reflect.TypeOf(ClientGroupPayload{})),
+		jsonsurface.Of(reflect.TypeOf(jobPayload{})),
+		jsonsurface.Of(reflect.TypeOf(loginResponse{})),
+		jsonsurface.Of(reflect.TypeOf(pairingDepositResponse{})),
 	}
 
 	for key := range secretKeyAllowList {
