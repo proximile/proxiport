@@ -49,6 +49,15 @@ func ReplySuccessJSON(log *logger.Logger, req *ssh.Request, resp interface{}) {
 // Returns an error on a failure response or if an error happen. Error will be ClientError type if the error is a client error.
 // Both request and response are expected to be JSON.
 func SendRequestAndGetResponse(conn ssh.Conn, reqType string, req, successRespDest interface{}, l *logger.Logger) error {
+	// A Client restored from storage has no Connection -- the field is an
+	// ssh.Conn tagged json:"-" -- and callers reach this from detached
+	// goroutines, where a nil dereference is a crash of the whole process
+	// rather than one failed request. SendRequestWithTimeout has always
+	// guarded this; this one did not.
+	if conn == nil {
+		return errors.New("cannot send request: the client is not connected")
+	}
+
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("failed to encode request %T: %v", req, err)

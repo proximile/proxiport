@@ -294,8 +294,29 @@ func (al *APIListener) sendFileToClient(wg *sync.WaitGroup, file *models.Uploade
 		}
 		return
 	}
+	// The agent fetches the staged file back over SFTP on its own transport.
+	// Entitle it to exactly this path, for exactly as long as this request is
+	// outstanding, and to nothing else.
+	release := al.stagedUploads.Allow(cl.GetID(), file.SourceFilePath)
+	defer release()
+
+	conn := cl.GetConnection()
+	if !cl.IsConnected() || conn == nil {
+		// A disconnected client is reachable here: the target list is built with
+		// GetByID, which filters obsolete clients but not disconnected ones, and
+		// every client is disconnected right after a restart. Sending anyway
+		// dereferenced a nil ssh.Conn in a detached goroutine, which is a
+		// crash of the whole daemon rather than a failed upload.
+		resChan <- &uploadResult{
+			err:    errors3.ErrClientNotConnected,
+			client: cl,
+			resp:   nil,
+		}
+		return
+	}
+
 	resp := &models.UploadResponse{}
-	err := comm.SendRequestAndGetResponse(cl.GetConnection(), comm.RequestTypeUpload, file, resp, al.Log())
+	err := comm.SendRequestAndGetResponse(conn, comm.RequestTypeUpload, file, resp, al.Log())
 
 	resChan <- &uploadResult{
 		err:    err,
@@ -321,7 +342,11 @@ func (al *APIListener) uploadRequestFromRequest(req *http.Request) (ur *UploadRe
 		UploadedFile: &models.UploadedFile{},
 	}
 
-	err = req.ParseMultipartForm(uploadBufSize)
+	// The body is already bounded: the file-push routes are wrapped in
+	// middleware.MaxBytes with [api] max_filepush_size, which replaces req.Body
+	// with an http.MaxBytesReader before this runs. uploadBufSize here is the
+	// in-memory threshold, not the cap.
+	err = req.ParseMultipartForm(uploadBufSize) //nolint:gosec // G120: bounded by middleware.MaxBytes on the route
 	if err != nil {
 		return nil, &errors2.APIError{
 			Err:        err,
@@ -366,13 +391,13 @@ func (al *APIListener) uploadRequestFromRequest(req *http.Request) (ur *UploadRe
 		}
 	}
 
-	if ur.UploadedFile.ID == "" {
+	if ur.ID == "" {
 		id, e := random.UUID4()
 		if e != nil {
 			al.Errorf("failed to generate uuid, will fallback to timestamp uuid, error: %v", e)
 			id = fmt.Sprintf("%d", time.Now().UnixNano())
 		}
-		ur.UploadedFile.ID = id
+		ur.ID = id
 	}
 
 	return ur, nil

@@ -76,6 +76,10 @@ type Server struct {
 	caddyServer         *caddy.Server
 	acme                *acme.Acme
 	monitoringQueue     monitoring.MeasurementSaver
+	// stagedUploads records which staged file each agent has been told to
+	// fetch, so the SFTP endpoint on the agent transport can serve that file
+	// and nothing else.
+	stagedUploads *stagedUploadRegistry
 }
 
 type ServerOpts struct {
@@ -94,6 +98,7 @@ func NewServer(ctx context.Context, config *chconfig.Config, opts *ServerOpts) (
 		jobsDoneChannel: jobResultChanMap{
 			m: make(map[string]chan *models.Job),
 		},
+		stagedUploads: newStagedUploadRegistry(),
 	}
 
 	s.acme = acme.New(s.Logger.Fork("acme"), config.Server.DataDir, config.Server.AcmeHTTPPort)
