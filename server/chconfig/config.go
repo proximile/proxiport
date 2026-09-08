@@ -387,7 +387,46 @@ func (c *Config) AllowedPorts() mapset.Set {
 	return c.Server.allowedPorts
 }
 
+// placeholderSecrets are the values proxiportd.example.conf ships so the
+// packaging scripts have something to substitute. They are published in the
+// repository, so any deployment still carrying one is holding a secret the
+// whole world knows.
+//
+// Only jwt_secret was silently fatal -- the code mints a random one when the
+// setting is empty, and a placeholder is not empty, so "<YOUR_SECRET>" became
+// the HS256 signing key and anyone who could reach the API could mint an admin
+// token. The others are just as public, so all four are refused.
+var placeholderSecrets = []struct {
+	setting string
+	value   string
+	get     func(*Config) string
+}{
+	{"[api] jwt_secret", "<YOUR_SECRET>", func(c *Config) string { return c.API.JWTSecret }},
+	{"[server] key_seed", "<YOUR_SEED>", func(c *Config) string { return c.Server.KeySeed }},
+	{"[server] auth", "clientAuth1:1234", func(c *Config) string { return c.Server.Auth }},
+	{"[api] auth", "admin:foobaz", func(c *Config) string { return c.API.Auth }},
+}
+
+// validateNoPlaceholderSecrets fails the boot rather than starting with a
+// credential that is printed in the example config.
+func (c *Config) validateNoPlaceholderSecrets() error {
+	for _, p := range placeholderSecrets {
+		if p.get(c) == p.value {
+			return fmt.Errorf(
+				"%s is still the placeholder from proxiport.example.conf. That value is published "+
+					"in the project repository, so it is not a secret. Set a real one before starting "+
+					"(the .deb and .rpm postinstall does this automatically; a tarball, container or "+
+					"hand-copied config does not)", p.setting)
+		}
+	}
+	return nil
+}
+
 func (c *Config) ParseAndValidate(mLog *logger.MemLogger) error {
+	if err := c.validateNoPlaceholderSecrets(); err != nil {
+		return err
+	}
+
 	rpl, err := ConfigReplaceDeprecated(&c.Server)
 	for old, new := range rpl {
 		mLog.Infof("server setting '%s' is deprecated and will be removed soon. Use '%s' instead.", old, new)

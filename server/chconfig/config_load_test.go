@@ -28,4 +28,3 @@ func TestLoadingExampleConf(t *testing.T) {
 	assert.Equal(t, "clientAuth1:1234", cfg.Server.Auth)
 	assert.Equal(t, "/var/lib/proxiport", cfg.Server.DataDir)
 }
-
