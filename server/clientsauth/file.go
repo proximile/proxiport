@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"sort"
 	"time"
@@ -74,9 +73,13 @@ func (c *FileProvider) GetFiltered(filter *query.ListOptions) ([]*ClientAuth, in
 	return ca[start:end], l, nil
 }
 
+// Get returns a copy. The cached entry lives for an hour, so a caller that
+// wrote to the object it received would corrupt every agent authentication for
+// that id until the entry expired.
 func (c *FileProvider) Get(id string) (*ClientAuth, error) {
 	if val, _ := c.cache.Get(c.CacheKey(id)); val != nil {
-		return val.(*ClientAuth), nil
+		credential := *val.(*ClientAuth)
+		return &credential, nil
 	}
 	idPswdPairs, err := c.load()
 	if err != nil {
@@ -87,12 +90,16 @@ func (c *FileProvider) Get(id string) (*ClientAuth, error) {
 		if err := c.cache.Add(c.CacheKey(id), ca, 60*time.Minute); err != nil {
 			return nil, err
 		}
-		return ca, nil
+		credential := *ca
+		return &credential, nil
 	}
 	return nil, nil
 }
 
 func (c *FileProvider) Add(clientAuth *ClientAuth) (bool, error) {
+	if err := validateStorableCredential(clientAuth); err != nil {
+		return false, err
+	}
 	idPswdPairs, err := c.load()
 	if err != nil {
 		return false, fmt.Errorf("failed to decode proxiport clients auth file: %v", err)
@@ -114,6 +121,9 @@ func (c *FileProvider) Add(clientAuth *ClientAuth) (bool, error) {
 }
 
 func (c *FileProvider) Update(clientAuth *ClientAuth) error {
+	if err := validateStorableCredential(clientAuth); err != nil {
+		return err
+	}
 	idPswdPairs, err := c.load()
 	if err != nil {
 		return fmt.Errorf("failed to decode proxiport clients auth file: %v", err)
@@ -154,7 +164,7 @@ func (c *FileProvider) IsWriteable() bool {
 }
 
 func (c *FileProvider) load() (map[string]string, error) {
-	b, err := ioutil.ReadFile(c.fileName)
+	b, err := os.ReadFile(c.fileName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read proxiport clients auth file %q: %s", c.fileName, err)
 	}

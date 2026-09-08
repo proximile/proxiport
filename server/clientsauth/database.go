@@ -57,6 +57,9 @@ func (c *DatabaseProvider) Get(id string) (*ClientAuth, error) {
 }
 
 func (c *DatabaseProvider) Add(client *ClientAuth) (bool, error) {
+	if err := validateStorableCredential(client); err != nil {
+		return false, err
+	}
 	_, err := c.db.NamedExec(fmt.Sprintf("INSERT INTO %s (id, password) VALUES (:id, :password)", c.tableName), client)
 	if err != nil {
 		// Check for client already exists error
@@ -76,6 +79,9 @@ func (c *DatabaseProvider) Add(client *ClientAuth) (bool, error) {
 }
 
 func (c *DatabaseProvider) Update(client *ClientAuth) error {
+	if err := validateStorableCredential(client); err != nil {
+		return err
+	}
 	_, err := c.db.NamedExec(fmt.Sprintf("UPDATE %s SET password = :password WHERE id = :id", c.tableName), client)
 	return err
 }

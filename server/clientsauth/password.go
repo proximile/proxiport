@@ -2,6 +2,7 @@ package clientsauth
 
 import (
 	"crypto/subtle"
+	"errors"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -35,6 +36,13 @@ func IsHashed(stored string) bool {
 // pre-hashed credential (in a config or auth file) and it passes through
 // untouched.
 func HashPassword(password string) (string, error) {
+	// Refuse to mint a hash of nothing. The at-rest upgrade path takes whatever
+	// the provider holds and writes the hash back, so hashing an empty value
+	// would replace a real credential on disk with bcrypt("") -- which then
+	// authenticates any agent sending an empty password.
+	if password == "" {
+		return "", errors.New("refusing to hash an empty credential")
+	}
 	if IsHashed(password) {
 		return password, nil
 	}
@@ -50,6 +58,16 @@ func HashPassword(password string) (string, error) {
 // compared in constant time. Callers upgrade a matched plaintext credential to
 // a hash (see IsHashed / HashPassword) so the plaintext is replaced at rest.
 func VerifyPassword(stored string, provided []byte) bool {
+	// Fail closed on an empty credential on either side. A stored value can go
+	// empty through a bug rather than through configuration -- it did, when the
+	// API handlers redacted a response by writing to the provider's own object
+	// -- and the plaintext branch below is a constant-time compare, which
+	// answers true for two empty strings. That turns a corrupted credential
+	// into an authentication bypass: golang.org/x/crypto/ssh passes a
+	// zero-length password straight through to the callback.
+	if stored == "" || len(provided) == 0 {
+		return false
+	}
 	if IsHashed(stored) {
 		return bcrypt.CompareHashAndPassword([]byte(stored), provided) == nil
 	}

@@ -167,6 +167,19 @@ func (cl *ClientListener) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Pe
 	}
 
 	ip := cl.getIP(c.RemoteAddr())
+
+	// No agent authenticates with an empty password, and the SSH server hands
+	// a zero-length one straight to this callback. Refusing it here means a
+	// stored credential that has somehow gone empty cannot be matched by
+	// sending nothing.
+	if len(password) == 0 {
+		cl.log().Infof("Login failed for client auth id %q from %s: empty password", clientAuthID, ip)
+		cl.bannedClientAuths.Add(clientAuthID)
+		if cl.bannedIPs != nil {
+			cl.bannedIPs.AddDistinctBadAttempt(ip, credentialFingerprint(clientAuthID, password))
+		}
+		return nil, fmt.Errorf("invalid authentication for client auth id: %s", clientAuthID)
+	}
 	// VerifyPassword bcrypt-compares a hashed credential and constant-time
 	// compares a legacy plaintext one.
 	if clientAuth == nil || !clientsauth.VerifyPassword(clientAuth.Password, password) {
@@ -216,7 +229,7 @@ func credentialFingerprint(clientAuthID string, password []byte) string {
 // backing provider is writeable. It is best-effort: any failure is logged and
 // the (already successful) authentication is unaffected.
 func (cl *ClientListener) maybeUpgradeClientAuthHash(id string, ca *clientsauth.ClientAuth) {
-	if ca == nil || clientsauth.IsHashed(ca.Password) || !cl.server.clientAuthProvider.IsWriteable() {
+	if ca == nil || ca.Password == "" || clientsauth.IsHashed(ca.Password) || !cl.server.clientAuthProvider.IsWriteable() {
 		return
 	}
 	hashed, err := clientsauth.HashPassword(ca.Password)
