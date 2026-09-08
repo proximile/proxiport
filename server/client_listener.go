@@ -639,7 +639,7 @@ func (cl *ClientListener) handleSSHRequests(clientLog *logger.DynamicLogger, cli
 				ts = time.Now().UTC()
 			}
 
-			job, err := cl.saveCmdResult(r.Payload)
+			job, err := cl.saveCmdResult(r.Payload, clientID)
 			if err != nil {
 				clientLog.Errorf("Failed to save cmd result: %s", err)
 				continue
@@ -738,24 +738,56 @@ func (cl *ClientListener) handleSSHRequests(clientLog *logger.DynamicLogger, cli
 	clientLog.Debugf("Client listener for %s stopped", clientID)
 }
 
-func (cl *ClientListener) saveCmdResult(respBytes []byte) (*models.Job, error) {
-	resp := models.Job{}
-	err := json.Unmarshal(respBytes, &resp)
+// saveCmdResult records a command result reported by an agent.
+//
+// Everything in respBytes came from the agent, the job id included, and the row
+// was previously written with INSERT OR REPLACE keyed on that id -- so an agent
+// could name any job at all. That let a compromised agent overwrite another
+// client's job row, push fabricated stdout into another operator's live UI by
+// naming their job, and advance or abort another operator's multi-job run.
+//
+// The connection's authenticated client id is the fact here. The server creates
+// a job row before dispatching it, and GetByJID filters on client id as well as
+// job id, so a result that names a job this client was not given finds nothing
+// and is refused. What the agent is genuinely the source of -- status, exit
+// details, timing, output -- is taken from the report; everything that
+// identifies or authorizes the job is taken from the row the server wrote.
+func (cl *ClientListener) saveCmdResult(respBytes []byte, clientID string) (*models.Job, error) {
+	reported := models.Job{}
+	err := json.Unmarshal(respBytes, &reported)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode cmd result request: %s", err)
 	}
 
-	var wsJID string
+	dispatched, err := cl.server.jobProvider.GetByJID(clientID, reported.JID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up job %q for client %q: %s", reported.JID, clientID, err)
+	}
+	if dispatched == nil {
+		return nil, fmt.Errorf("client %q reported a result for job %q, which it was not given", clientID, reported.JID)
+	}
+
+	resp := *dispatched
+	resp.Status = reported.Status
+	resp.FinishedAt = reported.FinishedAt
+	resp.Error = reported.Error
+	resp.Result = reported.Result
+	resp.PID = reported.PID
+	resp.StreamResult = reported.StreamResult
+
+	// Route to the UI by the job the server dispatched, not by the id the agent
+	// claimed, and send the reconciled job rather than the agent's bytes.
+	wsJID := resp.JID
 	if resp.MultiJobID != nil {
 		wsJID = *resp.MultiJobID
-	} else {
-		wsJID = resp.JID
 	}
 	ws := cl.server.uiJobWebSockets.Get(wsJID)
 	if ws != nil {
-		err := ws.WriteMessage(websocket.TextMessage, respBytes)
-		if err != nil {
-			cl.log().Errorf("%s, failed to write message to UI Web Socket: %v", resp.LogPrefix(), err)
+		reconciled, marshalErr := json.Marshal(&resp)
+		if marshalErr != nil {
+			cl.log().Errorf("%s, failed to encode command result for the UI Web Socket: %v", resp.LogPrefix(), marshalErr)
+		} else if writeErr := ws.WriteMessage(websocket.TextMessage, reconciled); writeErr != nil {
+			cl.log().Errorf("%s, failed to write message to UI Web Socket: %v", resp.LogPrefix(), writeErr)
 			// proceed further
 		}
 	} else {
