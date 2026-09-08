@@ -38,6 +38,20 @@ type UploadedFile struct {
 	Md5Checksum          []byte
 }
 
+// MaxPushedFileMode is the highest mode a pushed file may be given: permission
+// bits only.
+//
+// The mode travels from the API caller, through the server, to the agent, which
+// applies it -- usually as root. Anything above 0777 is the setuid, setgid or
+// sticky bit, and a setuid binary written by a file push is a root shell on the
+// managed host for whoever can run it. That is a larger grant than pushing a
+// file, and it must not be reachable either by an API user who holds only the
+// uploads permission or by a server the operator does not fully trust.
+const MaxPushedFileMode = os.FileMode(0o777)
+
+// Validate is the chokepoint both directions pass through: the server calls it
+// on the incoming request, and the agent calls it again on what arrives over
+// the transport.
 func (uf UploadedFile) Validate() error {
 	if uf.SourceFilePath == "" {
 		return errors.New("empty source file name")
@@ -45,6 +59,12 @@ func (uf UploadedFile) Validate() error {
 
 	if uf.DestinationPath == "" {
 		return errors.New("empty destination file path")
+	}
+
+	if uf.DestinationFileMode&^MaxPushedFileMode != 0 {
+		return fmt.Errorf(
+			"file mode %#o is not allowed on a pushed file: only permission bits up to %#o may be set",
+			uf.DestinationFileMode, MaxPushedFileMode)
 	}
 
 	return nil

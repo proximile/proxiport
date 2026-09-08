@@ -76,3 +76,31 @@ func TestValidateDestinationPathSubtreeMatchesWholeElements(t *testing.T) {
 	sibling := UploadedFile{DestinationPath: "/etc/cron.daily-reports/summary.txt"}
 	assert.NoError(t, sibling.ValidateDestinationPath([]string{"/etc/cron.d/**"}, protectedTestLog))
 }
+
+// The mode travels from the API caller through the server to the agent, which
+// applies it as root. Anything above 0777 is setuid, setgid or sticky, and a
+// setuid binary written by a file push is a root shell for whoever can run it.
+// Validate is the chokepoint both sides pass through: the server on the
+// incoming request, the agent again on what arrives over the transport.
+func TestUploadedFileValidateRejectsSetuidModes(t *testing.T) {
+	for _, mode := range []os.FileMode{0o4755, 0o2755, 0o1777, 0o6755} {
+		uf := UploadedFile{
+			SourceFilePath:      "/var/lib/proxiport/filepush/abc",
+			DestinationPath:     "/opt/app/bin/tool",
+			DestinationFileMode: mode,
+		}
+		err := uf.Validate()
+		require.Error(t, err, "mode %#o must be refused", mode)
+		assert.Contains(t, err.Error(), "only permission bits")
+	}
+
+	// Ordinary modes, and an unset one, still work.
+	for _, mode := range []os.FileMode{0, 0o644, 0o600, 0o755} {
+		uf := UploadedFile{
+			SourceFilePath:      "/var/lib/proxiport/filepush/abc",
+			DestinationPath:     "/opt/app/config.yaml",
+			DestinationFileMode: mode,
+		}
+		assert.NoError(t, uf.Validate(), "mode %#o should be allowed", mode)
+	}
+}
