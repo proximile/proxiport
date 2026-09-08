@@ -115,11 +115,19 @@ func (uf *UploadedFile) FromMultipartRequest(req *http.Request) error {
 	}
 
 	if len(req.MultipartForm.Value[uploadedFileModeKey]) > 0 {
-		fileModeInt, err := strconv.ParseInt(req.MultipartForm.Value[uploadedFileModeKey][0], 8, 32)
+		rawMode := req.MultipartForm.Value[uploadedFileModeKey][0]
+		fileModeInt, err := strconv.ParseInt(rawMode, 8, 32)
 		if err != nil {
-			return errors2.Wrapf(err, "failed to parse file mode value %s", req.MultipartForm.Value[uploadedFileModeKey][0])
+			return errors2.Wrapf(err, "failed to parse file mode value %s", rawMode)
 		}
-		uf.DestinationFileMode = os.FileMode(fileModeInt)
+		// A pushed file's mode is a permission, nothing more. Anything above
+		// 0o777 is a setuid, setgid or sticky bit, and the agent applies the
+		// mode as root -- a setuid binary written this way is a root shell for
+		// whoever can run it, which is a bigger grant than the push itself.
+		if fileModeInt < 0 || fileModeInt > 0o777 {
+			return errors2.Errorf("file mode %s is out of range: only permission bits up to 0777 may be set on a pushed file", rawMode)
+		}
+		uf.DestinationFileMode = os.FileMode(uint32(fileModeInt))
 	}
 
 	if len(req.MultipartForm.Value[fileWriteForcedKey]) > 0 {
