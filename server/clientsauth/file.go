@@ -178,7 +178,11 @@ func (c *FileProvider) load() (map[string]string, error) {
 }
 
 func (c *FileProvider) save(idPswdPairs map[string]string) error {
-	file, err := os.OpenFile(c.fileName, os.O_RDWR|os.O_TRUNC, os.ModePerm)
+	// 0600: this file is a list of agent credentials. The mode is only applied
+	// when the file is created, which O_CREATE is deliberately absent from --
+	// but os.ModePerm here said 0777, which is never the right answer for this
+	// file and is the wrong thing for the next reader to copy.
+	file, err := os.OpenFile(c.fileName, os.O_RDWR|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to open proxiport clients auth file: %v", err)
 	}
