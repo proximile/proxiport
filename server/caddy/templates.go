@@ -2,7 +2,6 @@ package caddy
 
 import (
 	"bytes"
-	_ "embed"
 	"text/template"
 )
 
@@ -21,9 +20,6 @@ func ExecuteTemplate(templateName string, t string, params any) (applied []byte,
 
 	return b.Bytes(), nil
 }
-
-//go:embed new_route_request_template.json
-var NewRouteRequestTemplate string
 
 const combinedTemplates = `
 {{- template "GS" .GlobalSettings }}

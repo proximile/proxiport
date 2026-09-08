@@ -2,6 +2,7 @@ package clients
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -393,7 +394,7 @@ func (s *ClientServiceProvider) StartClient(
 	s.UpdateClientStatus()
 
 	if !client.IsPaused() {
-		_, err = s.startClientTunnels(client, req.Remotes, clog)
+		_, err = s.startClientTunnels(client, sanitizeAgentRemotes(req.Remotes), clog)
 
 		if err != nil {
 			return nil, err
@@ -848,6 +849,15 @@ func (s *ClientServiceProvider) startCaddyDownstreamProxy(
 	clientLogger.Debugf("tunnel = %#v", tunnel)
 	clientLogger.Debugf("remote = %#v", remote)
 
+	// SetCaddyAPI is only called when the Caddy integration is enabled
+	// (server.go), but reaching here needs only the internal tunnel proxy plus a
+	// tunnel URL -- and the tunnel URL can arrive in an agent's connection
+	// request. Without this, an agent turns a nil-pointer dereference into a
+	// crash of the whole daemon.
+	if s.caddyAPI == nil {
+		return errors.New("cannot create a downstream proxy: the caddy integration is not enabled")
+	}
+
 	subdomain, basedomain, err := remote.GetTunnelDomains()
 	if err != nil {
 		return err
@@ -1117,6 +1127,10 @@ func (s *ClientServiceProvider) removeCaddyDownstreamProxy(c *clientdata.Client,
 
 	clientLogger.Infof("removing downstream caddy proxy at %s", t.TunnelURL)
 
+	if s.caddyAPI == nil {
+		return errors.New("cannot remove a downstream proxy: the caddy integration is not enabled")
+	}
+
 	subdomain, _, err := t.GetTunnelDomains()
 	if err != nil {
 		return err
@@ -1145,4 +1159,45 @@ func (s *ClientServiceProvider) log() (l *logger.Logger) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.logger
+}
+
+// sanitizeAgentRemotes copies an agent's requested tunnels with the fields an
+// agent has no business setting cleared.
+//
+// The server builds a client from the agent's connection request and starts the
+// tunnels it asks for. models.Remote is also the API's tunnel-creation type, so
+// it carries fields the API sets deliberately after checking the caller's
+// permissions -- and an agent that writes its own connection request rather
+// than using the shipped one can set them too. A compromised agent is inside
+// the threat model.
+//
+// An honest agent never sets any of these: its remotes come from the "remotes"
+// config strings, parsed by models.NewRemote, which only ever fills in hosts,
+// ports and a protocol. So this takes nothing away from a working deployment.
+//
+// TunnelURL is the one that mattered: it decides whether a downstream Caddy
+// route is created at all, and it supplies that route's domain.
+func sanitizeAgentRemotes(remotes []*models.Remote) []*models.Remote {
+	if remotes == nil {
+		return nil
+	}
+
+	sanitized := make([]*models.Remote, 0, len(remotes))
+	for _, remote := range remotes {
+		if remote == nil {
+			continue
+		}
+
+		clean := *remote
+		clean.TunnelURL = ""    // decides whether a Caddy route is built, and its domain
+		clean.HTTPProxy = false // decides whether the internal proxy fronts the tunnel
+		clean.HostHeader = ""   // rewrites the Host of proxied requests
+		clean.SkipTLSVerify = false
+		clean.AuthUser = "" // basic-auth credential for the proxied tunnel
+		clean.AuthPassword = ""
+		clean.Owner = "" // set server-side from the authenticated user
+
+		sanitized = append(sanitized, &clean)
+	}
+	return sanitized
 }

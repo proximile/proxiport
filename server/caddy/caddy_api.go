@@ -31,7 +31,7 @@ type API interface {
 }
 
 func (s *Server) AddRoute(ctx context.Context, nrr *NewRouteRequest) (res *http.Response, err error) {
-	body, err := ExecuteTemplate("NRR", NewRouteRequestTemplate, nrr)
+	body, err := MarshalNewRouteRequest(nrr)
 	if err != nil {
 		return nil, err
 	}
