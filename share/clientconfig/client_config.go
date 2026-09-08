@@ -56,7 +56,12 @@ type ClientConfig struct {
 	IPAPIURL        string            `json:"ip_api_url" mapstructure:"ip_api_url"`
 	IPRefreshMin    time.Duration     `json:"ip_refresh_min" mapstructure:"ip_refresh_min"`
 
-	Tunnels []*models.Remote `json:"tunnels"`
+	// Tunnels is json:"-" for the same reason as Auth and Proxy. The agent
+	// already sends its configured remotes as ConnectionRequest.Remotes, which
+	// is the copy the server actually uses, so this one is pure duplication on
+	// the wire -- and models.Remote carries auth_password, so publishing it a
+	// second time only adds a way for a credential to reach the API.
+	Tunnels []*models.Remote `json:"-"`
 
 	// Derived from Auth and Proxy above, and excluded from JSON for the same
 	// reason: AuthPass is the agent's connection password in clear text, and
@@ -73,15 +78,21 @@ type TunnelsConfig struct {
 }
 
 type ConnectionConfig struct {
-	KeepAlive           time.Duration `json:"keep_alive" mapstructure:"keep_alive"`
-	KeepAliveTimeout    time.Duration `json:"keep_alive_timeout" mapstructure:"keep_alive_timeout"`
-	MaxRetryCount       int           `json:"max_retry_count" mapstructure:"max_retry_count"`
-	MaxRetryInterval    time.Duration `json:"max_retry_interval" mapstructure:"max_retry_interval"`
-	HeadersRaw          []string      `json:"headers" mapstructure:"headers"`
-	Hostname            string        `json:"hostname" mapstructure:"hostname"`
-	WatchdogIntegration bool          `json:"watchdog_integration" mapstructure:"watchdog_integration"`
+	KeepAlive        time.Duration `json:"keep_alive" mapstructure:"keep_alive"`
+	KeepAliveTimeout time.Duration `json:"keep_alive_timeout" mapstructure:"keep_alive_timeout"`
+	MaxRetryCount    int           `json:"max_retry_count" mapstructure:"max_retry_count"`
+	MaxRetryInterval time.Duration `json:"max_retry_interval" mapstructure:"max_retry_interval"`
+	// HeadersRaw and HTTPHeaders are json:"-" because a custom connection header
+	// is a credential slot: proxiport.example.conf documents
+	// 'Authorization: Basic XXXXXX' as an example value, for an authenticating
+	// proxy in front of the server. The server already receives these headers on
+	// the connection itself; re-sending them in the config only republishes them
+	// through the client API.
+	HeadersRaw          []string `json:"-" mapstructure:"headers"`
+	Hostname            string   `json:"hostname" mapstructure:"hostname"`
+	WatchdogIntegration bool     `json:"watchdog_integration" mapstructure:"watchdog_integration"`
 
-	HTTPHeaders http.Header `json:"http_headers"`
+	HTTPHeaders http.Header `json:"-"`
 }
 
 type LogConfig struct {

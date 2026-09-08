@@ -3,6 +3,7 @@ package chserver
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -415,6 +416,7 @@ func TestHandlePutTunnelWithName(t *testing.T) {
 	testCases := []struct {
 		Name          string
 		URL           string
+		Body          string
 		ExpectedJSON  string
 		ExpectedError string
 	}{
@@ -532,6 +534,48 @@ func TestHandlePutTunnelWithName(t *testing.T) {
 			ExpectedError: "auth_user requires auth_password",
 		},
 		{
+			// The credential belongs in a body, not a URL: a URL is recorded by
+			// every access log, proxy cache and browser history in the path.
+			Name: "User and password from the request body",
+			URL:  "/api/v1/clients/client-1/tunnels?scheme=http&acl=127.0.0.1&local=0.0.0.0%3A3390&remote=0.0.0.0%3A22&check_port=0&http_proxy=1",
+			Body: `{"auth_user":"admin","auth_password":"foo"}`,
+			ExpectedJSON: `{
+			"data": {
+				"id": "10",
+				"name": "",
+				"owner": "test-user",
+				"protocol": "tcp",
+				"lhost": "0.0.0.0",
+				"lport": "3390",
+				"rhost": "0.0.0.0",
+				"rport": "22",
+				"lport_random": false,
+				"scheme": "http",
+				"acl": "127.0.0.1",
+				"idle_timeout_minutes": 5,
+				"auto_close": 0,
+				"http_proxy": true,
+				"host_header": "",
+				"auth_user":"admin",
+				"auth_password":"foo",
+				"created_at": "0001-01-01T00:00:00Z",
+				"tunnel_url": ""
+			}
+		}`,
+		},
+		{
+			Name:          "Body credential is validated like the query form",
+			URL:           "/api/v1/clients/client-1/tunnels?scheme=http&acl=127.0.0.1&local=0.0.0.0%3A3390&remote=0.0.0.0%3A22&check_port=0&http_proxy=1",
+			Body:          `{"auth_user":"admin"}`,
+			ExpectedError: "auth_user requires auth_password",
+		},
+		{
+			Name:          "Unreadable body is refused rather than ignored",
+			URL:           "/api/v1/clients/client-1/tunnels?scheme=http&acl=127.0.0.1&local=0.0.0.0%3A3390&remote=0.0.0.0%3A22&check_port=0&http_proxy=1",
+			Body:          `{"auth_user":`,
+			ExpectedError: "could not decode the request body",
+		},
+		{
 			Name:          "Plaintext HTTP refused without override",
 			URL:           "/api/v1/clients/client-1/tunnels?scheme=http&acl=127.0.0.1&local=0.0.0.0%3A3390&remote=0.0.0.0%3A22&check_port=0",
 			ExpectedError: "plaintext HTTP tunnel",
@@ -603,7 +647,14 @@ func TestHandlePutTunnelWithName(t *testing.T) {
 			al.initRouter()
 
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest("PUT", tc.URL, nil)
+			var body io.Reader
+			if tc.Body != "" {
+				body = strings.NewReader(tc.Body)
+			}
+			req := httptest.NewRequest("PUT", tc.URL, body)
+			if tc.Body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
 			ctx := api.WithUser(req.Context(), user.Username)
 			req = req.WithContext(ctx)
 

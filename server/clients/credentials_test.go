@@ -54,7 +54,7 @@ func legacyDetails() string {
 func TestScrubStoredCredentials(t *testing.T) {
 	ctx := context.Background()
 	p := NewFakeClientProvider(t, nil)
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	_, err := p.db.ExecContext(ctx,
 		"INSERT INTO clients (id, client_auth_id, disconnected_at, details) VALUES (?, ?, NULL, ?)",
@@ -108,7 +108,7 @@ func TestScrubStoredCredentials(t *testing.T) {
 func TestScrubStoredCredentialsSkipsUnreadableRow(t *testing.T) {
 	ctx := context.Background()
 	p := NewFakeClientProvider(t, nil)
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	_, err := p.db.ExecContext(ctx,
 		"INSERT INTO clients (id, client_auth_id, disconnected_at, details) VALUES (?, ?, NULL, ?)",
