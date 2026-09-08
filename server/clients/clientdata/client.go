@@ -588,9 +588,22 @@ func (c *Client) Banner() string {
 	return banner
 }
 
+// Close drops the client's SSH connection. The tunnels are closed automatically
+// when it goes.
+//
+// Connection is an ssh.Conn tagged `json:"-"`, so a Client restored from
+// storage has none. Every caller today reaches Close only through IsConnected()
+// or a connected-only iteration, and LoadInitialClients stamps disconnected_at
+// on every restored-as-connected client at boot so that holds — but the
+// invariant lives in another file with no test asserting it, which is the shape
+// that produced the v0.8.3 outage. A client with no connection has nothing to
+// close.
 func (c *Client) Close() error {
-	// The tunnels are closed automatically when ssh connection is closed.
-	return c.GetConnection().Close()
+	conn := c.GetConnection()
+	if conn == nil {
+		return nil
+	}
+	return conn.Close()
 }
 
 func (c *Client) BelongsToOneOf(groups []*cgroups.ClientGroup) bool {
