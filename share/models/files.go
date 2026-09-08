@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/proximile/proxiport/share/logger"
 
@@ -48,9 +50,29 @@ func (uf UploadedFile) Validate() error {
 	return nil
 }
 
+// ValidateDestinationPath rejects a push whose destination matches one of the
+// agent's protected patterns.
+//
+// A pattern is either a filepath.Match glob, tested against both the
+// destination and its directory, or a subtree: a pattern ending in "/**"
+// protects that directory and everything below it. The subtree form exists
+// because filepath.Match does not cross a separator, so a glob can only ever
+// name one level -- which is the wrong shape for something like a systemd unit
+// directory, where the dangerous file may be several levels down.
+//
+// Matching is case-insensitive on Windows, where the filesystem is.
 func (uf UploadedFile) ValidateDestinationPath(globPatters []string, log *logger.Logger) error {
-	destinationDir := filepath.Dir(uf.DestinationPath)
+	destination := filepath.Clean(uf.DestinationPath)
+	destinationDir := filepath.Dir(destination)
+
 	for _, p := range globPatters {
+		if subtree, isSubtree := strings.CutSuffix(p, "/**"); isSubtree {
+			if pathIsWithin(destination, filepath.Clean(subtree)) {
+				return fmt.Errorf("target path %s is inside protected directory %s, therefore the file push request is rejected", destination, subtree)
+			}
+			continue
+		}
+
 		matchedDir, err := filepath.Match(p, destinationDir)
 		if err != nil {
 			log.Errorf("failed to match glob pattern %s against destination directory %s: %v", p, uf.DestinationPath, err)
@@ -60,14 +82,14 @@ func (uf UploadedFile) ValidateDestinationPath(globPatters []string, log *logger
 			return fmt.Errorf("target path %s matches protected pattern %s, therefore the file push request is rejected", destinationDir, p)
 		}
 
-		matchedFile, err := filepath.Match(p, uf.DestinationPath)
+		matchedFile, err := filepath.Match(p, destination)
 		if err != nil {
-			log.Errorf("failed to match glob pattern %s against file name %s: %v", p, uf.DestinationPath, err)
+			log.Errorf("failed to match glob pattern %s against file name %s: %v", p, destination, err)
 			continue
 		}
 
 		if matchedFile {
-			return fmt.Errorf("target path %s matches protected pattern %s, therefore the file push request is rejected", uf.DestinationPath, p)
+			return fmt.Errorf("target path %s matches protected pattern %s, therefore the file push request is rejected", destination, p)
 		}
 	}
 
@@ -138,4 +160,28 @@ type UploadResponseShort struct {
 	ID        string `json:"uuid"`
 	Filepath  string `json:"filepath"`
 	SizeBytes int64  `json:"size"`
+}
+
+// pathIsWithin reports whether target is the root itself or sits underneath it.
+//
+// The root may contain glob metacharacters -- "/home/*/.ssh" has to cover every
+// user -- so this walks target and its ancestors and filepath.Match-es each
+// against the root. Testing whole ancestor paths is also what keeps
+// "/etc/cron.daily-reports" from being treated as inside "/etc/cron.d".
+func pathIsWithin(target, root string) bool {
+	if runtime.GOOS == "windows" {
+		target = strings.ToLower(target)
+		root = strings.ToLower(root)
+	}
+
+	for current := target; ; {
+		if matched, err := filepath.Match(root, current); err == nil && matched {
+			return true
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return false
+		}
+		current = parent
+	}
 }

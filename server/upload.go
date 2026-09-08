@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/http"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -431,13 +432,50 @@ func getClientTagsFromReqForm(req *http.Request) (clientTags *models.JobClientTa
 	return clientTags, nil
 }
 
+// deniedDestinationPrefixes is the server's own refusal list for file pushes.
+//
+// It is a convenience, not the control: the agent enforces its own
+// [file-reception] protected list, which is the enforcement that matters
+// because the agent is the side whose filesystem is at stake and the server may
+// be the hostile party. This list exists so an obviously bad destination is
+// refused with a clear error before a file is transferred, and it deliberately
+// names the same routes to root the agent list covers -- schedules, boot units,
+// shells, authentication -- rather than only pseudo-filesystems.
+var deniedDestinationPrefixes = []string{
+	"/proc/", "/sys/", "/dev/", "/run/",
+	"/etc/cron.d/", "/etc/cron.hourly/", "/etc/cron.daily/",
+	"/etc/cron.weekly/", "/etc/cron.monthly/", "/var/spool/cron/",
+	"/etc/sudoers.d/", "/etc/pam.d/", "/etc/security/", "/etc/ssh/",
+	"/etc/systemd/", "/usr/lib/systemd/", "/lib/systemd/", "/etc/init.d/",
+	"/etc/profile.d/", "/etc/ld.so.conf.d/",
+	"/etc/apt/apt.conf.d/", "/etc/update-motd.d/",
+	"/etc/proxiport/", "/root/",
+}
+
+var deniedDestinationPaths = []string{
+	"/etc/crontab", "/etc/rc.local", "/etc/profile", "/etc/environment",
+	"/etc/passwd", "/etc/shadow", "/etc/group", "/etc/gshadow",
+	"/etc/sudoers", "/etc/ld.so.preload",
+}
+
 func validateRemoteDestination(ur *UploadRequest) error {
-	// deny uploads to the below unix folders because there is no reason why a user should do that.
-	denied := []string{"/proc/", "/sys/", "/dev/", "/run/"}
-	for _, v := range denied {
-		if strings.HasPrefix(ur.DestinationPath, v) {
-			return fmt.Errorf("uploads to %s are forbidden", v)
+	destination := path.Clean(ur.DestinationPath)
+
+	for _, prefix := range deniedDestinationPrefixes {
+		if strings.HasPrefix(destination+"/", prefix) || strings.HasPrefix(destination, prefix) {
+			return fmt.Errorf("uploads to %s are forbidden", prefix)
 		}
 	}
+	for _, denied := range deniedDestinationPaths {
+		if destination == denied {
+			return fmt.Errorf("uploads to %s are forbidden", denied)
+		}
+	}
+
+	// An SSH authorized-keys file is a login, wherever it lives.
+	if strings.Contains(destination, "/.ssh/") {
+		return errors.New("uploads into an .ssh directory are forbidden")
+	}
+
 	return nil
 }
