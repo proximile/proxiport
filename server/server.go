@@ -76,6 +76,10 @@ type Server struct {
 	caddyServer         *caddy.Server
 	acme                *acme.Acme
 	monitoringQueue     monitoring.MeasurementSaver
+	// stagedUploads records which staged file each agent has been told to
+	// fetch, so the SFTP endpoint on the agent transport can serve that file
+	// and nothing else.
+	stagedUploads *stagedUploadRegistry
 }
 
 type ServerOpts struct {
@@ -94,6 +98,7 @@ func NewServer(ctx context.Context, config *chconfig.Config, opts *ServerOpts) (
 		jobsDoneChannel: jobResultChanMap{
 			m: make(map[string]chan *models.Job),
 		},
+		stagedUploads: newStagedUploadRegistry(),
 	}
 
 	s.acme = acme.New(s.Logger.Fork("acme"), config.Server.DataDir, config.Server.AcmeHTTPPort)
@@ -375,7 +380,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// allow time for go-routines (and the caddy server) to process their cancellations
 	time.Sleep(250 * time.Millisecond)
 
-	s.Close()
+	if cerr := s.Close(); cerr != nil {
+		s.Errorf("error closing the server: %v", cerr)
+	}
 
 	// a little more time for everything to settle on shutdown
 	time.Sleep(500 * time.Millisecond)

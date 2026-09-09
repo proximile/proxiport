@@ -61,7 +61,6 @@ type ClientListener struct {
 	ctx     context.Context
 	stopped atomic.Bool
 
-	connStats         chshare.ConnStats
 	httpServer        *chshare.HTTPServer
 	reverseProxy      *httputil.ReverseProxy
 	sshConfig         *ssh.ServerConfig
@@ -456,7 +455,7 @@ func (cl *ClientListener) handleWebsocket(w http.ResponseWriter, req *http.Reque
 
 	// now run handler for other client requests and connections
 	go cl.handleSSHRequests(clientLog, clientID, reqs)
-	go cl.handleSSHChannels(clientLog.GetLogger(), chans)
+	go cl.handleSSHChannels(clientLog.GetLogger(), clientID, chans)
 
 	// wait until we're disconnected from the client
 	if err = sshConn.Wait(); err != nil {
@@ -734,10 +733,30 @@ func (cl *ClientListener) saveCmdResult(respBytes []byte) (*models.Job, error) {
 	return &resp, nil
 }
 
-func (cl *ClientListener) handleSSHChannels(clientLog *logger.Logger, chans <-chan ssh.NewChannel) {
+func (cl *ClientListener) handleSSHChannels(clientLog *logger.Logger, clientID string, chans <-chan ssh.NewChannel) {
 	for ch := range chans {
 		ch := ch
-		extraData := string(ch.ExtraData())
+
+		// Only the channel types the agent actually opens are accepted.
+		//
+		// The default arm used to hand the channel to chshare.HandleTCPStream,
+		// which dials the address in the channel's ExtraData and pipes bytes to
+		// it. That is inherited reverse-tunnel code from chisel, and here it
+		// meant any agent could make the control plane open a TCP connection
+		// anywhere and speak through it: into other tenants' loopback-ACL'd
+		// tunnels, and into the API, which the shipped config binds to
+		// 127.0.0.1 behind a reverse proxy. The server never legitimately dials
+		// on an agent's behalf.
+		switch ch.ChannelType() {
+		case "session", models.ChannelStdout, models.ChannelStderr:
+		default:
+			clientLog.Infof("rejecting ssh channel of unsupported type %q", ch.ChannelType())
+			if err := ch.Reject(ssh.UnknownChannelType, "unsupported channel type"); err != nil {
+				clientLog.Debugf("Failed to reject channel: %s", err)
+			}
+			continue
+		}
+
 		stream, reqs, err := ch.Accept()
 		if err != nil {
 			clientLog.Debugf("Failed to accept stream: %s", err)
@@ -760,7 +779,7 @@ func (cl *ClientListener) handleSSHChannels(clientLog *logger.Logger, chans <-ch
 
 		switch ch.ChannelType() {
 		case "session":
-			cl.handleSessionChannel(stream, clientLog)
+			cl.handleSessionChannel(stream, clientID, clientLog)
 		case models.ChannelStdout, models.ChannelStderr:
 			go func() {
 				err := cl.handleOutputChannel(ch.ChannelType(), ch.ExtraData(), clientLog, stream)
@@ -768,10 +787,6 @@ func (cl *ClientListener) handleSSHChannels(clientLog *logger.Logger, chans <-ch
 					clientLog.Errorf("Error handling output channel %s: %v", ch.ChannelType(), err)
 				}
 			}()
-		default:
-			// handle stream type
-			connID := cl.connStats.New()
-			go chshare.HandleTCPStream(clientLog.Fork("conn#%d", connID), &cl.connStats, stream, extraData)
 		}
 	}
 }
@@ -858,15 +873,30 @@ func (cl *ClientListener) handleReq(req *ssh.Request, clientLog *logger.Logger) 
 	}
 }
 
-func (cl *ClientListener) handleSessionChannel(stream ssh.Channel, clientLog *logger.Logger) {
-	server, err := sftp.NewServer(
-		stream,
-		sftp.ReadOnly(),
-	)
-	if err != nil {
-		clientLog.Debugf("Failed to create sftp server: %s", err)
-		return
+// handleSessionChannel serves the one file the server has asked this agent to
+// collect, over SFTP.
+//
+// It used to be sftp.NewServer(stream, sftp.ReadOnly()), which is backed by the
+// real filesystem with no root, so an agent could read anything the daemon
+// could -- proxiportd.conf with key_seed and jwt_secret in it, and every
+// database under the data directory. Read-only limited the damage to reading.
+//
+// The request server below answers for exactly the paths this client is
+// currently entitled to, which is the file named in an upload request the
+// server sent it, while that upload is in flight.
+func (cl *ClientListener) handleSessionChannel(stream ssh.Channel, clientID string, clientLog *logger.Logger) {
+	fs := &stagedUploadFS{
+		clientID: clientID,
+		registry: cl.server.stagedUploads,
+		log:      clientLog,
 	}
+
+	server := sftp.NewRequestServer(stream, sftp.Handlers{
+		FileGet:  fs,
+		FilePut:  fs,
+		FileCmd:  fs,
+		FileList: fs,
+	})
 
 	if err := server.Serve(); err == io.EOF {
 		e := server.Close()
