@@ -189,12 +189,14 @@ func (al *APIListener) executeMultiClientJob(
 	// for sequential execution - create a channel to get the job result
 	var curJobDoneChannel chan *models.Job
 	if !job.Concurrent {
-		curJobDoneChannel = make(chan *models.Job)
+		// Buffered and never closed, for the same reason as the one in
+		// api_helper_commands.go: the listener sends into this from a detached
+		// goroutine, so closing it raced that send and an agent could panic the
+		// daemon with "send on closed channel" by reporting a result for a run
+		// that had just finished.
+		curJobDoneChannel = make(chan *models.Job, len(orderedClients))
 		al.jobsDoneChannel.Set(job.JID, curJobDoneChannel)
-		defer func() {
-			close(curJobDoneChannel)
-			al.jobsDoneChannel.Del(job.JID)
-		}()
+		defer al.jobsDoneChannel.Del(job.JID)
 	}
 	for _, client := range orderedClients {
 		curJID, err := generateNewJobID()
