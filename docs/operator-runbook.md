@@ -453,6 +453,26 @@ in `auth_file` mode it is a self-service action.](screenshots/31-profile-statica
   — they live in memory for the life of the process. A server
   restart re-locks the vault. Enter the passphrase again via
   `Settings → Vault`.
+- **Server exits with "is still the placeholder from
+  proxiport.example.conf".** Since 0.8.8 `proxiportd` refuses to
+  start while `[api] jwt_secret`, `[server] key_seed`,
+  `[server] auth` or `[api] auth` still holds the value the example
+  config ships. Those values are published in the project
+  repository, so they are not secrets — a placeholder `jwt_secret`
+  in particular becomes the token signing key, and anyone who can
+  reach the API can mint an admin token with it. The `.deb` and
+  `.rpm` postinstall substitutes all four on first install; a
+  tarball, container, or hand-copied config does not. Generate
+  them yourself:
+
+    ```sh
+    openssl rand -hex 32     # key_seed
+    openssl rand -base64 24  # jwt_secret
+    ```
+
+    Leaving `jwt_secret` unset is also fine — the server then mints
+    a random one at startup, at the cost of logging every user out
+    on each restart.
 
 ## Where to get help
 
