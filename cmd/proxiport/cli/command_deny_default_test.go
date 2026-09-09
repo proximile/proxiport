@@ -44,7 +44,7 @@ func TestDefaultRemoteCommandDenyBlocksShellEscapes(t *testing.T) {
 		assert.True(t, deny.MatchString(cmd), "the default deny list should match %q", cmd)
 	}
 
-	// An ordinary allow-listed invocation still runs. The deny list is defence
+	// An ordinary allow-listed invocation still runs. The deny list is defense
 	// in depth in front of a shell, not the boundary -- the boundary is
 	// remote-commands.enabled -- so it must not be so broad that it makes the
 	// feature useless.

