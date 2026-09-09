@@ -2,6 +2,8 @@ package caddy
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -97,4 +99,31 @@ func TestMarshalNewRouteRequestEscapesRatherThanInterpolates(t *testing.T) {
 	require.Len(t, route.Match, 1)
 	require.Len(t, route.Match[0].Host, 1, "exactly one host, no injected siblings")
 	assert.Equal(t, "abc123.tunnels.example.com", route.Match[0].Host[0])
+}
+
+// TestMarshalNewRouteRequestMatchesTheGoldenDocument pins the exact document
+// sent to the Caddy admin API.
+//
+// testdata/caddy_route_golden.json is the output the deleted
+// new_route_request_template.json produced for validRouteRequest(), captured
+// when the template was replaced. The typed marshaler reproduced it byte for
+// byte after normalisation, which is what made the swap safe -- the shape
+// assertions above would not have caught a dropped or renamed key, and Caddy
+// would have accepted a subtly different route and served it wrong.
+//
+// Keeping the golden means the wire format cannot drift by accident later. If
+// this fails because the format is being changed deliberately, regenerate it
+// and say so in the commit.
+func TestMarshalNewRouteRequestMatchesTheGoldenDocument(t *testing.T) {
+	want, err := os.ReadFile(filepath.Join("testdata", "caddy_route_golden.json"))
+	require.NoError(t, err)
+
+	body, err := MarshalNewRouteRequest(validRouteRequest())
+	require.NoError(t, err)
+
+	var golden, got any
+	require.NoError(t, json.Unmarshal(want, &golden))
+	require.NoError(t, json.Unmarshal(body, &got))
+
+	assert.Equal(t, golden, got, "the Caddy admin-API document changed shape")
 }

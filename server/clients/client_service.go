@@ -1171,12 +1171,31 @@ func (s *ClientServiceProvider) log() (l *logger.Logger) {
 // than using the shipped one can set them too. A compromised agent is inside
 // the threat model.
 //
-// An honest agent never sets any of these: its remotes come from the "remotes"
-// config strings, parsed by models.NewRemote, which only ever fills in hosts,
-// ports and a protocol. So this takes nothing away from a working deployment.
-//
 // TunnelURL is the one that mattered: it decides whether a downstream Caddy
 // route is created at all, and it supplies that route's domain.
+//
+// The cleared set is exactly the fields the shipped agent cannot produce, so
+// this takes nothing away from a working deployment. That is a claim about
+// client/config.go and it is checked there rather than assumed:
+// parseRemoteEntry + applyTunnelsConfig fill in Scheme, HTTPProxy and
+// HostHeader from the documented per-tunnel options
+//
+//	"8443:pikvm.lan:443 scheme=https reverse_proxy host_header=pikvm.lan"
+//
+// and from the [tunnels] section. Those three are therefore deliberately left
+// alone -- clearing HTTPProxy and HostHeader would silently turn every
+// reverse-proxied agent tunnel back into a plain one. They also grant nothing:
+// they configure the proxy in front of the agent's *own* tunnel, which it is
+// entitled to ask for.
+//
+// The rest have no path from an agent config at all, and each hands the agent
+// something the API decides:
+//
+//	TunnelURL      -- builds a downstream Caddy route, and names its domain
+//	SkipTLSVerify  -- drops verification on the proxy's connection to the tunnel
+//	AuthUser/Pass  -- the basic-auth credential guarding the proxied tunnel,
+//	                  which the agent would then know
+//	Owner          -- set server-side from the authenticated user
 func sanitizeAgentRemotes(remotes []*models.Remote) []*models.Remote {
 	if remotes == nil {
 		return nil
@@ -1189,13 +1208,11 @@ func sanitizeAgentRemotes(remotes []*models.Remote) []*models.Remote {
 		}
 
 		clean := *remote
-		clean.TunnelURL = ""    // decides whether a Caddy route is built, and its domain
-		clean.HTTPProxy = false // decides whether the internal proxy fronts the tunnel
-		clean.HostHeader = ""   // rewrites the Host of proxied requests
+		clean.TunnelURL = ""
 		clean.SkipTLSVerify = false
-		clean.AuthUser = "" // basic-auth credential for the proxied tunnel
+		clean.AuthUser = ""
 		clean.AuthPassword = ""
-		clean.Owner = "" // set server-side from the authenticated user
+		clean.Owner = ""
 
 		sanitized = append(sanitized, &clean)
 	}

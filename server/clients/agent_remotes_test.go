@@ -29,8 +29,6 @@ func TestSanitizeAgentRemotesDropsServerControlledFields(t *testing.T) {
 
 		// What only a hand-written connection request can add.
 		TunnelURL:     "https://sub.evil.example",
-		HTTPProxy:     true,
-		HostHeader:    "internal.example",
 		SkipTLSVerify: true,
 		AuthUser:      "operator",
 		AuthPassword:  "tunnelsecret",
@@ -42,8 +40,6 @@ func TestSanitizeAgentRemotesDropsServerControlledFields(t *testing.T) {
 	got := sanitized[0]
 
 	assert.Empty(t, got.TunnelURL)
-	assert.False(t, got.HTTPProxy)
-	assert.Empty(t, got.HostHeader)
 	assert.False(t, got.SkipTLSVerify)
 	assert.Empty(t, got.AuthUser)
 	assert.Empty(t, got.AuthPassword)
@@ -66,4 +62,41 @@ func TestSanitizeAgentRemotesHandlesEmptyInput(t *testing.T) {
 	assert.Nil(t, sanitizeAgentRemotes(nil))
 	assert.Empty(t, sanitizeAgentRemotes([]*models.Remote{}))
 	assert.Empty(t, sanitizeAgentRemotes([]*models.Remote{nil}))
+}
+
+// The per-tunnel proxy options are a documented agent-side feature:
+//
+//	remotes = ['8443:pikvm.lan:443 scheme=https reverse_proxy host_header=pikvm.lan']
+//
+// client/config.go's parseRemoteEntry + applyTunnelsConfig turn those into
+// Scheme, HTTPProxy and HostHeader on the Remote the agent sends. Clearing them
+// here would silently turn every reverse-proxied agent tunnel back into a plain
+// one -- a config that still loads, still connects, and quietly stops doing
+// what it says.
+//
+// They also grant nothing: they configure the proxy in front of the agent's own
+// tunnel, which it is entitled to ask for. The dangerous field is TunnelURL,
+// which builds a *downstream Caddy route*, and that is cleared above.
+func TestSanitizeAgentRemotesKeepsTheAgentsOwnProxySettings(t *testing.T) {
+	scheme := "https"
+	configured := &models.Remote{
+		Protocol:   models.ProtocolTCP,
+		LocalHost:  "0.0.0.0",
+		LocalPort:  "8443",
+		RemoteHost: "pikvm.lan",
+		RemotePort: "443",
+
+		Scheme:     &scheme,
+		HTTPProxy:  true,
+		HostHeader: "pikvm.lan",
+	}
+
+	sanitized := sanitizeAgentRemotes([]*models.Remote{configured})
+	require.Len(t, sanitized, 1)
+	got := sanitized[0]
+
+	require.NotNil(t, got.Scheme)
+	assert.Equal(t, "https", *got.Scheme, "scheme= must survive")
+	assert.True(t, got.HTTPProxy, "reverse_proxy must survive")
+	assert.Equal(t, "pikvm.lan", got.HostHeader, "host_header= must survive")
 }

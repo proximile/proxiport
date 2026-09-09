@@ -1,0 +1,51 @@
+{
+  "@id": "abc123",
+  "handle": [
+    {
+      "handler": "subroute",
+      "routes": [
+        {
+          "handle": [
+            {
+              "handler": "reverse_proxy",
+              "headers": {
+                "request": {
+                  "set": {
+                    "X-Forwarded-Host": [
+                      "{http.request.host}"
+                    ]
+                  }
+                }
+              },
+              "transport": {
+                "protocol": "http",
+                "tls": {
+                  "insecure_skip_verify": true
+                }
+              },
+              "upstreams": [
+                {
+                  "dial": "127.0.0.1:3390"
+                }
+              ]
+            },
+            {
+              "body": "Access denied",
+              "close": true,
+              "handler": "static_response",
+              "status_code": 403
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "match": [
+    {
+      "host": [
+        "abc123.tunnels.example.com"
+      ]
+    }
+  ],
+  "terminal": true
+}
