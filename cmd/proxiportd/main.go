@@ -57,12 +57,21 @@ var (
 	DefaultMaxConcurrentSSHConnectionHandshakes = calcMaxConcurrentSSHConnectionHandshakes()
 )
 
+// minConcurrentSSHConnectionHandshakes is the floor for the handshake pool.
+//
+// A handshake spends most of its time waiting on the peer rather than on the
+// CPU, so sizing the pool from GOMAXPROCS is the wrong model: it gave a 1-2
+// core box a pool of one, which one idle socket could occupy. The pool still
+// scales with the machine; it just does not start small enough to be filled by
+// hand.
+const minConcurrentSSHConnectionHandshakes = 32
+
 func calcMaxConcurrentSSHConnectionHandshakes() (max int) {
-	maxProcs := runtime.GOMAXPROCS(0)
-	if maxProcs == 1 {
-		return maxProcs
+	half := runtime.GOMAXPROCS(0) / 2
+	if half < minConcurrentSSHConnectionHandshakes {
+		return minConcurrentSSHConnectionHandshakes
 	}
-	return maxProcs / 2
+	return half
 }
 
 var serverHelp = `
@@ -601,7 +610,7 @@ func runMain(*cobra.Command, []string) {
 
 	err = s.Run(ctx)
 
-	s.Logger.Debugf("run finished")
+	s.Debugf("run finished")
 
 	if err != nil {
 		if !strings.Contains(err.Error(), "context canceled") {
@@ -615,8 +624,13 @@ func WriteMemoryProfile(l *logger.Logger) {
 	memf, err := os.Create("/var/lib/proxiport/mem.proxiportd.prof")
 	if err != nil {
 		l.Debugf("could not create memory profile: %v\n", err)
+		return
 	}
-	defer memf.Close()
+	defer func() {
+		if cerr := memf.Close(); cerr != nil {
+			l.Debugf("could not close memory profile: %v\n", cerr)
+		}
+	}()
 	runtime.GC()
 	if err := pprof.WriteHeapProfile(memf); err != nil {
 		l.Debugf("could not write memory profile: %v\n", err)
