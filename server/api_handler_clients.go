@@ -1,11 +1,14 @@
 package chserver
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/ssh"
@@ -192,6 +195,10 @@ func (al *APIListener) handleGetClients(w http.ResponseWriter, req *http.Request
 const (
 	URISchemeMaxLength = 15
 
+	// maxTunnelAuthBodyBytes bounds the tunnel-credential request body. It holds
+	// two short strings; anything larger is a client error, not a credential.
+	maxTunnelAuthBodyBytes = 64 << 10
+
 	autoCloseQueryParam          = "auto-close"
 	idleTimeoutMinutesQueryParam = "idle-timeout-minutes"
 	skipIdleTimeoutQueryParam    = "skip-idle-timeout"
@@ -319,7 +326,9 @@ func (al *APIListener) handlePutClientTunnel(w http.ResponseWriter, req *http.Re
 	}
 
 	for _, t := range client.GetTunnels() {
-		if t.Remote.Remote() == remote.Remote() && t.Remote.IsProtocol(remote.Protocol) && t.EqualACL(remote.ACL) {
+		// t.Remote is the embedded models.Remote field, whose own method is also
+		// named Remote, so the field selector is required to reach the method.
+		if t.Remote.Remote() == remote.Remote() && t.Remote.IsProtocol(remote.Protocol) && t.EqualACL(remote.ACL) { //nolint:staticcheck // QF1008: see above
 			al.jsonErrorResponseWithErrCode(w, http.StatusBadRequest, ErrCodeTunnelToPortExist, fmt.Sprintf("Tunnel to port %s already exists.", remote.RemotePort))
 			return
 		}
@@ -456,9 +465,54 @@ func (al *APIListener) checkInsecureHTTPTunnelAllowed(req *http.Request, remote 
 	)
 }
 
+// tunnelAuthBody is the request body form of a tunnel's HTTP basic-auth
+// credential. It exists because the query-string form puts the password in a
+// URL, and a URL is recorded by every access log, proxy cache and browser
+// history between the caller and the API. A request body is recorded by none of
+// them.
+type tunnelAuthBody struct {
+	AuthUser     string `json:"auth_user"`
+	AuthPassword string `json:"auth_password"`
+}
+
+// tunnelAuthFromBody reads the credential from a JSON request body, reporting
+// whether one was supplied. An absent, empty or non-JSON body is not an error:
+// every other tunnel option is a query parameter and callers that set no
+// credential send no body at all.
+func tunnelAuthFromBody(req *http.Request) (authUser, authPassword string, present bool, err error) {
+	if req.Body == nil || req.ContentLength == 0 {
+		return "", "", false, nil
+	}
+	if contentType := req.Header.Get("Content-Type"); contentType != "" &&
+		!strings.HasPrefix(contentType, "application/json") {
+		return "", "", false, nil
+	}
+
+	var body tunnelAuthBody
+	if decodeErr := json.NewDecoder(io.LimitReader(req.Body, maxTunnelAuthBodyBytes)).Decode(&body); decodeErr != nil {
+		return "", "", false, apierrors.NewAPIError(
+			http.StatusBadRequest, "", "could not decode the request body as tunnel credentials", nil)
+	}
+	if body.AuthUser == "" && body.AuthPassword == "" {
+		return "", "", false, nil
+	}
+	return body.AuthUser, body.AuthPassword, true, nil
+}
+
 func (al *APIListener) setAuthOptionsForRemote(req *http.Request, remote *models.Remote) (err error) {
-	authUser := req.URL.Query().Get("auth_user")
-	authPassword := req.URL.Query().Get("auth_password")
+	authUser, authPassword, fromBody, err := tunnelAuthFromBody(req)
+	if err != nil {
+		return err
+	}
+	if !fromBody {
+		authUser = req.URL.Query().Get("auth_user")
+		authPassword = req.URL.Query().Get("auth_password")
+		if authPassword != "" {
+			al.Log().Infof(
+				"tunnel credential supplied in the query string; send it in a JSON request body instead " +
+					"so it does not reach access logs, proxy caches or browser history")
+		}
+	}
 	if authUser != "" || authPassword != "" {
 		if !remote.HTTPProxy {
 			return apierrors.NewAPIError(http.StatusBadRequest, "", "http basic authentication requires http_proxy to be activated on the requested tunnel", nil)

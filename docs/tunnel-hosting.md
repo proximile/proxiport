@@ -196,6 +196,27 @@ certificate end to end, use a plain (non-proxied) tunnel instead: the
 bytes pass through untouched and your client completes the real TLS
 handshake with the target.
 
+### Protecting a tunnel with HTTP basic auth
+
+A tunnel served through the reverse proxy (`http_proxy=true`) can require
+HTTP basic auth. Send the credential in a **JSON request body**:
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"auth_user":"operator","auth_password":"<password>"}' \
+  "https://proxiport.example.com/api/v1/clients/<id>/tunnels?remote=0.0.0.0:8080&scheme=https&http_proxy=1&acl=203.0.113.0/24"
+```
+
+`auth_user` and `auth_password` are still accepted as query parameters for
+compatibility, but a credential in a URL is recorded by every access log,
+proxy cache and browser history between the caller and the API. The body
+form takes precedence when both are supplied.
+
+The password is stored so the proxy can check incoming requests, but it is
+redacted from the client API payload and from the audit log.
+
 ### Plaintext HTTP tunnels are blocked by default
 
 A tunnel whose scheme is `http` with **no** TLS in front of it carries the

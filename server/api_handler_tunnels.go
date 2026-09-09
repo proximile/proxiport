@@ -17,8 +17,16 @@ type TunnelPayload struct {
 }
 
 func convertToTunnelPayload(t *clienttunnel.Tunnel, clientID string) TunnelPayload {
+	// models.Remote is embedded by value, so this copy is the payload's own and
+	// clearing it leaves the running tunnel untouched. The HTTP proxy reads
+	// AuthPassword to check incoming requests; nobody reading the tunnel list
+	// needs it, and this route serves every tunnel the caller can see. Same
+	// redaction as clients.redactTunnels does for the client payload.
+	remote := t.Remote
+	remote.AuthPassword = ""
+
 	return TunnelPayload{
-		Remote:    t.Remote,
+		Remote:    remote,
 		ID:        t.ID,
 		ClientID:  clientID,
 		CreatedAt: t.CreatedAt,

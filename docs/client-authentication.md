@@ -221,7 +221,45 @@ provisioning at the cost of losing the credential/identity split.
 
 Rotating one credential out of many does not affect other agents.
 
-## Upgrading to 0.8.5 — rotate every agent credential
+## Upgrading to 0.8.6 — the API served agent credentials
+
+**Affects every version through 0.8.5, on all three credential
+stores.**
+
+An agent sends its whole configuration to the server when it connects,
+and servers before 0.8.6 stored that configuration verbatim and served
+it back through the REST API. The stored copy included the agent's own
+`auth` credential and any proxy credential, so
+`GET /api/v1/clients/<id>` returned an agent's connection password to
+**any authenticated API user** — a read-only account included — for
+every client that account could see, and
+`GET /api/v1/clients?fields[clients]=client_configuration` returned it
+for the whole visible fleet in one request. A reader could then connect
+to the server as that agent.
+
+0.8.6 stops the agent sending those fields at all, so nothing new is
+stored, and the server deletes them from records written by older
+versions the first time it starts. Backups taken before the upgrade
+still contain them.
+
+Treat every agent credential that existed on an affected server as
+disclosed to every account that had API access, and rotate it:
+
+1. Upgrade the server to 0.8.6 and restart it.
+2. Issue a fresh credential per agent — see
+   [managing credentials via the API](#managing-credentials-via-the-api).
+3. Update each agent's `auth =` and restart it.
+4. Delete the old credential rows.
+
+The same applies to any credential written into an agent's `proxy`
+setting, and to tunnel HTTP basic-auth passwords: `auth_password` was
+returned by the same endpoints and is now redacted from the client
+payload.
+
+If you are also upgrading past the 0.8.5 advisory below, one rotation
+covers both — do it once, after the upgrade to 0.8.6.
+
+## Upgrading to 0.8.5 — reading a credential destroyed it
 
 **Affects 0.2.0 through 0.8.4 on the inline and `auth_file` stores.**
 Reading a credential through the API blanked the stored copy, and the
@@ -253,7 +291,7 @@ If you ran an affected version with the inline or `auth_file` store,
 treat every agent credential as having been reachable without
 authentication:
 
-1. Upgrade the server to 0.8.5 and restart it.
+1. Upgrade the server to 0.8.5 or later and restart it.
 2. Issue a new password for every client-auth ID, keeping the IDs so
    the client rows survive (see
    [operator runbook — rotating credentials](operator-runbook.md#rotating-credentials)).
@@ -264,7 +302,6 @@ authentication:
 
 Nothing in the server records which credentials were read, so there is
 no way to narrow this to a subset after the fact. Rotate all of them.
-
 
 ## Hardening checklist
 

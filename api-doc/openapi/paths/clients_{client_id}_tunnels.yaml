@@ -98,6 +98,10 @@ put:
  description: >-
  If present together with `auth_password` tunnels with an http reverse proxy (NoVNC, HTTP, HTTPS, RDP via browser)
  will require additional http basic auth on access. Requires `http_proxy` to be `true`.
+ Prefer sending both fields in a JSON request body -- `{"auth_user": "...", "auth_password": "..."}`
+ with `Content-Type: application/json` -- because a credential in the query string is
+ recorded by access logs, proxy caches and browser history. The body form takes precedence
+ when both are supplied. The query form is still accepted for compatibility.
  schema:
  type: string
  - name: auth_password

@@ -101,7 +101,8 @@ func ConvertToClientPayload(client *clientdata.CalculatedClient, fields []query.
 		case "address":
 			p.Address = &client.Address
 		case "tunnels":
-			p.Tunnels = &client.Tunnels
+			tunnels := redactTunnels(client.Tunnels)
+			p.Tunnels = &tunnels
 		case "disconnected_at":
 			disconnectedAt := client.DisconnectedAt
 			p.DisconnectedAt = &disconnectedAt
@@ -148,4 +149,33 @@ func ConvertToClientPayload(client *clientdata.CalculatedClient, fields []query.
 		}
 	}
 	return p
+}
+
+// redactTunnels copies the tunnel list with the HTTP basic-auth password
+// cleared.
+//
+// models.Remote.AuthPassword is the password that guards a tunnel's HTTP
+// proxy. The server needs it in memory and on disk to check incoming requests,
+// so it cannot simply be dropped from the model's JSON the way an agent's own
+// credential can — but nothing outside the server needs to read it back, and
+// this payload goes to any API user who can see the client.
+//
+// Tunnel holds no locks, so a shallow copy is enough: the returned tunnels
+// share the original's live protocol handlers, which are excluded from JSON
+// anyway, and clearing the copy leaves the running tunnel untouched.
+func redactTunnels(tunnels []*clienttunnel.Tunnel) []*clienttunnel.Tunnel {
+	if tunnels == nil {
+		return nil
+	}
+	redacted := make([]*clienttunnel.Tunnel, 0, len(tunnels))
+	for _, t := range tunnels {
+		if t == nil {
+			redacted = append(redacted, nil)
+			continue
+		}
+		clone := *t
+		clone.AuthPassword = ""
+		redacted = append(redacted, &clone)
+	}
+	return redacted
 }

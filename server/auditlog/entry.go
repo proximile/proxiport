@@ -63,7 +63,7 @@ func (e *Entry) WithRequest(request interface{}) *Entry {
 		e.al.logger.Errorf("Could not marshal auditlog request: %v", err)
 		return e
 	}
-	e.Request = string(reqJSON)
+	e.Request = string(redactSecrets(reqJSON))
 
 	return e
 }
@@ -78,7 +78,7 @@ func (e *Entry) WithResponse(response interface{}) *Entry {
 		e.al.logger.Errorf("Could not marshal auditlog response: %v", err)
 		return e
 	}
-	e.Response = string(respJSON)
+	e.Response = string(redactSecrets(respJSON))
 
 	return e
 }
