@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -29,6 +30,15 @@ type NotificationsIntegrationTestSuite struct {
 	runner         notifications.Processor
 	mailConsumer   notifications.Consumer
 	scriptConsumer notifications.Consumer
+
+	// workDir is the script consumer's working directory: a fresh temp dir per
+	// test, so the script's output cannot be a leftover from an earlier run.
+	// It used to be the package directory, which meant out.json was a
+	// gitignored file that survived between runs -- a passing assertion there
+	// proved only that some run at some point had written the right bytes.
+	workDir string
+	// script is the absolute path to test.sh, which stays in the package dir.
+	script string
 }
 
 func (suite *NotificationsIntegrationTestSuite) SetupTest() {
@@ -57,13 +67,26 @@ func (suite *NotificationsIntegrationTestSuite) SetupTest() {
 		NoNoop:   true,
 	}, testLog), testLog)
 
-	dir, err := os.Getwd()
-	suite.NoError(err)
+	// The script itself stays where it is tracked, and is named absolutely;
+	// only the working directory moves. RunCancelableScript sets cmd.Dir to the
+	// working directory, so the script's "> out.json" lands in the temp dir
+	// either way, and nothing has to write an executable file at test time.
+	pwd, err := os.Getwd()
+	suite.Require().NoError(err)
+	suite.script = filepath.Join(pwd, "test.sh")
+	suite.workDir = suite.T().TempDir()
 
-	suite.scriptConsumer = scriptRunner.NewConsumer(testLog, dir)
+	suite.scriptConsumer = scriptRunner.NewConsumer(testLog, suite.workDir)
 
-	suite.runner = notifications.NewProcessor(logger.NewLogger("notifications", logger.NewLogOutput("out.log"), logger.LogLevelInfo), suite.store, suite.mailConsumer, suite.scriptConsumer)
+	suite.runner = notifications.NewProcessor(
+		logger.NewLogger("notifications", logger.NewLogOutput(filepath.Join(suite.workDir, "out.log")), logger.LogLevelInfo),
+		suite.store, suite.mailConsumer, suite.scriptConsumer)
+}
 
+func (suite *NotificationsIntegrationTestSuite) TearDownTest() {
+	if suite.server != nil {
+		_ = suite.server.Stop()
+	}
 }
 
 type ScriptIO struct {
@@ -83,7 +106,7 @@ func (suite *NotificationsIntegrationTestSuite) TestDispatcherCreatesNotificatio
 	suite.NoError(err)
 
 	notification = notifications.NotificationData{
-		Target:      "./test.sh",
+		Target:      suite.script,
 		Recipients:  []string{"r1@example.com", "somethin323-55@test.co"},
 		Subject:     "test-subject",
 		Content:     "test-content",
@@ -91,7 +114,21 @@ func (suite *NotificationsIntegrationTestSuite) TestDispatcherCreatesNotificatio
 	}
 	d, err := suite.dispatcher.Dispatch(context.Background(), problemIdentifiable, notification)
 	suite.NoError(err)
-	time.Sleep(time.Millisecond * 100)
+
+	// Both consumers run asynchronously, so wait for the effect rather than for
+	// a duration. A fixed 100ms sleep raced the script subprocess and the SMTP
+	// delivery, and lost often enough to redden main on an unrelated merge --
+	// the failure looked like the notifications package but was only ever the
+	// clock.
+	outFile := filepath.Join(suite.workDir, "out.json")
+	suite.Require().Eventually(func() bool {
+		if len(suite.server.Messages()) != 1 {
+			return false
+		}
+		_, err := os.Stat(outFile)
+		return err == nil
+	}, 10*time.Second, 20*time.Millisecond, "the mail and script consumers should both have run")
+
 	suite.T().Log(suite.store.Details(context.Background(), d.ID()))
 
 	suite.ExpectedMessages(1)
@@ -102,7 +139,7 @@ func (suite *NotificationsIntegrationTestSuite) TestDispatcherCreatesNotificatio
 		Data:       "test-content",
 	}
 
-	out, err := simpleops.ReadJSONFileIntoStruct[ScriptIO]("out.json")
+	out, err := simpleops.ReadJSONFileIntoStruct[ScriptIO](outFile)
 	suite.NoError(err)
 	suite.Equal(in, out)
 }
