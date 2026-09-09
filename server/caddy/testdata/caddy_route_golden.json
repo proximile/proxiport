@@ -1,5 +1,5 @@
 {
-  "@id": "{{.RouteID}}",
+  "@id": "abc123",
   "handle": [
     {
       "handler": "subroute",
@@ -25,7 +25,7 @@
               },
               "upstreams": [
                 {
-                  "dial": "{{.TargetTunnelHost}}:{{.TargetTunnelPort}}"
+                  "dial": "127.0.0.1:3390"
                 }
               ]
             },
@@ -43,7 +43,7 @@
   "match": [
     {
       "host": [
-        "{{.DownstreamProxySubdomain}}.{{.DownstreamProxyBaseDomain}}"
+        "abc123.tunnels.example.com"
       ]
     }
   ],

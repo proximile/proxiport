@@ -9,31 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestShouldMakeNewRouteRequestJSON(t *testing.T) {
-	tmpl := template.New("NRR")
-	tmpl, err := tmpl.Parse(NewRouteRequestTemplate)
-	require.NoError(t, err)
-
-	nrr := &NewRouteRequest{
-		RouteID:                   "new_route_id",
-		TargetTunnelHost:          "target_tunnel_host",
-		TargetTunnelPort:          "target_tunnel_port",
-		DownstreamProxySubdomain:  "downstream_proxy_subdomain",
-		DownstreamProxyBaseDomain: "downstream_proxy_basedomain",
-	}
-
-	var b bytes.Buffer
-	err = tmpl.Execute(&b, nrr)
-	require.NoError(t, err)
-
-	templateText := b.String()
-
-	assert.Contains(t, templateText, `"@id": "new_route_id"`)
-	assert.Contains(t, templateText, `"handler": "reverse_proxy"`)
-	assert.Contains(t, templateText, `"dial": "target_tunnel_host:target_tunnel_port"`)
-	assert.Contains(t, templateText, `"downstream_proxy_subdomain.downstream_proxy_basedomain"`)
-}
-
 func TestShouldParseTemplates(t *testing.T) {
 	cases := []struct {
 		name     string

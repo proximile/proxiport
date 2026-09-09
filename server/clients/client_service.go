@@ -2,6 +2,7 @@ package clients
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -393,7 +394,7 @@ func (s *ClientServiceProvider) StartClient(
 	s.UpdateClientStatus()
 
 	if !client.IsPaused() {
-		_, err = s.startClientTunnels(client, req.Remotes, clog)
+		_, err = s.startClientTunnels(client, sanitizeAgentRemotes(req.Remotes), clog)
 
 		if err != nil {
 			return nil, err
@@ -848,6 +849,15 @@ func (s *ClientServiceProvider) startCaddyDownstreamProxy(
 	clientLogger.Debugf("tunnel = %#v", tunnel)
 	clientLogger.Debugf("remote = %#v", remote)
 
+	// SetCaddyAPI is only called when the Caddy integration is enabled
+	// (server.go), but reaching here needs only the internal tunnel proxy plus a
+	// tunnel URL -- and the tunnel URL can arrive in an agent's connection
+	// request. Without this, an agent turns a nil-pointer dereference into a
+	// crash of the whole daemon.
+	if s.caddyAPI == nil {
+		return errors.New("cannot create a downstream proxy: the caddy integration is not enabled")
+	}
+
 	subdomain, basedomain, err := remote.GetTunnelDomains()
 	if err != nil {
 		return err
@@ -1117,6 +1127,10 @@ func (s *ClientServiceProvider) removeCaddyDownstreamProxy(c *clientdata.Client,
 
 	clientLogger.Infof("removing downstream caddy proxy at %s", t.TunnelURL)
 
+	if s.caddyAPI == nil {
+		return errors.New("cannot remove a downstream proxy: the caddy integration is not enabled")
+	}
+
 	subdomain, _, err := t.GetTunnelDomains()
 	if err != nil {
 		return err
@@ -1145,4 +1159,62 @@ func (s *ClientServiceProvider) log() (l *logger.Logger) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.logger
+}
+
+// sanitizeAgentRemotes copies an agent's requested tunnels with the fields an
+// agent has no business setting cleared.
+//
+// The server builds a client from the agent's connection request and starts the
+// tunnels it asks for. models.Remote is also the API's tunnel-creation type, so
+// it carries fields the API sets deliberately after checking the caller's
+// permissions -- and an agent that writes its own connection request rather
+// than using the shipped one can set them too. A compromised agent is inside
+// the threat model.
+//
+// TunnelURL is the one that mattered: it decides whether a downstream Caddy
+// route is created at all, and it supplies that route's domain.
+//
+// The cleared set is exactly the fields the shipped agent cannot produce, so
+// this takes nothing away from a working deployment. That is a claim about
+// client/config.go and it is checked there rather than assumed:
+// parseRemoteEntry + applyTunnelsConfig fill in Scheme, HTTPProxy and
+// HostHeader from the documented per-tunnel options
+//
+//	"8443:pikvm.lan:443 scheme=https reverse_proxy host_header=pikvm.lan"
+//
+// and from the [tunnels] section. Those three are therefore deliberately left
+// alone -- clearing HTTPProxy and HostHeader would silently turn every
+// reverse-proxied agent tunnel back into a plain one. They also grant nothing:
+// they configure the proxy in front of the agent's *own* tunnel, which it is
+// entitled to ask for.
+//
+// The rest have no path from an agent config at all, and each hands the agent
+// something the API decides:
+//
+//	TunnelURL      -- builds a downstream Caddy route, and names its domain
+//	SkipTLSVerify  -- drops verification on the proxy's connection to the tunnel
+//	AuthUser/Pass  -- the basic-auth credential guarding the proxied tunnel,
+//	                  which the agent would then know
+//	Owner          -- set server-side from the authenticated user
+func sanitizeAgentRemotes(remotes []*models.Remote) []*models.Remote {
+	if remotes == nil {
+		return nil
+	}
+
+	sanitized := make([]*models.Remote, 0, len(remotes))
+	for _, remote := range remotes {
+		if remote == nil {
+			continue
+		}
+
+		clean := *remote
+		clean.TunnelURL = ""
+		clean.SkipTLSVerify = false
+		clean.AuthUser = ""
+		clean.AuthPassword = ""
+		clean.Owner = ""
+
+		sanitized = append(sanitized, &clean)
+	}
+	return sanitized
 }
