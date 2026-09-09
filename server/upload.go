@@ -64,7 +64,11 @@ func (al *APIListener) handleFileUploads(w http.ResponseWriter, req *http.Reques
 		al.jsonErrorResponseWithTitle(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	defer uploadRequest.File.Close()
+	defer func() {
+		if cerr := uploadRequest.File.Close(); cerr != nil {
+			al.Errorf("error closing the uploaded file: %v", cerr)
+		}
+	}()
 
 	// The staging dir holds cleartext upload payloads until every target agent
 	// has pulled them, so keep it owner-only (0700): no other host user should
@@ -176,7 +180,11 @@ func (al *APIListener) handleUploadsWS(w http.ResponseWriter, req *http.Request)
 	al.Server.uploadWebSockets.Store(connID, uiConn)
 
 	defer al.Server.uploadWebSockets.Delete(connID)
-	defer uiConn.Close()
+	defer func() {
+		if cerr := uiConn.Close(); cerr != nil {
+			al.Errorf("error closing the upload websocket: %v", cerr)
+		}
+	}()
 
 	for {
 		_, _, err := uiConn.ReadMessage()

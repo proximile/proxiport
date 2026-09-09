@@ -380,7 +380,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// allow time for go-routines (and the caddy server) to process their cancellations
 	time.Sleep(250 * time.Millisecond)
 
-	s.Close()
+	if cerr := s.Close(); cerr != nil {
+		s.Errorf("error closing the server: %v", cerr)
+	}
 
 	// a little more time for everything to settle on shutdown
 	time.Sleep(500 * time.Millisecond)
