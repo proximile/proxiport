@@ -665,10 +665,17 @@ func (cl *ClientListener) handleSSHRequests(clientLog *logger.DynamicLogger, cli
 			if job.MultiJobID != nil {
 				done := cl.server.jobsDoneChannel.Get(*job.MultiJobID)
 				if done != nil {
-					// to avoid blocking the exec - send job result in a new goroutine
-					go func(done2 chan *models.Job, job2 *models.Job) {
-						done2 <- job2
-					}(done, job)
+					// Non-blocking: the channel is buffered for every client in
+					// the run, so a legitimate result always fits. A result that
+					// does not fit is a late or duplicate one for a run that has
+					// already finished or been aborted -- there is nothing left
+					// to deliver it to. Sending blindly from a detached
+					// goroutine is what let an agent panic the daemon.
+					select {
+					case done <- job:
+					default:
+						clientLog.Debugf("%s: dropping a command result for a multi-job run that is no longer collecting", clientID)
+					}
 				}
 			}
 			if ClientRequestsLogEnabled {

@@ -61,8 +61,8 @@ func (al *APIListener) handleCommandsExecutionWS(
 		uiConnTS.WriteError("Could not generate job id.", err)
 		return
 	}
-	al.Server.uiJobWebSockets.Set(jid, uiConnTS)
-	defer al.Server.uiJobWebSockets.Delete(jid)
+	al.uiJobWebSockets.Set(jid, uiConnTS)
+	defer al.uiJobWebSockets.Delete(jid)
 
 	auditLogEntry.
 		WithRequest(inboundMsg).
@@ -108,12 +108,19 @@ func (al *APIListener) handleCommandsExecutionWS(
 		var curJobDoneChannel chan *models.Job
 
 		if !multiJob.Concurrent {
-			curJobDoneChannel = make(chan *models.Job)
+			// Buffered for every client in the run, and never closed. The
+			// listener sends results into this channel from a detached
+			// goroutine, so closing it raced that send -- an agent reporting a
+			// result for a run that had just finished panicked the whole daemon
+			// with "send on closed channel". The buffer means a legitimate
+			// result is always accepted even if this loop has not reached its
+			// receive yet, and a late or duplicate one is dropped by the
+			// non-blocking send rather than blocking a goroutine forever.
+			// Nothing here ranges over the channel, so the close signalled
+			// nothing to begin with.
+			curJobDoneChannel = make(chan *models.Job, len(inboundMsg.OrderedClients))
 			al.jobsDoneChannel.Set(multiJob.JID, curJobDoneChannel)
-			defer func() {
-				close(curJobDoneChannel)
-				al.jobsDoneChannel.Del(multiJob.JID)
-			}()
+			defer al.jobsDoneChannel.Del(multiJob.JID)
 		}
 
 		for _, client := range inboundMsg.OrderedClients {

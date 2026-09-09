@@ -134,3 +134,61 @@ func TestSaveCmdResultKeepsServerRecordedFields(t *testing.T) {
 	require.NotNil(t, provider.InputSaveJob)
 	assert.Equal(t, "client-1", provider.InputSaveJob.ClientID)
 }
+
+// TestMultiJobDoneChannelSurvivesALateResult reproduces the crash the old
+// close() allowed.
+//
+// The listener sends a command result into the multi-job done channel from a
+// detached goroutine, and the run's owner used to close that channel when it
+// finished. An agent reporting a result for a run that had just completed --
+// a duplicate cmd_result is enough, and the agent chooses when to send it --
+// therefore sent on a closed channel, which is an unrecoverable panic in a
+// goroutine outside any handler: the whole daemon goes down.
+//
+// The channel is now buffered for every client in the run and never closed, and
+// the send is non-blocking. This asserts both halves: every legitimate result
+// fits, and the extra one is dropped instead of panicking or blocking.
+func TestMultiJobDoneChannelSurvivesALateResult(t *testing.T) {
+	const clients = 2
+
+	m := jobResultChanMap{m: make(map[string]chan *models.Job)}
+	done := make(chan *models.Job, clients)
+	m.Set("multi-1", done)
+
+	send := func(jid string) {
+		ch := m.Get("multi-1")
+		require.NotNil(t, ch)
+		select {
+		case ch <- &models.Job{JID: jid}:
+		default:
+		}
+	}
+
+	// Every result the run actually dispatched is accepted, even before the
+	// collector has reached its receive.
+	assert.NotPanics(t, func() {
+		send("job-1")
+		send("job-2")
+	})
+	assert.Len(t, done, clients)
+
+	// The run finishes and stops collecting. Under the old code this closed the
+	// channel; now it only drops the map entry.
+	m.Del("multi-1")
+
+	// A duplicate arriving after the run is gone finds no channel at all.
+	assert.NotPanics(t, func() {
+		if ch := m.Get("multi-1"); ch != nil {
+			select {
+			case ch <- &models.Job{JID: "job-2"}:
+			default:
+			}
+		}
+	})
+
+	// And one that arrives while the run is still registered but the buffer is
+	// full is dropped rather than blocking the goroutine forever.
+	m.Set("multi-1", done)
+	assert.NotPanics(t, func() { send("job-3") })
+	assert.Len(t, done, clients, "the buffer is full; the extra result is dropped")
+}
