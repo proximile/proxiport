@@ -70,7 +70,6 @@ cheat-sheet.txt
 
 # Test-run scratch files
 *test-resources
-server/notifications/out.json
 server/notifications/channels/scriptRunner/out.json
 
 # Local docroot (built SPA served by the server in dev)
