@@ -1,6 +1,8 @@
 package chserver
 
 import (
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -147,4 +149,66 @@ func TestStagedUploadRegistryIsPerClient(t *testing.T) {
 	assert.False(t, registry.IsAllowed("client-2", "/var/lib/proxiport/filepush/a"),
 		"one agent must not read a file staged for another")
 	assert.False(t, registry.IsAllowed("client-1", "/var/lib/proxiport/filepush/b"))
+}
+
+// TestStagedUploadFSOverRealSFTP drives the handlers through pkg/sftp's own
+// request server and client, the way the agent actually reaches them
+// (client/upload.go: sftp.NewClient over the SSH conn, then Open + read).
+//
+// The unit tests above call the four handler methods directly, so they cannot
+// see whether the client's real request sequence is served -- an Open is
+// preceded and followed by requests this handler set has to answer, and a
+// missing one would break every file push while every test above still passed.
+func TestStagedUploadFSOverRealSFTP(t *testing.T) {
+	fs, staged, release := stagedFS(t)
+	defer release()
+
+	serverConn, clientConn := net.Pipe()
+
+	srv := sftp.NewRequestServer(serverConn, sftp.Handlers{
+		FileGet: fs, FilePut: fs, FileCmd: fs, FileList: fs,
+	})
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		_ = srv.Serve()
+	}()
+	defer func() {
+		_ = srv.Close()
+		<-served
+	}()
+
+	client, err := sftp.NewClientPipe(clientConn, clientConn)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	// The entitled file reads end to end.
+	f, err := client.Open(staged)
+	require.NoError(t, err)
+	content, err := io.ReadAll(f)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	assert.Equal(t, "payload", string(content))
+
+	// Stat works, because the agent sizes the file before copying it.
+	info, err := client.Stat(staged)
+	require.NoError(t, err)
+	assert.EqualValues(t, len("payload"), info.Size())
+
+	// The control plane's own secrets do not.
+	for _, forbidden := range []string{
+		"/etc/proxiport/proxiportd.conf",
+		"/var/lib/proxiport/clients.db",
+		"/etc/passwd",
+		filepath.Dir(staged),
+	} {
+		if f, err := client.Open(forbidden); err == nil {
+			_ = f.Close()
+			t.Errorf("opening %q over sftp must fail", forbidden)
+		}
+	}
+
+	// And neither does writing to the one file it may read.
+	_, err = client.Create(staged)
+	assert.Error(t, err, "the agent pulls a staged file, it never pushes")
 }
