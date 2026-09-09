@@ -22,8 +22,13 @@ func NewSingleProvider(id, password string) *SingleProvider {
 	}
 }
 
+// GetFiltered returns a copy. A caller that received the live *ClientAuth and
+// wrote to it -- as the API handlers once did, to redact the password before
+// responding -- would be editing the credential this server authenticates
+// agents against, not editing a response.
 func (c *SingleProvider) GetFiltered(filter *query.ListOptions) ([]*ClientAuth, int, error) {
-	var ca = []*ClientAuth{c.client}
+	credential := *c.client
+	var ca = []*ClientAuth{&credential}
 	if len(filter.Filters) > 0 {
 		match, err := query.MatchesFilters(ca[0], filter.Filters)
 		if err != nil {
@@ -41,9 +46,11 @@ func (c *SingleProvider) GetFiltered(filter *query.ListOptions) ([]*ClientAuth, 
 	return ca, 1, nil
 }
 
+// Get returns a copy, for the same reason as GetFiltered.
 func (c *SingleProvider) Get(id string) (*ClientAuth, error) {
 	if c.client.ID == id {
-		return c.client, nil
+		credential := *c.client
+		return &credential, nil
 	}
 	return nil, nil
 }

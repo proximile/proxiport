@@ -29,9 +29,11 @@ The simplest setup: pin one pair in the `[server]` section of
     revoking one compromised host means revoking them all. Move to
     the JSON file or the database before adding the second agent.
 
-In this mode the **Client Access** page in the SPA and the
-`/api/v1/clients-auth` endpoints are disabled. The credential is
-read-only.
+In this mode the credential is read-only: `POST` and `DELETE` on
+`/api/v1/clients-auth` return `405`, and the **Client Access** page in
+the SPA offers no create or delete. The listing itself still works —
+the page loads, and `GET /api/v1/clients-auth` returns the credential's
+ID. Only the write operations are disabled.
 
 ### JSON credential file
 
@@ -105,6 +107,25 @@ CREATE TABLE clients_auth (
 
 `auth_write` applies here too — set it to `false` to make the API
 read-only for an externally-managed table.
+
+## Empty credentials are rejected
+
+An empty client-auth ID or password is refused in both directions:
+
+- The server refuses to **store** one. Creating or updating a
+  credential with a blank ID or a blank password fails with an error
+  rather than writing the blank, and the at-rest hash upgrade skips a
+  credential it would otherwise have to hash from nothing.
+- The server refuses to **accept** one. An agent presenting a
+  zero-length password is rejected during the handshake before the
+  stored credential is consulted, and a stored credential that is
+  somehow empty matches nothing.
+
+Both halves matter because the credential comparison is constant-time,
+and a constant-time comparison of two empty strings succeeds. A blank
+on either side is treated as a failure explicitly rather than left to
+the comparison to decide.
+
 
 ## How an agent presents its credential
 
@@ -199,6 +220,51 @@ provisioning at the cost of losing the credential/identity split.
    automation.
 
 Rotating one credential out of many does not affect other agents.
+
+## Upgrading to 0.8.5 — rotate every agent credential
+
+**Affects 0.2.0 through 0.8.4 on the inline and `auth_file` stores.**
+Reading a credential through the API blanked the stored copy, and the
+blank then authenticated any agent that presented an empty password.
+
+Reading `GET /api/v1/clients-auth` (which the **Client Access** page
+issues when it loads) or `GET /api/v1/clients-auth/<id>` wrote an empty
+password over the server's own copy of the credential. Two consequences
+followed:
+
+- **Agents stopped connecting.** Every reconnect failed against the
+  blanked credential, so the fleet drained away with no error that
+  pointed at the cause.
+- **Anyone could connect.** A client-auth ID with a blank password
+  accepted an empty password from an unauthenticated caller, admitting
+  them as an agent for that ID. With
+  `equate_clientauthid_clientid = true` they took over the client ID
+  outright.
+
+On `auth_file` the damage persisted: the successful empty login
+triggered the at-rest hash upgrade, which wrote the hash of the empty
+password back to the file over the real credential.
+
+The `auth_table` (database) store is **not affected** — it builds a
+fresh credential for each query, so nothing the API did could reach the
+stored row.
+
+If you ran an affected version with the inline or `auth_file` store,
+treat every agent credential as having been reachable without
+authentication:
+
+1. Upgrade the server to 0.8.5 and restart it.
+2. Issue a new password for every client-auth ID, keeping the IDs so
+   the client rows survive (see
+   [operator runbook — rotating credentials](operator-runbook.md#rotating-credentials)).
+3. Update each agent's `[client] auth` and restart it.
+4. If your `auth_file` contains an entry whose password is empty or is
+   the bcrypt hash of an empty string, that credential was blanked in
+   place — replace it rather than trying to recover it.
+
+Nothing in the server records which credentials were read, so there is
+no way to narrow this to a subset after the fact. Rotate all of them.
+
 
 ## Hardening checklist
 

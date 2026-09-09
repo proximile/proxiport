@@ -24,6 +24,23 @@ const (
 	ErrCodeClientAuthNotFound  = "ERR_CODE_CLIENT_AUTH_NOT_FOUND"
 )
 
+// clientAuthPayload is what the API says about an agent credential: its id,
+// and nothing else.
+//
+// These handlers used to redact by assigning Password = "" to the object the
+// provider returned. Two providers hand back a pointer into their own state --
+// SingleProvider returns its one live *ClientAuth, and FileProvider returns the
+// object it caches for an hour -- so that assignment did not redact a response,
+// it destroyed the credential the server authenticates agents against. A
+// separate read type cannot do that, whatever a provider chooses to return.
+type clientAuthPayload struct {
+	ID string `json:"id"`
+}
+
+func newClientAuthPayload(ca *clientsauth.ClientAuth) clientAuthPayload {
+	return clientAuthPayload{ID: ca.ID}
+}
+
 func (al *APIListener) handleGetClientAuth(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	clientAuthID := vars[routes.ParamClientAuthID]
@@ -36,10 +53,7 @@ func (al *APIListener) handleGetClientAuth(w http.ResponseWriter, req *http.Requ
 		al.jsonErrorResponseWithTitle(w, http.StatusNotFound, fmt.Sprintf("Client Auth with ID %q not found", clientAuthID))
 		return
 	}
-	// Never expose the stored credential: it is a bcrypt hash (or a legacy
-	// plaintext value pending upgrade), and neither should leave the server.
-	clientAuth.Password = ""
-	al.writeJSONResponse(w, http.StatusOK, api.NewSuccessPayload(clientAuth))
+	al.writeJSONResponse(w, http.StatusOK, api.NewSuccessPayload(newClientAuthPayload(clientAuth)))
 }
 func (al *APIListener) handleGetClientsAuth(w http.ResponseWriter, req *http.Request) {
 	options := query.NewOptions(req, nil, nil, nil)
@@ -57,14 +71,13 @@ func (al *APIListener) handleGetClientsAuth(w http.ResponseWriter, req *http.Req
 		return
 	}
 
-	// Redact the stored credential from the listing: it is a bcrypt hash (or a
-	// legacy plaintext value pending upgrade), and the API never returns either.
+	payload := make([]clientAuthPayload, 0, len(rClients))
 	for _, c := range rClients {
-		c.Password = ""
+		payload = append(payload, newClientAuthPayload(c))
 	}
 
 	al.writeJSONResponse(w, http.StatusOK, &api.SuccessPayload{
-		Data: rClients,
+		Data: payload,
 		Meta: api.NewMeta(count),
 	})
 }
