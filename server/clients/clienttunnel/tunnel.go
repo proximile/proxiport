@@ -81,6 +81,21 @@ type Tunnel struct {
 	CreatedAt           time.Time            `json:"created_at"`
 }
 
+// Start brings up the tunnel's live protocol handlers.
+//
+// Same hazard as Terminate, and the same nil TunnelProtocol on any Tunnel
+// restored from storage — but the safe answer here is the opposite one.
+// Reporting success would leave the caller believing a listener exists when
+// nothing is bound; a stored record describes a tunnel, it is not one, and the
+// rebuild path constructs a fresh Tunnel with NewTunnel before starting it.
+// Fail closed and say so.
+func (t *Tunnel) Start(ctx context.Context) error {
+	if t.TunnelProtocol == nil {
+		return errors.New("tunnel has no live protocol: a record restored from storage must be rebuilt with NewTunnel before it can be started")
+	}
+	return t.TunnelProtocol.Start(ctx)
+}
+
 // Terminate stops the tunnel's live protocol handlers.
 //
 // TunnelProtocol is an interface field tagged `json:"-"`, so a Tunnel restored
@@ -98,6 +113,36 @@ func (t *Tunnel) Terminate(force bool) error {
 		return nil
 	}
 	return t.TunnelProtocol.Terminate(force)
+}
+
+// LastActive reports when the tunnel last carried traffic.
+//
+// Same hazard as Terminate: the promoted TunnelProtocol.LastActive panics on a
+// Tunnel restored from storage. Nothing reaches it that way today — the
+// idle-timeout goroutines only ever hold tunnels they just started — but that
+// is an invariant asserted in another file, which is exactly what made the
+// Terminate case a fleet-wide outage rather than a caught bug.
+//
+// CreatedAt is the honest answer for a record with no live handlers: it is the
+// only activity timestamp that survives storage, so an idle-timeout comparison
+// against it stays sane, where the zero time would read as "idle since year 1".
+func (t *Tunnel) LastActive() time.Time {
+	if t.TunnelProtocol == nil {
+		return t.CreatedAt
+	}
+	return t.TunnelProtocol.LastActive()
+}
+
+// SetACL applies an access list to the tunnel's live protocol handlers.
+//
+// Same hazard again. A record with no handlers has nothing to apply an ACL to;
+// the stored Remote.ACL is what a rebuilt tunnel is constructed from, and that
+// is set by the caller independently of this method.
+func (t *Tunnel) SetACL(acl *TunnelACL) {
+	if t.TunnelProtocol == nil {
+		return
+	}
+	t.TunnelProtocol.SetACL(acl)
 }
 
 func NewTunnel(logger *logger.Logger, ssh ssh.Conn, id string, remote models.Remote, acl *TunnelACL) (*Tunnel, error) {
