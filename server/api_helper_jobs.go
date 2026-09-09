@@ -5,8 +5,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
+	errors2 "github.com/proximile/proxiport/server/api/errors"
 	"github.com/proximile/proxiport/server/api/jobs"
 	"github.com/proximile/proxiport/server/clients/clientdata"
 	"github.com/proximile/proxiport/share/comm"
@@ -145,6 +147,19 @@ func (al *APIListener) StartMultiClientJob(ctx context.Context, multiJobRequest 
 		return nil, fmt.Errorf("no clients for execution")
 	}
 
+	// Authorize the resolved target set here rather than only in the HTTP
+	// handlers. The scheduler calls this directly, with the creator's username
+	// and no check of its own, so a schedule kept running after its creator was
+	// deleted or de-permissioned -- and because group and tag targets are
+	// re-resolved on every run, it could reach clients the creator never had
+	// access to, simply because someone later added one to a targeted group.
+	//
+	// The HTTP handlers check before calling too. Checking again costs a lookup
+	// and makes the check impossible to route around.
+	if err := al.checkMultiJobAccess(ctx, multiJobRequest); err != nil {
+		return nil, err
+	}
+
 	command := multiJobRequest.Command
 	if multiJobRequest.IsScript {
 		decodedScriptBytes, err := base64.StdEncoding.DecodeString(multiJobRequest.Script)
@@ -254,4 +269,35 @@ func (al *APIListener) executeMultiClientJob(
 	if al.testDone != nil {
 		al.testDone <- true
 	}
+}
+
+// checkMultiJobAccess re-authorizes a resolved target set as the job's own user.
+//
+// A username with no user behind it is a refusal, not an escape: a schedule
+// whose creator has been deleted must stop running, not run unchecked.
+func (al *APIListener) checkMultiJobAccess(ctx context.Context, multiJobRequest *jobs.MultiJobRequest) error {
+	if multiJobRequest.Username == "" {
+		return errors2.APIError{
+			Message:    "cannot authorize the job: it names no user",
+			HTTPStatus: http.StatusForbidden,
+		}
+	}
+
+	user, err := al.userService.GetByUsername(multiJobRequest.Username)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		return errors2.APIError{
+			Message:    fmt.Sprintf("cannot authorize the job: user %q no longer exists", multiJobRequest.Username),
+			HTTPStatus: http.StatusForbidden,
+		}
+	}
+
+	clientGroups, err := al.clientGroupProvider.GetAll(ctx)
+	if err != nil {
+		return err
+	}
+
+	return al.clientService.CheckClientsAccess(multiJobRequest.OrderedClients, user, clientGroups)
 }
