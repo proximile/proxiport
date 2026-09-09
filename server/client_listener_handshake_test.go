@@ -13,7 +13,7 @@ import (
 // -- for the cost of one idle socket, and invisibly, since the handler never
 // logs past "Handling inbound web socket connection".
 //
-// This is an invariant check on the two constants, not a behaviour test: it
+// This is an invariant check on the two constants, not a behavior test: it
 // cannot see whether the deadline reaches the socket. That is covered in
 // share, by TestWebSocketConnDeadlineInterruptsASilentPeer and
 // TestWebSocketConnDeadlineCanBeCleared, which drive a real WebSocket peer

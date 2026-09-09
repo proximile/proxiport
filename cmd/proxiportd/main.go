@@ -624,8 +624,13 @@ func WriteMemoryProfile(l *logger.Logger) {
 	memf, err := os.Create("/var/lib/proxiport/mem.proxiportd.prof")
 	if err != nil {
 		l.Debugf("could not create memory profile: %v\n", err)
+		return
 	}
-	defer memf.Close()
+	defer func() {
+		if cerr := memf.Close(); cerr != nil {
+			l.Debugf("could not close memory profile: %v\n", cerr)
+		}
+	}()
 	runtime.GC()
 	if err := pprof.WriteHeapProfile(memf); err != nil {
 		l.Debugf("could not write memory profile: %v\n", err)
