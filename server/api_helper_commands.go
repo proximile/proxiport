@@ -70,7 +70,7 @@ func (al *APIListener) handleCommandsExecutionWS(
 		SaveForMultipleClients(inboundMsg.OrderedClients)
 
 	createdBy := curUser.Username
-	if inboundMsg.OrderedClients != nil && len(inboundMsg.OrderedClients) > 0 {
+	if len(inboundMsg.OrderedClients) > 0 {
 		// by default abortOnErr is true
 		abortOnErr := true
 		if inboundMsg.AbortOnError != nil {
@@ -116,7 +116,7 @@ func (al *APIListener) handleCommandsExecutionWS(
 			// result is always accepted even if this loop has not reached its
 			// receive yet, and a late or duplicate one is dropped by the
 			// non-blocking send rather than blocking a goroutine forever.
-			// Nothing here ranges over the channel, so the close signalled
+			// Nothing here ranges over the channel, so the close signaled
 			// nothing to begin with.
 			curJobDoneChannel = make(chan *models.Job, len(inboundMsg.OrderedClients))
 			al.jobsDoneChannel.Set(multiJob.JID, curJobDoneChannel)
@@ -160,7 +160,7 @@ func (al *APIListener) handleCommandsExecutionWS(
 
 				if err != nil {
 					if multiJob.AbortOnErr && !errors.Is(err, ErrClientNotConnected) {
-						uiConnTS.Close()
+						al.closeUIConn(uiConnTS)
 						return
 					}
 					continue
@@ -174,7 +174,7 @@ func (al *APIListener) handleCommandsExecutionWS(
 				// wait until command is finished
 				jobResult := <-curJobDoneChannel
 				if multiJob.AbortOnErr && jobResult.Status == models.JobStatusFailed {
-					uiConnTS.Close()
+					al.closeUIConn(uiConnTS)
 					return
 				}
 			}
@@ -182,7 +182,11 @@ func (al *APIListener) handleCommandsExecutionWS(
 	} else {
 		client := inboundMsg.OrderedClients[0]
 
-		al.createAndRunJob( //nolint:errcheck // error is logged, nothing to act on here
+		// createAndRunJob logs and reports its own failure to the caller's
+		// WebSocket, so there is nothing to do with the error here. Discarding
+		// it explicitly says so, where the nolint only silenced one linter and
+		// left the next one to find it.
+		_ = al.createAndRunJob(
 			uiConnTS,
 			nil,
 			jid,
@@ -213,5 +217,14 @@ func (al *APIListener) handleCommandsExecutionWS(
 	}
 
 	al.Debugf("Message received: type %v, msg %s", mt, message)
-	uiConnTS.Close()
+	al.closeUIConn(uiConnTS)
+}
+
+// closeUIConn closes a command WebSocket, logging rather than discarding a
+// failure. A close that fails and says nothing is how a leaked connection stays
+// invisible.
+func (al *APIListener) closeUIConn(conn *ws.ConcurrentWebSocket) {
+	if err := conn.Close(); err != nil {
+		al.Debugf("failed to close the command web socket: %v", err)
+	}
 }
