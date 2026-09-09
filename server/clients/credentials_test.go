@@ -2,6 +2,7 @@ package clients
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -23,6 +24,10 @@ import (
 //
 // The proxy URL is assembled rather than written out so the fixture is not
 // itself a hardcoded-credential finding.
+// headerCredential is the value of the example Authorization header, assembled
+// at run time for the same reason the proxy URL is.
+var headerCredential = base64.StdEncoding.EncodeToString([]byte("headeruser:headerpass"))
+
 func legacyDetails() string {
 	proxyURL := &url.URL{
 		Scheme: "http",
@@ -35,6 +40,7 @@ func legacyDetails() string {
 	"name": "agent one",
 	"hostname": "agent-one",
 	"an_unknown_future_field": {"nested": [1, 2, 3]},
+	"tunnels": [{"id": "1", "lhost": "0.0.0.0", "lport": "3000", "auth_password": "livetunnelsecret"}],
 	"client_configuration": {
 		"client": {
 			"server": "wss://server.example.com:443",
@@ -44,11 +50,18 @@ func legacyDetails() string {
 			"auth_pass": "supersecretpassword",
 			"proxy": %q,
 			"proxy_url": null,
+			"tunnels": [{"lhost": "0.0.0.0", "lport": "3000", "auth_user": "tun", "auth_password": "duplicatedtunnelsecret"}],
 			"updates_interval": 14400000000000
+		},
+		"connection": {
+			"keep_alive": 60000000000,
+			"hostname": "agent-one",
+			"headers": ["Authorization: Basic %s"],
+			"http_headers": {"Authorization": ["Basic %s"]}
 		},
 		"monitoring": {"enabled": true, "interval": 60000000000}
 	}
-}`, proxyURL.String())
+}`, proxyURL.String(), headerCredential, headerCredential)
 }
 
 func TestScrubStoredCredentials(t *testing.T) {
@@ -68,9 +81,17 @@ func TestScrubStoredCredentials(t *testing.T) {
 	var stored string
 	require.NoError(t, p.db.GetContext(ctx, &stored, "SELECT details FROM clients WHERE id = ?", "agent-1"))
 
-	for _, secret := range []string{"supersecretpassword", "proxypass", "proxyuser", "clientAuth1"} {
+	for _, secret := range []string{
+		"supersecretpassword", "proxypass", "proxyuser", "clientAuth1",
+		"duplicatedtunnelsecret", headerCredential,
+	} {
 		assert.NotContains(t, stored, secret, "credential must be gone from the stored row")
 	}
+
+	// The server's own live tunnel list is not a copy of the agent's config and
+	// the server needs its password to check incoming requests, so the scrub
+	// must leave it alone. It is kept off the API by redactTunnels, not here.
+	assert.Contains(t, stored, "livetunnelsecret")
 
 	// Everything else survives, numbers included and unrounded.
 	assert.Contains(t, stored, "17179869184")
@@ -84,8 +105,15 @@ func TestScrubStoredCredentials(t *testing.T) {
 	clientCfg, ok := cfg["client"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "wss://server.example.com:443", clientCfg["server"])
-	for _, key := range credentialFields {
-		assert.NotContains(t, clientCfg, key)
+	connCfg, ok := cfg["connection"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "agent-one", connCfg["hostname"])
+	for section, fields := range credentialFields {
+		sectionCfg, ok := cfg[section].(map[string]any)
+		require.True(t, ok, "section %q must survive the scrub", section)
+		for _, key := range fields {
+			assert.NotContains(t, sectionCfg, key)
+		}
 	}
 
 	// The scrubbed row still loads, and still carries what the server reads.

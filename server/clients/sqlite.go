@@ -283,11 +283,26 @@ func convertClientList(list []*clientSqlite, l *logger.Logger) []*clientdata.Cli
 	return res
 }
 
-// credentialFields are the client-configuration keys that carry an agent's own
-// credentials. Servers before this change persisted them verbatim, so a
-// clients.db written by one still holds them even though the current code no
-// longer reads or serves them.
-var credentialFields = []string{"auth", "auth_user", "auth_pass", "proxy", "proxy_url"}
+// credentialFields are the client-configuration keys that carry a credential,
+// grouped by the section of client_configuration they sit in. Servers before
+// this change persisted them verbatim, so a clients.db written by one still
+// holds them even though the current code no longer reads or serves them.
+//
+// "tunnels" and the two header keys hold no value the server reads -- they are
+// json:"-" now, so a stored one is already inert -- but they are credential
+// slots, and a scrub that left them would leave the advisory's promise half
+// kept. Removing a header list that happened to hold nothing secret costs
+// nothing, because nothing loads it either way.
+var credentialFields = map[string][]string{
+	// The agent's own "<client-auth-id>:<password>", its parsed halves, and any
+	// credential in the proxy setting. "tunnels" duplicates
+	// ConnectionRequest.Remotes, and each models.Remote carries auth_password.
+	"client": {"auth", "auth_user", "auth_pass", "proxy", "proxy_url", "tunnels"},
+	// A custom connection header is a credential slot: the example config
+	// documents 'Authorization: Basic XXXXXX' as a value, for an authenticating
+	// proxy in front of the server.
+	"connection": {"headers", "http_headers"},
+}
 
 // scrubClientDetails removes the credential keys from one stored details blob,
 // reporting whether anything was removed.
@@ -309,15 +324,17 @@ func scrubClientDetails(raw string) (cleaned string, changed bool, err error) {
 	if !ok {
 		return "", false, nil
 	}
-	clientCfg, ok := cfg["client"].(map[string]any)
-	if !ok {
-		return "", false, nil
-	}
 
-	for _, field := range credentialFields {
-		if _, present := clientCfg[field]; present {
-			delete(clientCfg, field)
-			changed = true
+	for section, fields := range credentialFields {
+		sectionCfg, ok := cfg[section].(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, field := range fields {
+			if _, present := sectionCfg[field]; present {
+				delete(sectionCfg, field)
+				changed = true
+			}
 		}
 	}
 	if !changed {
