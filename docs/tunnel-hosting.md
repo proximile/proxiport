@@ -393,6 +393,44 @@ By default the agent refuses to write into directories listed in
 These are glob patterns matched against both the target directory and
 the target file path. To disable reception entirely, set `enabled = false`.
 
+### Protected destinations
+
+`[file-reception] protected` is the agent's own refusal list, enforced on the
+agent because it is the agent's filesystem at stake. The default covers the
+routes a written file turns into code execution — anything that runs on a
+schedule, at boot, or as part of a login:
+
+- cron (`/etc/cron.d`, `/etc/cron.*`, `/var/spool/cron`) and systemd unit
+  directories
+- shell and loader initialisation (`/etc/profile`, `/etc/profile.d`,
+  `/etc/environment`, `/etc/ld.so.*`)
+- accounts and authorization (`/etc/passwd`, `/etc/shadow`, `/etc/sudoers`,
+  `/etc/sudoers.d`, `/etc/pam.d`, `/etc/ssh`)
+- SSH keys — `/root`, `/home/*/.ssh` — since an `authorized_keys` file is a
+  login
+- package-manager hook directories, which run as root on the next update
+- executable search paths, pseudo-filesystems, and the agent's own
+  configuration
+
+A pattern ending in `/**` protects that directory and everything below it. Any
+other pattern is a shell-style glob that matches a single path element, so
+`/etc/systemd/*` covers `/etc/systemd/system` but not
+`/etc/systemd/system/foo.service.d/override.conf` — use the `/**` form for a
+directory tree.
+
+!!! warning "File reception crosses the command permission boundary"
+
+    A push carries a mode and an owner, and the agent will `chown` as root, so
+    an operator who can write to one of these locations has code execution on
+    the host without needing the `commands` or `scripts` permission. Treat the
+    `uploads` permission as equivalent to command execution unless you have
+    narrowed `protected` to an allowed directory of your own.
+
+Setting `protected` replaces the default rather than adding to it, so include
+the defaults you still want. The server refuses an obviously dangerous
+destination too, before transferring the file, but that check is a convenience
+— the agent's list is the enforcement.
+
 ### Privileged writes
 
 The agent runs as an unprivileged user. To let it chown a pushed file

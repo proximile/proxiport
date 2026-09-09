@@ -313,6 +313,15 @@ func (um *UploadManager) chmodFile(path string, mode os.FileMode) (err error) {
 		return nil
 	}
 
+	// Defense in depth behind models.UploadedFile.Validate, which the agent
+	// runs on every incoming request. This is the call that would actually set
+	// a setuid bit, so it refuses one too.
+	if mode&^models.MaxPushedFileMode != 0 {
+		return fmt.Errorf(
+			"refusing to set mode %#o on a pushed file: only permission bits up to %#o may be set",
+			mode, models.MaxPushedFileMode)
+	}
+
 	err = um.FilesAPI.ChangeMode(path, mode)
 	if err != nil {
 		return err
@@ -409,7 +418,7 @@ func (um *UploadManager) copyFileToTempLocation(remoteFilePath string, targetFil
 	if err != nil {
 		return 0, tempFilePath, err
 	}
-	defer remoteFile.Close()
+	defer func() { _ = remoteFile.Close() }()
 
 	copiedBytes, err := um.FilesAPI.CreateFile(tempFilePath, remoteFile)
 	if err != nil {
