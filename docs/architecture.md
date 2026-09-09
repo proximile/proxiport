@@ -102,6 +102,36 @@ a one-click preset.](screenshots/05-tunnel-acl-active.png)
 ![Global active-tunnel view across all clients. The same listing
 backs `GET /api/v1/tunnels`.](screenshots/06-tunnels-global-active.png)
 
+## What an agent connection is allowed to do
+
+The agent transport is an SSH connection in which the *agent* is the
+client and `proxiportd` is the server, so an agent can open SSH
+channels on it. Since 0.8.7 the server accepts exactly three channel
+types and rejects everything else with `SSH_OPEN_UNKNOWN_CHANNEL_TYPE`:
+
+| Channel | Purpose |
+|---|---|
+| `session` | fetch one staged file, over SFTP, during a file push |
+| `stdout` / `stderr` | stream a running command's output back |
+
+Two consequences are worth stating plainly, because earlier versions
+did not hold them:
+
+- **The server never dials on an agent's behalf.** Any other channel
+  type used to be handed to the inherited chisel TCP-stream handler,
+  which connected to the address in the channel's open request and
+  piped bytes to it. Tunnel traffic does not use this path — tunnels
+  are listeners the *server* opens and the agent connects back to.
+- **The SFTP endpoint serves one file, to one agent, for the duration
+  of one push.** It is not a filesystem: the server records the staged
+  path when it asks a specific agent to collect it, and refuses every
+  other path, directory listings included. Writes, renames and deletes
+  are refused outright.
+
+If you have built something that relied on opening another channel
+type over the agent connection, it will now be rejected and logged.
+Nothing shipped with ProxiPort does.
+
 ## Datastore
 
 SQLite is the default and is the right choice for small to medium
