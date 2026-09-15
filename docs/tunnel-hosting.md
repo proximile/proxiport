@@ -364,7 +364,7 @@ Useful form fields:
 | --- | --- |
 | `upload` (required) | The file body. |
 | `client_id` / `group_id` | Repeatable. At least one of either is required. |
-| `dest` (required) | Absolute destination path on the agent. |
+| `dest` (required) | Absolute destination path on the agent. Relative paths are rejected — see below. |
 | `force` | Overwrite if the file already exists. |
 | `sync` | Compare MD5; overwrite only if changed. Apply mode/owner if requested. |
 | `mode` | Unix mode bits, e.g. `0644`. Default `0764`. |
@@ -376,6 +376,25 @@ Server side, `[api] max_filepush_size` caps the single-file size in
 bytes (default 10 MiB). Increase it under `[api]` if you need to push
 larger payloads. The general `max_request_bytes` cap does **not**
 apply to this endpoint.
+
+### The destination must be absolute
+
+`dest` is required to be an absolute path: `/etc/motd` on a Unix agent,
+`C:\ProgramData\app\config.ini` or `\\fileserver\share\file.txt` on Windows. A
+relative path such as `etc/motd` is refused by the server and, independently, by
+the agent.
+
+This matters for more than tidiness. Every entry in the server's refusal list and
+in `[file-reception] protected` is written as an absolute path, so a relative
+destination matches none of them — while the agent still resolves it, against the
+agent process's working directory. Under the shipped systemd unit that directory
+is `/`, so a relative `etc/cron.d/job` would have arrived at `/etc/cron.d/job`
+with every protection bypassed. Requiring an absolute path is what makes the
+lists below mean what they say.
+
+A Windows path that is rooted but has no drive (`\Windows\...`) is also refused:
+it resolves against whichever drive is current, which is the same surprise in a
+different form.
 
 ### Restricted destinations
 
