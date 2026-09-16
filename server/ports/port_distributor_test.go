@@ -21,13 +21,20 @@ func TestPortDistributor(t *testing.T) {
 				mapset.NewSetFromSlice([]interface{}{2, 3, 4, 5}),
 			)
 
-			assert.Equal(t, true, pd.IsPortBusy(protocol, 1))
-			assert.Equal(t, false, pd.IsPortBusy(protocol, 2))
+			busy, err := pd.IsPortBusy(protocol, 1)
+			require.NoError(t, err)
+			assert.Equal(t, true, busy)
+
+			busy, err = pd.IsPortBusy(protocol, 2)
+			require.NoError(t, err)
+			assert.Equal(t, false, busy)
 
 			port, err := pd.GetRandomPort(protocol)
 			require.NoError(t, err)
 
-			assert.Equal(t, true, pd.IsPortBusy(protocol, port))
+			busy, err = pd.IsPortBusy(protocol, port)
+			require.NoError(t, err)
+			assert.Equal(t, true, busy)
 		})
 	}
 }
@@ -67,8 +74,8 @@ func TestPortDistributor_ConcurrentTCPUDP(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < iterations; i++ {
-				_ = pd.getPool(models.ProtocolTCPUDP)
-				_ = pd.IsPortBusy(models.ProtocolTCPUDP, 3)
+				_, _ = pd.getPool(models.ProtocolTCPUDP)
+				_, _ = pd.IsPortBusy(models.ProtocolTCPUDP, 3)
 			}
 		}()
 	}
@@ -104,4 +111,56 @@ func TestReserveKeepsAPortOutOfRandomAllocation(t *testing.T) {
 			}
 		})
 	}
+}
+// A protocol the agent invented used to index portsPools -- keyed only "tcp"
+// and "udp" -- to a nil mapset.Set interface, and IsPortBusy called Contains on
+// it. That panic landed in the connection handler, after the reconnect path had
+// already force-terminated the client id's tunnels and marked it connected, so
+// the genuine agent was refused with "client is already connected" until the
+// next status-check sweep (5 minutes by default). The protocol is attacker-
+// chosen: sanitizeAgentRemotes deliberately leaves it alone.
+func TestIsPortBusyRejectsUnknownProtocolInsteadOfPanicking(t *testing.T) {
+	pd := NewPortDistributorForTests(
+		mapset.NewSetFromSlice([]interface{}{1, 2, 3, 4, 5}),
+		mapset.NewSetFromSlice([]interface{}{2, 3, 4, 5}),
+		mapset.NewSetFromSlice([]interface{}{2, 3, 4, 5}),
+	)
+
+	for _, protocol := range []string{"", "sctp", "TCP", "tcp+udp+icmp", "tcp ", "../tcp"} {
+		t.Run("protocol="+protocol, func(t *testing.T) {
+			require.NotPanics(t, func() {
+				_, err := pd.IsPortBusy(protocol, 20001)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "unsupported protocol")
+			})
+		})
+	}
+}
+
+// A valid protocol whose pool has not been refreshed yet reached the same nil.
+func TestIsPortBusyReportsAnUnrefreshedPool(t *testing.T) {
+	pd := NewPortDistributor(mapset.NewSetFromSlice([]interface{}{1, 2, 3}))
+
+	for _, protocol := range []string{models.ProtocolTCP, models.ProtocolUDP, models.ProtocolTCPUDP} {
+		t.Run(protocol, func(t *testing.T) {
+			require.NotPanics(t, func() {
+				_, err := pd.IsPortBusy(protocol, 1)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "not been refreshed")
+			})
+		})
+	}
+}
+
+// gopsutil's Connections rejects "tcp+udp", so handing the protocol through
+// verbatim made every tcp+udp tunnel on a pinned local port fail with a 500.
+// A port is busy for tcp+udp if it is busy for either half.
+func TestListBusyPortsHandlesTCPUDP(t *testing.T) {
+	busy, err := ListBusyPorts(models.ProtocolTCPUDP)
+	require.NoError(t, err, "tcp+udp must not be handed to gopsutil verbatim")
+	require.NotNil(t, busy)
+
+	_, err = ListBusyPorts("sctp")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported protocol")
 }

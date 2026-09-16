@@ -502,6 +502,17 @@ func (s *ClientServiceProvider) startClientTunnels(client *clientdata.Client, re
 
 	tunnels := make([]*clienttunnel.Tunnel, 0, len(remotes))
 	for _, remote := range remotes {
+		// Protocol comes straight off the agent's connection request and is
+		// deliberately left alone by sanitizeAgentRemotes, so check it before
+		// anything uses it as a map key. clienttunnel.NewTunnel refuses an
+		// unknown protocol too, but only further down -- past the port
+		// distributor, which used to panic on it.
+		if !models.IsValidProtocol(remote.Protocol) {
+			return nil, apiErrors.NewAPIError(
+				http.StatusBadRequest, "",
+				fmt.Sprintf("Unsupported protocol %q.", remote.Protocol), nil)
+		}
+
 		if !remote.IsLocalSpecified() {
 			clog.Debugf("no local specified")
 			port, err := s.portDistributor.GetRandomPort(remote.Protocol)
@@ -555,7 +566,11 @@ func (s *ClientServiceProvider) checkLocalPort(protocol, port string) error {
 		return apiErrors.NewAPIError(http.StatusBadRequest, "", fmt.Sprintf("Local port %d is not among allowed ports.", localPort), nil)
 	}
 
-	if s.portDistributor.IsPortBusy(protocol, localPort) {
+	busy, err := s.portDistributor.IsPortBusy(protocol, localPort)
+	if err != nil {
+		return apiErrors.NewAPIError(http.StatusBadRequest, "", fmt.Sprintf("Cannot check local port %d: %v.", localPort, err), err)
+	}
+	if busy {
 		return apiErrors.NewAPIError(http.StatusConflict, "", fmt.Sprintf("Local port %d already in use.", localPort), nil)
 	}
 
