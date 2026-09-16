@@ -923,6 +923,17 @@ func (s *ClientServiceProvider) startTunnelWithProxy(
 	proxyPort = remote.LocalPort
 	proxyACL = acl
 
+	// The proxy is about to bind proxyPort, so take it out of circulation
+	// before asking for the inner tunnel's port. Without this, GetRandomPort
+	// could hand back the very port the proxy needs -- the pool contains it,
+	// because checkLocalPort only *checks* a pinned port and nothing removes
+	// it -- and the proxy's bind then failed with EADDRINUSE. That used to be
+	// invisible: the bind happened inside a goroutine and was Debug-logged, so
+	// the API answered 200 with a tunnel whose proxy was never listening.
+	if proxyPortNum, convErr := strconv.Atoi(proxyPort); convErr == nil {
+		s.portDistributor.Reserve(remote.Protocol, proxyPortNum)
+	}
+
 	// reconfigure tunnel local host/addr to use 127.0.0.1 with a random port and make new acl
 	remote.LocalHost = "127.0.0.1"
 	port, err := s.portDistributor.GetRandomPort(remote.Protocol)

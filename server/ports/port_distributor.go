@@ -97,6 +97,28 @@ func (d *PortDistributor) GetRandomPort(protocol string) (int, error) {
 	return port.(int), nil
 }
 
+// Reserve takes port out of circulation for protocol: removed from the pool(s)
+// and marked reserved, exactly as GetRandomPort does with the port it hands
+// out. Callers use it for a port they are about to bind themselves, so a
+// subsequent GetRandomPort cannot hand the same port to something else before
+// the bind lands and a Refresh notices.
+func (d *PortDistributor) Reserve(protocol string, port int) {
+	subProtocols := []string{protocol}
+	if protocol == models.ProtocolTCPUDP {
+		subProtocols = []string{models.ProtocolTCP, models.ProtocolUDP}
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	for _, p := range subProtocols {
+		if pool := d.portsPools[p]; pool != nil {
+			pool.Remove(port)
+		}
+	}
+	d.reserved.Add(port)
+}
+
 func (d *PortDistributor) IsPortAllowed(port int) bool {
 	return d.allowedPorts.Contains(port)
 }

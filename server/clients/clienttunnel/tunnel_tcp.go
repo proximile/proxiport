@@ -42,13 +42,13 @@ func newTunnelTCP(logger *logger.Logger, ssh ssh.Conn, remote models.Remote, acl
 }
 
 func (t *tunnelTCP) Start(ctx context.Context) error {
-	t.Logger.Debugf("starting tcp tunnel...")
-	t.Logger.Debugf("listening on %+v", t.Local())
+	t.Debugf("starting tcp tunnel...")
+	t.Debugf("listening on %+v", t.Local())
 
 	// TODO(m-terel): consider to use ListenTCP
 	l, err := net.Listen("tcp", t.Local())
 	if err != nil {
-		return fmt.Errorf("%s: %s", t.Logger.Prefix(), err)
+		return fmt.Errorf("%s: %s", t.Prefix(), err)
 	}
 
 	ctx, t.stopFn = context.WithCancel(ctx)
@@ -57,10 +57,16 @@ func (t *tunnelTCP) Start(ctx context.Context) error {
 	return nil
 }
 
-func (t *tunnelTCP) Terminate(force bool) error {
-	n := atomic.LoadInt32(&t.connCount)
-	if !force && n > 0 {
+func (t *tunnelTCP) CanTerminate(force bool) error {
+	if n := atomic.LoadInt32(&t.connCount); !force && n > 0 {
 		return fmt.Errorf("tunnel has %d active connection(s)", n)
+	}
+	return nil
+}
+
+func (t *tunnelTCP) Terminate(force bool) error {
+	if err := t.CanTerminate(force); err != nil {
+		return err
 	}
 	if t.stopFn == nil {
 		return nil
@@ -109,13 +115,13 @@ func (t *tunnelTCP) listen(ctx context.Context, l net.Listener) {
 			tcpAddr, ok := conn.RemoteAddr().(*net.TCPAddr)
 			if !ok {
 				t.Errorf("Unsupported remote address type. Expected net.TCPAddr. %v", conn.RemoteAddr())
-				conn.Close()
+				_ = conn.Close()
 				continue
 			}
 
 			if !acl.CheckAccess(tcpAddr.IP) {
 				t.Debugf("Access rejected. Remote addr: %s", tcpAddr)
-				conn.Close()
+				_ = conn.Close()
 				continue
 			}
 		}
@@ -147,6 +153,16 @@ func (t *tunnelTCP) accept(ctx context.Context, src io.ReadWriteCloser) {
 	l.Debugf("Accept")
 
 	done := make(chan bool)
+	// Release the watcher below on EVERY path, not just the happy one. Its
+	// only exits are ctx.Done() and done, and both early returns here -- a nil
+	// sshConn, and OpenChannel failing because the agent rejected the
+	// destination under its own tunnel_allowed policy or its transport has
+	// dropped -- used to return without closing done. That parked one
+	// goroutine, plus its closure and forked logger, for the tunnel's whole
+	// lifetime, at whatever rate anyone able to reach the listening socket
+	// cared to open connections. A random-port tunnel binds 0.0.0.0 and an
+	// absent ACL means allow-all, so that need not be an authenticated party.
+	defer close(done)
 	// link ctx to conn
 	go func() {
 		select {
@@ -177,7 +193,6 @@ func (t *tunnelTCP) accept(ctx context.Context, src io.ReadWriteCloser) {
 	//then pipe
 	s, r := chshare.Pipe(src, dst)
 	l.Debugf("Close (sent %s received %s)", sizestr.ToString(s), sizestr.ToString(r))
-	close(done)
 }
 
 func (t *tunnelTCP) SetACL(acl *TunnelACL) {

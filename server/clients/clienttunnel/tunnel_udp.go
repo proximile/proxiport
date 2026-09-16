@@ -29,6 +29,13 @@ type tunnelUDP struct {
 	done    chan struct{}
 	cancel  func()
 
+	// sshChan is the agent channel runOutbound reads. Kept so it can be
+	// closed: comm.UDPChannel.Decode takes no context, so canceling alone
+	// leaves runOutbound parked on it -- along with the agent's own
+	// per-channel goroutine -- for the rest of the connection. nil when
+	// start() is driven directly with a pipe, as the tests do.
+	sshChan io.Closer
+
 	mtx        sync.Mutex
 	lastActive time.Time
 }
@@ -47,13 +54,14 @@ func newTunnelUDP(logger *logger.Logger, ssh ssh.Conn, remote models.Remote, acl
 }
 
 func (t *tunnelUDP) Start(ctx context.Context) error {
-	t.Logger.Debugf("Starting udp tunnel...")
+	t.Debugf("Starting udp tunnel...")
 	remoteAddr := t.Remote.Remote() + "/udp"
 	sshChan, reqs, err := t.sshConn.OpenChannel("rport", []byte(remoteAddr))
 	if err != nil {
 		return err
 	}
 	go ssh.DiscardRequests(reqs)
+	t.sshChan = sshChan
 
 	return t.start(ctx, sshChan)
 }
@@ -86,11 +94,21 @@ func (t *tunnelUDP) start(ctx context.Context, sshChan io.ReadWriter) error {
 		}
 	}()
 
+	// Terminate cancels ctx, and so does the agent's connection going away.
+	// Either way the channel has to be closed or runOutbound never returns:
+	// it is blocked in a gob decode that no context can interrupt.
+	go func() {
+		<-ctx.Done()
+		if t.sshChan != nil {
+			_ = t.sshChan.Close()
+		}
+	}()
+
 	return nil
 }
 
 func (t *tunnelUDP) runInbound(ctx context.Context) error {
-	defer t.conn.Close()
+	defer func() { _ = t.conn.Close() }()
 	defer close(t.done)
 
 	const maxMTU = 9012
@@ -158,6 +176,13 @@ func (t *tunnelUDP) runOutbound(ctx context.Context) error {
 			return err
 		}
 	}
+}
+
+// CanTerminate reports whether Terminate would proceed. A UDP tunnel has no
+// connection state to refuse on, so it always can -- which is precisely why
+// MultiProtocolTunnel must ask the TCP half before stopping this one.
+func (t *tunnelUDP) CanTerminate(force bool) error {
+	return nil
 }
 
 func (t *tunnelUDP) Terminate(force bool) error {

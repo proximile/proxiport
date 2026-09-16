@@ -120,7 +120,7 @@ func (c *InternalTunnelProxyConfig) validateGuacd(addr string) error {
 	if err != nil {
 		return err
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	return nil
 }
@@ -144,6 +144,12 @@ type InternalTunnelProxy struct {
 	proxyServer          *http.Server
 	tunnelProxyConnector TunnelProxyConnector
 	acme                 *acme.Acme
+
+	// listener is the bound socket Start hands to the serving goroutine.
+	// Kept so Stop can close it directly: http.Server.Shutdown only closes
+	// listeners the server has already registered, and Start binds before the
+	// goroutine runs.
+	listener net.Listener
 }
 
 func NewInternalTunnelProxy(tunnel *Tunnel, logger *logger.Logger, config *InternalTunnelProxyConfig, host string, port string, acl *TunnelACL, acme *acme.Acme) *InternalTunnelProxy {
@@ -152,8 +158,8 @@ func NewInternalTunnelProxy(tunnel *Tunnel, logger *logger.Logger, config *Inter
 		Config:     config,
 		Host:       host,
 		Port:       port,
-		TunnelHost: tunnel.Remote.LocalHost,
-		TunnelPort: tunnel.Remote.LocalPort,
+		TunnelHost: tunnel.LocalHost,
+		TunnelPort: tunnel.LocalPort,
 		acme:       acme,
 	}
 	tp.SetACL(acl)
@@ -193,27 +199,46 @@ func (tp *InternalTunnelProxy) Start(ctx context.Context) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	go tp.listen()
-
-	tp.Logger.Infof("tunnel proxy started")
-	return nil
-}
-
-func (tp *InternalTunnelProxy) listen() {
-	tp.Logger.Debugf("listener starting")
-
 	// this tlsmin is the InternalTunnelProxyConfig config in the server section
 	tp.proxyServer.TLSConfig = security.TLSConfig(tp.Config.TLSMin)
 	if tp.Config.EnableAcme {
 		tp.proxyServer.TLSConfig = tp.acme.ApplyTLSConfig(tp.proxyServer.TLSConfig)
 	}
-	err := tp.proxyServer.ListenAndServeTLS(tp.Config.CertFile, tp.Config.KeyFile)
+
+	// Bind here, serve in the goroutine. ListenAndServeTLS used to do both
+	// inside the goroutine, so Start returned nil unconditionally and a bind
+	// failure -- an lhost that is not an address on this host, or a port taken
+	// between checkLocalPort's snapshot and the bind -- was only Debug-logged,
+	// below the default level. The caller's rollback branch, which exists to
+	// terminate the underlying tunnel when its proxy cannot start, was
+	// therefore unreachable: the API answered 200 with a tunnel object naming
+	// a proxy address that refuses every connection, while the server kept the
+	// underlying listener up and its port marked reserved.
+	ln, err := net.Listen("tcp", tp.proxyServer.Addr)
+	if err != nil {
+		return err
+	}
+	tp.listener = ln
+
+	go tp.serve(ln)
+
+	tp.Logger.Infof("tunnel proxy started")
+	return nil
+}
+
+func (tp *InternalTunnelProxy) serve(ln net.Listener) {
+	tp.Logger.Debugf("listener starting")
+
+	err := tp.proxyServer.ServeTLS(ln, tp.Config.CertFile, tp.Config.KeyFile)
 	if err != nil && err == http.ErrServerClosed {
 		tp.Logger.Infof("tunnel proxy closed")
 		return
 	}
 	if err != nil {
-		tp.Logger.Debugf("tunnel proxy ended with %v", err)
+		// Not Debugf: by the time this fires the operator has been told the
+		// tunnel is up, so the reason it is not must be visible at the
+		// default log level.
+		tp.Logger.Errorf("tunnel proxy ended with %v", err)
 	}
 }
 
@@ -223,6 +248,17 @@ func (tp *InternalTunnelProxy) Stop(ctx context.Context) error {
 
 	if err := tp.proxyServer.Shutdown(ctxShutDown); err != nil {
 		tp.Logger.Infof("tunnel proxy shutdown failed:%+s", err)
+	}
+
+	// Shutdown closes only the listeners the server has registered, and Start
+	// binds before handing the listener to the serving goroutine -- so a Stop
+	// that arrives first would leave the port bound until that goroutine
+	// happened to run. Closing it here makes the release deterministic, which
+	// matters because the port goes straight back into the distributor's pool.
+	// Already closed by Shutdown is the normal case and not an error worth
+	// reporting.
+	if tp.listener != nil {
+		_ = tp.listener.Close()
 	}
 
 	return nil
