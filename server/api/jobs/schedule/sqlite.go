@@ -155,7 +155,15 @@ func (p *SQLiteProvider) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// CountJobsInProgress counts jobs for scheduleID that have not finished and are not timed out
+// CountJobsInProgress counts jobs for scheduleID that have not finished and are not timed out.
+//
+// The age comparison is absolute on purpose. started_at comes from the agent's
+// clock and 'now' from the server's, so the difference can be negative; a plain
+// "age <= timeout" test treats every negative age as in progress, which means a
+// single job row dated in the future pins its schedule as busy for good and the
+// schedule silently never runs again. Taking the absolute value bounds the
+// window in both directions: a job whose start time is further from now than
+// its own timeout -- in either direction -- is not in progress.
 func (p *SQLiteProvider) CountJobsInProgress(ctx context.Context, scheduleID string, timeoutSec int) (int, error) {
 	var result int
 
@@ -168,7 +176,7 @@ WHERE
 AND
 	finished_at IS NULL
 AND
-	strftime('%s', 'now') - strftime('%s', jobs.started_at) <= ?
+	abs(strftime('%s', 'now') - strftime('%s', jobs.started_at)) <= ?
 `, scheduleID, timeoutSec)
 	if err != nil {
 		return 0, err

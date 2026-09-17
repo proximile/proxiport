@@ -10,6 +10,7 @@ import (
 
 	errors2 "github.com/proximile/proxiport/server/api/errors"
 	"github.com/proximile/proxiport/server/api/jobs"
+	"github.com/proximile/proxiport/server/api/users"
 	"github.com/proximile/proxiport/server/clients/clientdata"
 	"github.com/proximile/proxiport/share/comm"
 	"github.com/proximile/proxiport/share/models"
@@ -38,6 +39,25 @@ type JobProvider interface {
 	SaveMultiJob(multiJob *models.MultiJob) error
 	CleanupJobsMultiJobs(context.Context, int) error
 	Close() error
+}
+
+// maxAgentStartedAtSkew is how far outside the window the server measured the
+// run-cmd round trip in the start time an agent reports may fall before the
+// server stops believing it.
+const maxAgentStartedAtSkew = time.Minute
+
+// plausibleAgentStartedAt decides whether reportedAt -- the command start time
+// an agent puts in its run-cmd reply, on its own clock -- is close enough to
+// the [dispatchedAt, now] window the server measured to be used as the job's
+// start time. When it is not, the server's own dispatch time is returned
+// instead: a job start time is compared against the server's clock elsewhere,
+// so a value from a wildly different clock domain is worse than a slightly
+// less precise one.
+func plausibleAgentStartedAt(dispatchedAt, now, reportedAt time.Time) (time.Time, bool) {
+	if reportedAt.Before(dispatchedAt.Add(-maxAgentStartedAtSkew)) || reportedAt.After(now.Add(maxAgentStartedAtSkew)) {
+		return dispatchedAt, false
+	}
+	return reportedAt, true
 }
 
 func (al *APIListener) createAndRunJob(
@@ -96,7 +116,22 @@ func (al *APIListener) createAndRunJob(
 
 		// success, set fields received in response
 		curJob.PID = &sshResp.Pid
-		curJob.StartedAt = sshResp.StartedAt // override with the start time of the command
+		// The agent reports when the command actually started, which is more
+		// precise than the server's dispatch time -- but it is measured on the
+		// agent's clock, and the guard that keeps a non-overlapping schedule
+		// from running twice subtracts this value from the server's own. A
+		// start time in the future makes that difference negative, which
+		// satisfies the guard's "still inside the timeout" test for as long as
+		// the row exists, so one skewed or hostile agent could suppress a
+		// schedule forever -- for every client it targets, not just itself.
+		// Keep the server's dispatch time unless the reported one is close
+		// enough to the round trip we just measured to be believable.
+		if startedAt, ok := plausibleAgentStartedAt(curJob.StartedAt, time.Now(), sshResp.StartedAt); ok {
+			curJob.StartedAt = startedAt
+		} else {
+			al.Errorf("%s, Agent reported an implausible command start time %s; keeping the server's %s.",
+				logPrefix, sshResp.StartedAt.Format(time.RFC3339), curJob.StartedAt.Format(time.RFC3339))
+		}
 		curJob.Status = models.JobStatusRunning
 	}
 
@@ -294,10 +329,44 @@ func (al *APIListener) checkMultiJobAccess(ctx context.Context, multiJobRequest 
 		}
 	}
 
+	if err := al.checkExecutionPermission(user, multiJobRequest.IsScript); err != nil {
+		return err
+	}
+
 	clientGroups, err := al.clientGroupProvider.GetAll(ctx)
 	if err != nil {
 		return err
 	}
 
 	return al.clientService.CheckClientsAccess(multiJobRequest.OrderedClients, user, clientGroups)
+}
+
+// executionPermission is the function permission a job of this kind needs: the
+// same grant its own HTTP route is gated by.
+func executionPermission(isScript bool) string {
+	if isScript {
+		return users.PermissionScripts
+	}
+	return users.PermissionCommands
+}
+
+// checkExecutionPermission enforces the commands/scripts function permission
+// away from the route middleware that normally carries it.
+//
+// permissionsMiddleware was the only caller of CheckPermission, and the
+// scheduler never passes through it -- it calls StartMultiClientJob directly.
+// So "scheduler" was a superset of "commands" and "scripts": a user denied both
+// could still run either by wrapping it in a schedule, and revoking them
+// afterwards did not stop a schedule that was already stored. The client ACL
+// re-check added alongside this one is a different question -- which machines
+// you may address, not whether you may run anything at all.
+//
+// The conditions mirror permissionsMiddleware exactly, so auth backends that
+// have no group permissions to check (file, single static user) behave as they
+// always have.
+func (al *APIListener) checkExecutionPermission(user *users.User, isScript bool) error {
+	if al.insecureForTests || !al.userService.SupportsGroupPermissions() {
+		return nil
+	}
+	return al.userService.CheckPermission(user, executionPermission(isScript))
 }

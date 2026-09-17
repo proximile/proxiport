@@ -148,13 +148,41 @@ intentional.
 - `scripts` — run, store, list scripts.
 - `commands` — run, store, list commands.
 - `vault` — read, write, list vault items.
-- `scheduler` — create, run, list schedules.
+- `scheduler` — create, run, list schedules. A schedule runs a
+  command or a script, so it also needs the matching `commands` or
+  `scripts` permission (see below).
 - `monitoring` — read monitoring metrics.
 - `uploads` — push files to agents.
 - `auditlog` — read the audit log.
 
 The `Administrators` user group bypasses every check — its members
 have every function and every client.
+
+### Scheduling is not a way around `commands` and `scripts`
+
+A schedule is a command or a script with a cron expression attached,
+so it is gated by the same permission the equivalent direct call is:
+
+| Schedule `type` | Permissions needed |
+|---|---|
+| `command` | `scheduler` **and** `commands` |
+| `script`  | `scheduler` **and** `scripts` |
+
+The check applies both when the schedule is created or repointed and
+again each time the cron fires, so revoking `commands` or `scripts`
+from a group stops the schedules its members have already stored —
+you do not have to hunt down and delete each one. The account and its
+client access are untouched, which makes this the right way to
+withdraw execution from an operator while an investigation runs.
+
+> **Upgrading:** before this release `scheduler` alone was enough to
+> create and run a schedule of either type, which made it a superset
+> of `commands` and `scripts`. If you have a group that grants
+> `scheduler` without them, its members' schedules stop running at
+> upgrade. Add the permission the schedule's type needs, or delete the
+> schedule. `Administrators` is unaffected, and so is any deployment
+> whose auth backend has no group permissions at all (`auth`,
+> `auth_file`): there is nothing there to check.
 
 ### Managing user groups
 
