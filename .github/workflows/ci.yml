@@ -101,6 +101,69 @@ jobs:
           CGO_ENABLED: "1"
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
+  cross:
+    name: Agent cross-build (${{ matrix.goos }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The agent ships to every platform listed in .goreleaser.yml, but nothing
+    # in this workflow or in the local pre-push gate ever set GOOS. Every file
+    # behind a //go:build windows, darwin or *bsd tag was therefore shipped to
+    # users without once being compiled, vetted or linted by a gate -- and the
+    # server-side lens of that gap is what let a wrong-sized QueryDosDevice
+    # buffer and an encoding table covering one of nine Windows code pages sit
+    # in a release. This job closes it.
+    #
+    # Scope is the AGENT, not ./... : the server links cgo sqlite and only
+    # builds for linux, so a cross-compile of the whole module is expected to
+    # fail on db/sqlite and is not a useful signal.
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [windows, darwin, freebsd, openbsd, netbsd]
+    env:
+      GOOS: ${{ matrix.goos }}
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.8"
+          cache: true
+
+      - name: go build (agent)
+        run: go build -ldflags "-s -w" -o /tmp/proxiport-${{ matrix.goos }} ./cmd/proxiport
+
+      - name: go vet (agent packages)
+        # The agent's own transitive package set, so the server's cgo-only
+        # packages are excluded without hand-maintaining a list.
+        run: go vet $(go list -deps ./cmd/proxiport | grep '^github.com/proximile/proxiport')
+
+      - name: compile test binaries
+        # Tests cannot RUN under a foreign GOOS on this runner, but they can be
+        # compiled -- which catches a _test.go file for that platform that no
+        # longer builds. Without this, a windows-only test could reference a
+        # function that has been renamed for years and no gate would notice.
+        if: matrix.goos == 'windows' || matrix.goos == 'darwin'
+        run: |
+          for p in $(go list ./client/...); do
+            go test -c -o /dev/null "$p"
+          done
+
+      - name: golangci-lint
+        # Same .golangci.yml, which runs in new-issues-only mode, so this
+        # blocks on findings introduced by the change under review rather than
+        # on the backlog these files accumulated while unlinted. Windows and
+        # darwin only: that is where the platform-specific source lives.
+        if: matrix.goos == 'windows' || matrix.goos == 'darwin'
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+          args: --timeout=8m ./client/...
+
   frontend:
     name: Frontend type-check and build
     runs-on: ubuntu-latest
