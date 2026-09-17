@@ -123,11 +123,28 @@ func (d *PortDistributor) IsPortAllowed(port int) bool {
 	return d.allowedPorts.Contains(port)
 }
 
-func (d *PortDistributor) IsPortBusy(protocol string, port int) bool {
-	return !d.getPool(protocol).Contains(port)
+// IsPortBusy reports whether port is already taken for protocol.
+//
+// It returns an error rather than assuming a pool exists. protocol reaches here
+// straight off the agent's connection request, and portsPools is only ever
+// keyed "tcp" and "udp", so any other value used to index the map to a nil
+// mapset.Set interface and panic on the method call -- in the connection
+// handler, after the reconnect path had already torn down that client id's
+// tunnels and marked it connected, which locked the real agent out until the
+// next status-check sweep. A protocol that is valid but not yet refreshed hit
+// the same nil.
+func (d *PortDistributor) IsPortBusy(protocol string, port int) (bool, error) {
+	pool, err := d.getPool(protocol)
+	if err != nil {
+		return false, err
+	}
+	return !pool.Contains(port), nil
 }
 
-func (d *PortDistributor) getPool(protocol string) mapset.Set {
+func (d *PortDistributor) getPool(protocol string) (mapset.Set, error) {
+	if !models.IsValidProtocol(protocol) {
+		return nil, fmt.Errorf("unsupported protocol %q", protocol)
+	}
 	if protocol == models.ProtocolTCPUDP {
 		// Read both sub-pools through getPoolFromMap so the underlying map is
 		// only ever touched under d.mu. Indexing d.portsPools directly here
@@ -137,11 +154,15 @@ func (d *PortDistributor) getPool(protocol string) mapset.Set {
 		tcpPool := d.getPoolFromMap(models.ProtocolTCP)
 		udpPool := d.getPoolFromMap(models.ProtocolUDP)
 		if tcpPool == nil || udpPool == nil {
-			return nil
+			return nil, fmt.Errorf("port pools for %q have not been refreshed yet", protocol)
 		}
-		return tcpPool.Intersect(udpPool)
+		return tcpPool.Intersect(udpPool), nil
 	}
-	return d.getPoolFromMap(protocol)
+	pool := d.getPoolFromMap(protocol)
+	if pool == nil {
+		return nil, fmt.Errorf("port pool for %q has not been refreshed yet", protocol)
+	}
+	return pool, nil
 }
 
 func (d *PortDistributor) Refresh() error {
@@ -181,7 +202,29 @@ func (d *PortDistributor) refresh(protocol string) error {
 	return nil
 }
 
+// ListBusyPorts returns the local ports currently in use for protocol.
+//
+// tcp+udp is expanded here rather than passed through: gopsutil's Connections
+// rejects it, which made every attempt to create a tcp+udp tunnel on a pinned
+// local port fail with HTTP 500 from the handler that calls this. A port is
+// busy for tcp+udp if it is busy for either half, so the two results are
+// unioned.
 func ListBusyPorts(protocol string) (mapset.Set, error) {
+	if !models.IsValidProtocol(protocol) {
+		return nil, fmt.Errorf("unsupported protocol %q", protocol)
+	}
+	if protocol == models.ProtocolTCPUDP {
+		tcpPorts, err := ListBusyPorts(models.ProtocolTCP)
+		if err != nil {
+			return nil, err
+		}
+		udpPorts, err := ListBusyPorts(models.ProtocolUDP)
+		if err != nil {
+			return nil, err
+		}
+		return tcpPorts.Union(udpPorts), nil
+	}
+
 	result := mapset.NewSet()
 	connections, err := net.Connections(protocol)
 	if err != nil {
