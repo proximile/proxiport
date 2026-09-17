@@ -197,7 +197,16 @@ jobs:
         # The debt is gone (`process` in vite.config.ts needed @types/node;
         # the rest were unguarded `$page.params.id`, typed optional), so the
         # step blocks now. Warnings are still tolerated by --threshold error.
-        run: npx svelte-check --threshold error
+        #
+        # svelte-kit sync first: tsconfig.json extends .svelte-kit/tsconfig.json,
+        # which is generated, and CI never generated it. So this step could not
+        # have type-checked anything even without the `|| true` -- it failed on
+        # "Cannot read file .svelte-kit/tsconfig.json" and that failure was
+        # swallowed. `npm run build` passed because the vite plugin syncs
+        # implicitly.
+        run: |
+          npx svelte-kit sync
+          npx svelte-check --tsconfig ./tsconfig.json --threshold error
 
       # The frontend had no test runner at all -- zero spec files, and
       # svelte-check (a type-checker) was the only automated scrutiny the SPA
