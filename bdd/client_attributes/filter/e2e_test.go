@@ -30,7 +30,7 @@ type TagsAndLabelsTestSuite struct {
 }
 
 func (suite *TagsAndLabelsTestSuite) SetupSuite() {
-	helpers.CleanUp(suite.T(), "./rc-test-resurces", "./rd-test-resources")
+	helpers.CleanUp(suite.T(), "./rc-test-resources", "./rd-test-resources")
 	suite.ctx = context.Background()
 	ctx, cancel := context.WithTimeout(suite.ctx, time.Minute*5)
 	defer cancel()
@@ -99,6 +99,6 @@ func (suite *TagsAndLabelsTestSuite) ExpectAnswer(requestURL string, expected []
 // In order for 'go test' to run this suite, we need to create
 // a normal test function and pass our suite to suite.Run
 func TestTagsAndLabelsTestSuite(t *testing.T) {
-	helpers.CleanUp(t, "./rc-test-resurces", "./rd-test-resources")
+	helpers.CleanUp(t, "./rc-test-resources", "./rd-test-resources")
 	suite.Run(t, new(TagsAndLabelsTestSuite))
 }

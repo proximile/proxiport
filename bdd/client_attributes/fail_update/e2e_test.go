@@ -41,7 +41,7 @@ type FailUpdateAttributesTestSuite struct {
 }
 
 func (suite *FailUpdateAttributesTestSuite) SetupSuite() {
-	helpers.CleanUp(suite.T(), "./rc-test-resurces", "./rd-test-resources")
+	helpers.CleanUp(suite.T(), "./rc-test-resources", "./rd-test-resources")
 	suite.ctx = context.Background()
 	ctx, cancel := context.WithTimeout(suite.ctx, time.Minute*5)
 	defer cancel()
