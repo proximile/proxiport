@@ -22,6 +22,7 @@ import (
 	"github.com/proximile/proxiport/share/files"
 	"github.com/proximile/proxiport/share/models"
 	"github.com/proximile/proxiport/share/random"
+	"github.com/proximile/proxiport/share/ws"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -178,17 +179,27 @@ func (al *APIListener) handleUploadsWS(w http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	al.Server.uploadWebSockets.Store(connID, uiConn)
+	// Wrapped, not raw. Every target client of a push gets its own goroutine
+	// (sendFileToClient), each result is notified to every listening socket,
+	// and gorilla panics on a concurrent write to one connection -- from a
+	// goroutine with no recover above it, which takes the daemon down rather
+	// than failing the upload. ConcurrentWebSocket serializes the writes.
+	//
+	// It is also the type the shutdown sweep in Server.Close already asserts,
+	// so storing the raw *websocket.Conn meant no upload socket was ever
+	// closed on shutdown.
+	wsConn := ws.NewConcurrentWebSocket(uiConn, al.Log())
+	al.uploadWebSockets.Store(connID, wsConn)
 
-	defer al.Server.uploadWebSockets.Delete(connID)
+	defer al.uploadWebSockets.Delete(connID)
 	defer func() {
-		if cerr := uiConn.Close(); cerr != nil {
+		if cerr := wsConn.Close(); cerr != nil {
 			al.Errorf("error closing the upload websocket: %v", cerr)
 		}
 	}()
 
 	for {
-		_, _, err := uiConn.ReadMessage()
+		_, _, err := wsConn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				al.Infof("closed ws connection: %v", err)
@@ -336,8 +347,12 @@ func (al *APIListener) sendFileToClient(wg *sync.WaitGroup, file *models.Uploade
 
 func (al *APIListener) notifyUploadEventListeners(msg interface{}) {
 	al.uploadWebSockets.Range(func(key, value interface{}) bool {
-		if wsConn, ok := value.(*websocket.Conn); ok {
-			err := wsConn.WriteJSON(msg)
+		if wsConn, ok := value.(*ws.ConcurrentWebSocket); ok {
+			// WriteNonFinalJSON, not WriteJSON: an upload socket is long-lived
+			// and takes one notification per client per push, while WriteJSON
+			// counts down writesBeforeClose and would close the socket after
+			// the first notification.
+			err := wsConn.WriteNonFinalJSON(msg)
 			if err != nil {
 				al.Errorf("failed to send notification to websocket client %s: %v", key, err)
 			}
