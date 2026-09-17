@@ -8,11 +8,11 @@ require (
 	github.com/cloudradar-monitoring/cagent v0.0.0-20200615130556-4797f9fb8b50
 	github.com/deckarep/golang-set v1.8.0
 	github.com/denisbrodbeck/machineid v1.0.1
-	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-ole/go-ole v1.3.0
-	github.com/go-sql-driver/mysql v1.10.0
+	github.com/go-sql-driver/mysql v1.10.1
 	github.com/golang-jwt/jwt/v4 v4.5.2
-	github.com/golang-migrate/migrate/v4 v4.19.1
+	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/handlers v1.5.2
 	github.com/gorilla/mux v1.8.1
@@ -28,7 +28,7 @@ require (
 	github.com/jpillora/sizestr v1.0.0
 	github.com/kardianos/service v1.3.0
 	github.com/kr/fs v0.1.0 // indirect
-	github.com/mattn/go-sqlite3 v1.14.50
+	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/mocktools/go-smtp-mock v1.10.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -49,12 +49,12 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/wwt/guac v1.3.2
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/crypto v0.56.0
-	golang.org/x/net v0.58.0
-	golang.org/x/sync v0.22.0
-	golang.org/x/sys v0.47.0
-	golang.org/x/term v0.45.0
-	golang.org/x/text v0.41.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/net v0.59.0
+	golang.org/x/sync v0.23.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/term v0.46.0
+	golang.org/x/text v0.42.0
 	gopkg.in/h2non/gock.v1 v1.1.2
 )
 
