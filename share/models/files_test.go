@@ -50,11 +50,26 @@ func TestValidateUploadedFile(t *testing.T) {
 			wantErr: "empty destination file path",
 		},
 		{
+			// Was "mama": this case asserted that a RELATIVE destination is
+			// valid, which is the assumption the protected-path bypass rested
+			// on. Every protected-path rule on both sides is absolute, so a
+			// relative destination matched none of them and the agent resolved
+			// it against its working directory ("/" under the shipped unit).
 			name: "valid",
+			fileInput: UploadedFile{
+				SourceFilePath:  "lala",
+				DestinationPath: "/home/operator/mama",
+			},
+		},
+		{
+			name: "relative destination path",
 			fileInput: UploadedFile{
 				SourceFilePath:  "lala",
 				DestinationPath: "mama",
 			},
+			wantErr: `destination path "mama" must be absolute: a relative path ` +
+				`is resolved against the agent's working directory and is ` +
+				`matched by no protected-path rule`,
 		},
 	}
 

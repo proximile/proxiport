@@ -104,3 +104,71 @@ func TestUploadedFileValidateRejectsSetuidModes(t *testing.T) {
 		assert.NoError(t, uf.Validate(), "mode %#o should be allowed", mode)
 	}
 }
+
+// A relative destination matched no rule on either side: every entry in the
+// server's denied-prefix list and in the agent's FileReceptionGlobs is
+// absolute, and nothing required the destination to be. The agent then handed
+// the name to os.Rename, which resolves it against the process working
+// directory -- "/" under the shipped systemd unit, which sets no
+// WorkingDirectory=. So "etc/sudoers.d/x" reached /etc/sudoers.d/x with both
+// filters bypassed. This is the regression guard for that.
+func TestValidateRejectsRelativeDestination(t *testing.T) {
+	relative := []string{
+		"etc/sudoers.d/operator",
+		"./etc/cron.d/backdoor",
+		"etc/crontab",
+		"etc/ld.so.preload",
+		"usr/lib/systemd/system/backdoor.service",
+		"etc/proxiport/proxiport.conf",
+		"root/.ssh/authorized_keys",
+		"../../etc/shadow",
+		"file.txt",
+		// Rooted but driveless on Windows: resolves against the current
+		// drive, which is the same class of surprise as a relative path.
+		`\Windows\System32\drivers\etc\hosts`,
+	}
+	for _, destination := range relative {
+		uf := UploadedFile{SourceFilePath: "/tmp/src", DestinationPath: destination}
+		assert.Error(t, uf.Validate(), "%s must be refused as a relative destination", destination)
+
+		// And again at the last-resort filter, which a hostile server reaches
+		// without going through the server-side validator at all.
+		assert.Error(t, uf.ValidateDestinationPath([]string{"/etc/sudoers.d/**"}, protectedTestLog),
+			"%s must be refused by the protected-path filter too", destination)
+	}
+}
+
+func TestValidateAcceptsAbsoluteDestination(t *testing.T) {
+	absolute := []string{
+		"/tmp/report.txt",
+		"/home/operator/data.csv",
+		`C:\Users\operator\report.txt`,
+		`c:/Users/operator/report.txt`,
+		`\\fileserver\share\report.txt`,
+	}
+	for _, destination := range absolute {
+		uf := UploadedFile{SourceFilePath: "/tmp/src", DestinationPath: destination}
+		assert.NoError(t, uf.Validate(), "%s is absolute and must be accepted", destination)
+	}
+}
+
+func TestIsAbsoluteDestination(t *testing.T) {
+	for _, c := range []struct {
+		path string
+		want bool
+	}{
+		{"/etc/passwd", true},
+		{`C:\Windows`, true},
+		{"C:/Windows", true},
+		{`\\server\share`, true},
+		{"etc/passwd", false},
+		{"./etc/passwd", false},
+		{"../etc/passwd", false},
+		{`\Windows`, false},
+		{"C:", false},
+		{"1:/nope", false},
+		{"", false},
+	} {
+		assert.Equal(t, c.want, IsAbsoluteDestination(c.path), "IsAbsoluteDestination(%q)", c.path)
+	}
+}

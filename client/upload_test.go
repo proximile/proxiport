@@ -3,7 +3,6 @@ package chclient
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -82,16 +81,16 @@ func TestHandleUploadRequest(t *testing.T) {
 			name:             "non existing file upload success",
 			wantUploadedFile: getValidUploadFile("some content"),
 			fsCallback: func(fs *test.FileAPIMock) {
-				fs.On("Exist", filepath.Join("destination", "file.txt")).Return(false, nil)
+				fs.On("Exist", filepath.Join("/destination", "file.txt")).Return(false, nil)
 
 				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp.txt")
 				fs.On("Exist", expectedTempFilePath).Return(false, nil)
 
 				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), files.DefaultMode).Return(true, nil)
-				fs.On("CreateDirIfNotExists", "destination", files.DefaultMode).Return(true, nil)
+				fs.On("CreateDirIfNotExists", "/destination", files.DefaultMode).Return(true, nil)
 
 				fileExpectation := func(f io.ReadCloser) bool {
-					actualFileContent, err := ioutil.ReadAll(f)
+					actualFileContent, err := io.ReadAll(f)
 
 					require.NoError(t, err)
 
@@ -105,17 +104,17 @@ func TestHandleUploadRequest(t *testing.T) {
 
 				fs.On("Open", expectedTempFilePath).Return(fileMock, nil)
 
-				fs.On("Rename", expectedTempFilePath, filepath.Join("destination", "file.txt")).Return(nil)
+				fs.On("Rename", expectedTempFilePath, filepath.Join("/destination", "file.txt")).Return(nil)
 			},
 			fileProviderCallback: buildDefaultFileProviderMock(filepath.Join("source", "file_temp.txt"), "some content"),
 			optionsCallback:      defaultOptionsCallback,
 			wantResp: &models.UploadResponse{
 				UploadResponseShort: models.UploadResponseShort{
 					ID:        "97e97cdd-135a-4620-ab50-d44025b8fe31",
-					Filepath:  filepath.Join("destination", "file.txt"),
+					Filepath:  filepath.Join("/destination", "file.txt"),
 					SizeBytes: 10,
 				},
-				Message: "file successfully copied to destination " + filepath.Join("destination", "file.txt"),
+				Message: "file successfully copied to destination " + filepath.Join("/destination", "file.txt"),
 				Status:  "success",
 			},
 		},
@@ -124,7 +123,7 @@ func TestHandleUploadRequest(t *testing.T) {
 			wantUploadedFile: &models.UploadedFile{
 				ID:                   "97e97cdd-135a-4620-ab50-d44025b8fe32",
 				SourceFilePath:       filepath.Join("source", "file_temp2.txt"),
-				DestinationPath:      filepath.Join("destination", "file2.txt"),
+				DestinationPath:      filepath.Join("/destination", "file2.txt"),
 				DestinationFileMode:  0700,
 				DestinationFileOwner: "admin",
 				DestinationFileGroup: "group",
@@ -142,13 +141,13 @@ func TestHandleUploadRequest(t *testing.T) {
 				sysUsrLookup.On("GetCurrentUserAndGroup").Return(usr, gr, nil)
 			},
 			fsCallback: func(fs *test.FileAPIMock) {
-				fs.On("Exist", filepath.Join("destination", "file2.txt")).Return(true, nil)
+				fs.On("Exist", filepath.Join("/destination", "file2.txt")).Return(true, nil)
 
 				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp2.txt")
 				fs.On("Exist", expectedTempFilePath).Return(false, nil)
 
 				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), os.FileMode(0700)).Return(true, nil)
-				fs.On("CreateDirIfNotExists", "destination", os.FileMode(0700)).Return(true, nil)
+				fs.On("CreateDirIfNotExists", "/destination", os.FileMode(0700)).Return(true, nil)
 
 				fileMock := &test.ReadWriteCloserMock{}
 				fileMock.Reader = strings.NewReader("some content")
@@ -157,8 +156,8 @@ func TestHandleUploadRequest(t *testing.T) {
 				fs.On("Open", expectedTempFilePath).Return(fileMock, nil)
 
 				fs.On("CreateFile", expectedTempFilePath, mock.Anything).Return(int64(12), nil)
-				fs.On("Remove", filepath.Join("destination", "file2.txt")).Return(nil)
-				fs.On("Rename", expectedTempFilePath, filepath.Join("destination", "file2.txt")).Return(nil)
+				fs.On("Remove", filepath.Join("/destination", "file2.txt")).Return(nil)
+				fs.On("Rename", expectedTempFilePath, filepath.Join("/destination", "file2.txt")).Return(nil)
 				fs.On("ChangeOwner", filepath.Join("data", "filepush", "file_temp2.txt"), "admin", "group").Return(nil)
 				fs.On("ChangeMode", filepath.Join("data", "filepush", "file_temp2.txt"), os.FileMode(0700)).Return(nil)
 			},
@@ -167,10 +166,10 @@ func TestHandleUploadRequest(t *testing.T) {
 			wantResp: &models.UploadResponse{
 				UploadResponseShort: models.UploadResponseShort{
 					ID:        "97e97cdd-135a-4620-ab50-d44025b8fe32",
-					Filepath:  filepath.Join("destination", "file2.txt"),
+					Filepath:  filepath.Join("/destination", "file2.txt"),
 					SizeBytes: 12,
 				},
-				Message: "file successfully copied to destination " + filepath.Join("destination", "file2.txt"),
+				Message: "file successfully copied to destination " + filepath.Join("/destination", "file2.txt"),
 				Status:  "success",
 			},
 		},
@@ -179,11 +178,11 @@ func TestHandleUploadRequest(t *testing.T) {
 			wantUploadedFile: &models.UploadedFile{
 				ID:              "97e97cdd-135a-4620-ab50-d44025b8fe33",
 				SourceFilePath:  filepath.Join("source", "file_temp3.txt"),
-				DestinationPath: filepath.Join("destination", "file3.txt"),
+				DestinationPath: filepath.Join("/destination", "file3.txt"),
 				Md5Checksum:     []byte("md5_124"),
 			},
 			fsCallback: func(fs *test.FileAPIMock) {
-				fs.On("Exist", filepath.Join("destination", "file3.txt")).Return(true, nil)
+				fs.On("Exist", filepath.Join("/destination", "file3.txt")).Return(true, nil)
 			},
 			optionsCallback: func(opts *UploadOptionsProviderMock) {
 				opts.On("GetProtectedUploadDirs").Return([]string{})
@@ -192,9 +191,9 @@ func TestHandleUploadRequest(t *testing.T) {
 			wantResp: &models.UploadResponse{
 				UploadResponseShort: models.UploadResponseShort{
 					ID:       "97e97cdd-135a-4620-ab50-d44025b8fe33",
-					Filepath: filepath.Join("destination", "file3.txt"),
+					Filepath: filepath.Join("/destination", "file3.txt"),
 				},
-				Message: fmt.Sprintf("file %s already exists, should not be synched or overwritten with force", filepath.Join("destination", "file3.txt")),
+				Message: fmt.Sprintf("file %s already exists, should not be synched or overwritten with force", filepath.Join("/destination", "file3.txt")),
 				Status:  "ignored",
 			},
 		},
@@ -203,24 +202,24 @@ func TestHandleUploadRequest(t *testing.T) {
 			wantUploadedFile: &models.UploadedFile{
 				ID:              "97e97cdd-135a-4620-ab50-d44025b8fe34",
 				SourceFilePath:  filepath.Join("source", "file_temp4.txt"),
-				DestinationPath: filepath.Join("destination", "file4.txt"),
+				DestinationPath: filepath.Join("/destination", "file4.txt"),
 				Md5Checksum:     []byte("md5_125"),
 			},
 			optionsCallback: func(opts *UploadOptionsProviderMock) {
-				opts.On("GetProtectedUploadDirs").Return([]string{filepath.Join("destination", "*")})
+				opts.On("GetProtectedUploadDirs").Return([]string{filepath.Join("/destination", "*")})
 				opts.On("IsFileReceptionEnabled").Return(true)
 			},
 			wantError: fmt.Sprintf(
 				"target path %s matches protected pattern %s, therefore the file push request is rejected",
-				filepath.Join("destination", "file4.txt"),
-				filepath.Join("destination", "*"),
+				filepath.Join("/destination", "file4.txt"),
+				filepath.Join("/destination", "*"),
 			),
 		},
 		{
 			name:             "md5 checksum not matching",
 			wantUploadedFile: getValidUploadFile("some content non matching"),
 			fsCallback: func(fs *test.FileAPIMock) {
-				fs.On("Exist", filepath.Join("destination", "file.txt")).Return(false, nil)
+				fs.On("Exist", filepath.Join("/destination", "file.txt")).Return(false, nil)
 
 				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp.txt")
 				fs.On("Exist", expectedTempFilePath).Return(false, nil)
@@ -245,7 +244,7 @@ func TestHandleUploadRequest(t *testing.T) {
 			wantUploadedFile: &models.UploadedFile{
 				ID:                   "97e97cdd-135a-4620-ab50-d44025b8fe77",
 				SourceFilePath:       filepath.Join("source", "file_temp7.txt"),
-				DestinationPath:      filepath.Join("destination", "file7.txt"),
+				DestinationPath:      filepath.Join("/destination", "file7.txt"),
 				DestinationFileMode:  0744,
 				DestinationFileOwner: "admin",
 				DestinationFileGroup: "group",
@@ -253,13 +252,13 @@ func TestHandleUploadRequest(t *testing.T) {
 				Md5Checksum:          test.Md5Hash("some content"),
 			},
 			fsCallback: func(fs *test.FileAPIMock) {
-				fs.On("Exist", filepath.Join("destination", "file7.txt")).Return(true, nil)
+				fs.On("Exist", filepath.Join("/destination", "file7.txt")).Return(true, nil)
 
 				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp7.txt")
 				fs.On("Exist", expectedTempFilePath).Return(false, nil)
 
 				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), os.FileMode(0744)).Return(true, nil)
-				fs.On("CreateDirIfNotExists", "destination", os.FileMode(0744)).Return(true, nil)
+				fs.On("CreateDirIfNotExists", "/destination", os.FileMode(0744)).Return(true, nil)
 
 				fs.On("CreateFile", expectedTempFilePath, mock.Anything).Return(int64(12), nil)
 
@@ -272,14 +271,14 @@ func TestHandleUploadRequest(t *testing.T) {
 				existingFileMock2 := &test.ReadWriteCloserMock{}
 				existingFileMock2.Reader = strings.NewReader("some content")
 				existingFileMock2.On("Close").Return(nil)
-				fs.On("Open", filepath.Join("destination", "file7.txt")).Return(existingFileMock2, nil)
+				fs.On("Open", filepath.Join("/destination", "file7.txt")).Return(existingFileMock2, nil)
 
-				fs.On("GetFileMode", filepath.Join("destination", "file7.txt")).Return(os.FileMode(0744), nil)
+				fs.On("GetFileMode", filepath.Join("/destination", "file7.txt")).Return(os.FileMode(0744), nil)
 
-				fs.On("GetFileOwnerAndGroup", filepath.Join("destination", "file7.txt")).Return(defaultUID, defaultGID, nil)
+				fs.On("GetFileOwnerAndGroup", filepath.Join("/destination", "file7.txt")).Return(defaultUID, defaultGID, nil)
 
-				fs.On("Remove", filepath.Join("destination", "file7.txt")).Return(nil)
-				fs.On("Rename", expectedTempFilePath, filepath.Join("destination", "file7.txt")).Return(nil)
+				fs.On("Remove", filepath.Join("/destination", "file7.txt")).Return(nil)
+				fs.On("Rename", expectedTempFilePath, filepath.Join("/destination", "file7.txt")).Return(nil)
 				fs.On("ChangeOwner", filepath.Join("data", "filepush", "file_temp7.txt"), "admin", "group").Return(nil)
 				fs.On("ChangeMode", filepath.Join("data", "filepush", "file_temp7.txt"), os.FileMode(0744)).Return(nil)
 			},
@@ -300,10 +299,10 @@ func TestHandleUploadRequest(t *testing.T) {
 			wantResp: &models.UploadResponse{
 				UploadResponseShort: models.UploadResponseShort{
 					ID:        "97e97cdd-135a-4620-ab50-d44025b8fe77",
-					Filepath:  filepath.Join("destination", "file7.txt"),
+					Filepath:  filepath.Join("/destination", "file7.txt"),
 					SizeBytes: 12,
 				},
-				Message: "file successfully copied to destination " + filepath.Join("destination", "file7.txt"),
+				Message: "file successfully copied to destination " + filepath.Join("/destination", "file7.txt"),
 				Status:  "success",
 			},
 		},
@@ -312,20 +311,20 @@ func TestHandleUploadRequest(t *testing.T) {
 			wantUploadedFile: &models.UploadedFile{
 				ID:                   "97e97cdd-135a-4620-ab50-d44025b8fe78",
 				SourceFilePath:       filepath.Join("source", "file_temp8.txt"),
-				DestinationPath:      filepath.Join("destination", "file8.txt"),
+				DestinationPath:      filepath.Join("/destination", "file8.txt"),
 				DestinationFileMode:  os.FileMode(0744),
 				DestinationFileOwner: "admin",
 				DestinationFileGroup: "group",
 				Md5Checksum:          test.Md5Hash("some content"),
 			},
 			fsCallback: func(fs *test.FileAPIMock) {
-				fs.On("Exist", filepath.Join("destination", "file8.txt")).Return(false, nil)
+				fs.On("Exist", filepath.Join("/destination", "file8.txt")).Return(false, nil)
 
 				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp8.txt")
 				fs.On("Exist", expectedTempFilePath).Return(false, nil)
 
 				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), os.FileMode(0744)).Return(true, nil)
-				fs.On("CreateDirIfNotExists", "destination", os.FileMode(0744)).Return(true, nil)
+				fs.On("CreateDirIfNotExists", "/destination", os.FileMode(0744)).Return(true, nil)
 
 				fs.On("CreateFile", expectedTempFilePath, mock.Anything).Return(int64(12), nil)
 				fs.On("ChangeMode", expectedTempFilePath, os.FileMode(0744)).Return(nil)
@@ -338,7 +337,7 @@ func TestHandleUploadRequest(t *testing.T) {
 
 				existingFileMock2 := &test.ReadWriteCloserMock{}
 				existingFileMock2.Reader = strings.NewReader("some content")
-				fs.On("Rename", expectedTempFilePath, filepath.Join("destination", "file8.txt")).Return(nil)
+				fs.On("Rename", expectedTempFilePath, filepath.Join("/destination", "file8.txt")).Return(nil)
 			},
 			sysUserLookupCallback: func(sysUsrLookup *test.SysUserProviderMock) {
 				sysUsrLookup.On("GetUIDByName", "admin").Return(defaultUID, nil)
@@ -357,10 +356,10 @@ func TestHandleUploadRequest(t *testing.T) {
 			wantResp: &models.UploadResponse{
 				UploadResponseShort: models.UploadResponseShort{
 					ID:        "97e97cdd-135a-4620-ab50-d44025b8fe78",
-					Filepath:  filepath.Join("destination", "file8.txt"),
+					Filepath:  filepath.Join("/destination", "file8.txt"),
 					SizeBytes: 12,
 				},
-				Message: "file successfully copied to destination " + filepath.Join("destination", "file8.txt"),
+				Message: "file successfully copied to destination " + filepath.Join("/destination", "file8.txt"),
 				Status:  "success",
 			},
 		},
@@ -441,7 +440,7 @@ func getValidUploadFile(content string) *models.UploadedFile {
 	return &models.UploadedFile{
 		ID:                   "97e97cdd-135a-4620-ab50-d44025b8fe31",
 		SourceFilePath:       filepath.Join("source", "file_temp.txt"),
-		DestinationPath:      filepath.Join("destination", "file.txt"),
+		DestinationPath:      filepath.Join("/destination", "file.txt"),
 		DestinationFileMode:  0,
 		DestinationFileOwner: "",
 		DestinationFileGroup: "",

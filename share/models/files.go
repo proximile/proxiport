@@ -61,6 +61,22 @@ func (uf UploadedFile) Validate() error {
 		return errors.New("empty destination file path")
 	}
 
+	// Every protected-path rule on both sides -- the server's denied-prefix
+	// list and the agent's FileReceptionGlobs -- is written as an absolute
+	// path, and a relative destination matches none of them. It is not
+	// harmless for having dodged the filters: the agent hands the name
+	// straight to os.Rename, which resolves it against the agent process's
+	// working directory, and the shipped systemd unit sets no
+	// WorkingDirectory= -- so systemd's default of "/" makes
+	// "etc/sudoers.d/x" land on /etc/sudoers.d/x with every filter bypassed.
+	// Requiring an absolute path is what makes the lists mean what they say.
+	if !IsAbsoluteDestination(uf.DestinationPath) {
+		return fmt.Errorf(
+			"destination path %q must be absolute: a relative path is resolved "+
+				"against the agent's working directory and is matched by no "+
+				"protected-path rule", uf.DestinationPath)
+	}
+
 	if uf.DestinationFileMode&^MaxPushedFileMode != 0 {
 		return fmt.Errorf(
 			"file mode %#o is not allowed on a pushed file: only permission bits up to %#o may be set",
@@ -82,6 +98,16 @@ func (uf UploadedFile) Validate() error {
 //
 // Matching is case-insensitive on Windows, where the filesystem is.
 func (uf UploadedFile) ValidateDestinationPath(globPatters []string, log *logger.Logger) error {
+	// Every pattern below is absolute, so a relative destination matches none
+	// of them and would sail through. Validate() rejects that earlier on both
+	// the server and the agent; this is the last-resort filter against a
+	// hostile server, so it does not rely on an earlier caller having run.
+	if !IsAbsoluteDestination(uf.DestinationPath) {
+		return fmt.Errorf(
+			"target path %s is not absolute, therefore the file push request is rejected",
+			uf.DestinationPath)
+	}
+
 	destination := filepath.Clean(uf.DestinationPath)
 	destinationDir := filepath.Dir(destination)
 
@@ -188,6 +214,35 @@ type UploadResponseShort struct {
 	ID        string `json:"uuid"`
 	Filepath  string `json:"filepath"`
 	SizeBytes int64  `json:"size"`
+}
+
+// IsAbsoluteDestination reports whether p is absolute on POSIX or on Windows.
+//
+// filepath.IsAbs answers only for the platform it is compiled for, which is the
+// wrong question on the server: it runs on Linux and validates destinations for
+// Windows agents, where "C:\\dir\\file" is absolute and filepath.IsAbs would
+// say otherwise. Both shapes are accepted here and the agent's own
+// ValidateDestinationPath still applies the platform rules.
+//
+// A Windows path that is rooted but driveless ("\\Windows\\x") is deliberately
+// NOT absolute: it resolves against the current drive, which is the same class
+// of surprise as a relative path.
+func IsAbsoluteDestination(p string) bool {
+	if strings.HasPrefix(p, "/") {
+		return true
+	}
+	// UNC: \\server\share\path
+	if strings.HasPrefix(p, `\\`) {
+		return true
+	}
+	// Drive-absolute: C:\path or C:/path
+	if len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/') {
+		c := p[0]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			return true
+		}
+	}
+	return false
 }
 
 // pathIsWithin reports whether target is the root itself or sits underneath it.
