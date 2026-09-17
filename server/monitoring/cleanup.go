@@ -24,9 +24,15 @@ type CleanupTask struct {
 // NewCleanupTask returns a task to cleanup monitoring data after configured period
 func NewCleanupTask(log *logger.Logger, service Service, duration time.Duration) *CleanupTask {
 	return &CleanupTask{
-		log:      log,
-		service:  service,
-		duration: duration,
+		log:     log,
+		service: service,
+		// Start the VACUUM clock now rather than at the zero time. Left at the
+		// zero value, time.Since(lastVacuum) is ~2000 years on a fresh process,
+		// so the first cleanup that deleted anything vacuumed immediately and
+		// the 24h throttle only ever applied within a single run: a daemon that
+		// restarts daily vacuums daily, one that restarts hourly vacuums hourly.
+		lastVacuum: time.Now(),
+		duration:   duration,
 	}
 }
 
