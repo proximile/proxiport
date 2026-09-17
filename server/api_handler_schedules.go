@@ -59,9 +59,14 @@ func (al *APIListener) filterSchedulesForUser(ctx context.Context, payload *api.
 
 	visible := make([]*schedule.Schedule, 0, len(schedules))
 	for _, s := range schedules {
-		if al.checkScheduleAccess(ctx, s, curUser, clientGroups) == nil {
-			visible = append(visible, s)
+		if err := al.checkScheduleAccess(ctx, s, curUser, clientGroups); err != nil {
+			// Dropping a schedule the user may not see is the point; dropping
+			// one because the check itself failed is worth a line in the log,
+			// since from the user's side the two look identical.
+			al.Debugf("Hiding schedule %s from user %s: %v", s.ID, curUser.GetUsername(), err)
+			continue
 		}
+		visible = append(visible, s)
 	}
 
 	payload.Data = visible
@@ -87,7 +92,16 @@ func (al *APIListener) checkScheduleAccess(ctx context.Context, storedSchedule *
 		}
 	}
 
-	orderedClients, _, err := al.getOrderedClientsWithValidation(ctx, storedSchedule)
+	// Resolve the stored schedule's targets leniently. A client can be deleted
+	// and a client group removed long after a schedule that names them was
+	// created; the strict resolution used when accepting a schedule returns 404
+	// or 400 for those, and returning that as the authorization result locked
+	// the owner out of their own schedule -- it vanished from the list, and
+	// GET, PUT and DELETE on it all answered "Client with id=... not found."
+	// while the cron entry, which only DELETE removes, went on firing and
+	// failing forever. A target that no longer exists is not a target the user
+	// can fail to have access to.
+	orderedClients, err := al.getOrderedClientsIgnoringMissing(ctx, storedSchedule)
 	if err != nil {
 		return err
 	}
@@ -143,6 +157,14 @@ func (al *APIListener) prepareHandleSchedules(req *http.Request) (schedule.Sched
 		return scheduleInput, username, orderedClients, err
 	}
 	username = curUser.GetUsername()
+
+	// A schedule of type "command" runs a command and one of type "script"
+	// runs a script, so creating or repointing one requires the same function
+	// permission as POSTing to /commands or /scripts directly. Without this the
+	// schedules route's own "scheduler" grant is a superset of both.
+	if err := al.checkExecutionPermission(curUser, scheduleInput.Type == schedule.TypeScript); err != nil {
+		return scheduleInput, username, orderedClients, err
+	}
 
 	orderedClients, _, err = al.getOrderedClientsWithValidation(ctx, &scheduleInput)
 	if err != nil {

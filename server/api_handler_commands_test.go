@@ -103,7 +103,7 @@ func TestHandlePostCommand(t *testing.T) {
 	connMock := test.NewConnMock()
 	// by default set to return success
 	connMock.ReturnOk = true
-	sshSuccessResp := comm.RunCmdResponse{Pid: 123, StartedAt: time.Date(2020, 10, 10, 10, 10, 10, 0, time.UTC)}
+	sshSuccessResp := comm.RunCmdResponse{Pid: 123, StartedAt: agentStartedAt(10)}
 	sshRespBytes, err := json.Marshal(sshSuccessResp)
 	require.NoError(t, err)
 	connMock.ReturnResponsePayload = sshRespBytes
@@ -602,7 +602,7 @@ func TestHandlePostMultiClientCommand(t *testing.T) {
 	connMock1 := test.NewConnMock()
 	// by default set to return success
 	connMock1.ReturnOk = true
-	sshSuccessResp1 := comm.RunCmdResponse{Pid: 1, StartedAt: time.Date(2020, 10, 10, 10, 10, 1, 0, time.UTC)}
+	sshSuccessResp1 := comm.RunCmdResponse{Pid: 1, StartedAt: agentStartedAt(5)}
 	sshRespBytes1, err := json.Marshal(sshSuccessResp1)
 	require.NoError(t, err)
 	connMock1.ReturnResponsePayload = sshRespBytes1
@@ -610,7 +610,7 @@ func TestHandlePostMultiClientCommand(t *testing.T) {
 	connMock2 := test.NewConnMock()
 	// by default set to return success
 	connMock2.ReturnOk = true
-	sshSuccessResp2 := comm.RunCmdResponse{Pid: 2, StartedAt: time.Date(2020, 10, 10, 10, 10, 2, 0, time.UTC)}
+	sshSuccessResp2 := comm.RunCmdResponse{Pid: 2, StartedAt: agentStartedAt(4)}
 	sshRespBytes2, err := json.Marshal(sshSuccessResp2)
 	require.NoError(t, err)
 	connMock2.ReturnResponsePayload = sshRespBytes2
@@ -751,7 +751,7 @@ func TestHandlePostMultiClientCommand(t *testing.T) {
 			)
 			require.NoError(t, err)
 			jp := jobs.NewSqliteProvider(jobsDB, nil, testLog)
-			defer jp.Close()
+			defer func() { _ = jp.Close() }()
 			al.jobProvider = jp
 
 			connMock1.ReturnErr = tc.connReturnErr
@@ -812,7 +812,7 @@ func TestHandlePostMultiClientCommandWithPausedClient(t *testing.T) {
 	connMock1 := test.NewConnMock()
 	// by default set to return success
 	connMock1.ReturnOk = true
-	sshSuccessResp1 := comm.RunCmdResponse{Pid: 1, StartedAt: time.Date(2020, 10, 10, 10, 10, 1, 0, time.UTC)}
+	sshSuccessResp1 := comm.RunCmdResponse{Pid: 1, StartedAt: agentStartedAt(5)}
 	sshRespBytes1, err := json.Marshal(sshSuccessResp1)
 	require.NoError(t, err)
 	connMock1.ReturnResponsePayload = sshRespBytes1
@@ -820,7 +820,7 @@ func TestHandlePostMultiClientCommandWithPausedClient(t *testing.T) {
 	connMock2 := test.NewConnMock()
 	// by default set to return success
 	connMock2.ReturnOk = true
-	sshSuccessResp2 := comm.RunCmdResponse{Pid: 2, StartedAt: time.Date(2020, 10, 10, 10, 10, 2, 0, time.UTC)}
+	sshSuccessResp2 := comm.RunCmdResponse{Pid: 2, StartedAt: agentStartedAt(4)}
 	sshRespBytes2, err := json.Marshal(sshSuccessResp2)
 	require.NoError(t, err)
 	connMock2.ReturnResponsePayload = sshRespBytes2
@@ -914,7 +914,7 @@ func TestHandlePostMultiClientCommandWithPausedClient(t *testing.T) {
 			)
 			require.NoError(t, err)
 			jp := jobs.NewSqliteProvider(jobsDB, nil, testLog)
-			defer jp.Close()
+			defer func() { _ = jp.Close() }()
 			al.jobProvider = jp
 
 			ctx := api.WithUser(context.Background(), testUser)
@@ -1032,9 +1032,9 @@ func TestHandlePostMultiClientCommandWithGroupIDs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			curUser := makeTestUser(testUser)
 
-			connMock1 := makeConnMock(t, 1, time.Date(2020, 10, 10, 10, 10, 1, 0, time.UTC))
-			connMock2 := makeConnMock(t, 2, time.Date(2020, 10, 10, 10, 10, 2, 0, time.UTC))
-			connMock4 := makeConnMock(t, 4, time.Date(2020, 10, 10, 10, 10, 4, 0, time.UTC))
+			connMock1 := makeConnMock(t, 1, agentStartedAt(9))
+			connMock2 := makeConnMock(t, 2, agentStartedAt(8))
+			connMock4 := makeConnMock(t, 4, agentStartedAt(6))
 
 			c1 := clients.New(t).ID("client-1").Connection(connMock1).Logger(testLog).Build()
 			c2 := clients.New(t).ID("client-2").Connection(connMock2).Logger(testLog).Build()
@@ -1070,10 +1070,10 @@ func TestHandlePostMultiClientCommandWithGroupIDs(t *testing.T) {
 			}
 
 			jp := makeJobsProvider(t, DataSourceOptions, testLog)
-			defer jp.Close()
+			defer func() { _ = jp.Close() }()
 
 			gp := makeGroupsProvider(t, DataSourceOptions)
-			defer gp.Close()
+			defer func() { _ = gp.Close() }()
 
 			al.initRouter()
 
@@ -1246,9 +1246,9 @@ func TestHandlePostMultiClientCommandWithTags(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			curUser := makeTestUser(testUser)
 
-			connMock1 := makeConnMock(t, 1, time.Date(2020, 10, 10, 10, 10, 1, 0, time.UTC))
-			connMock2 := makeConnMock(t, 2, time.Date(2020, 10, 10, 10, 10, 2, 0, time.UTC))
-			connMock4 := makeConnMock(t, 4, time.Date(2020, 10, 10, 10, 10, 4, 0, time.UTC))
+			connMock1 := makeConnMock(t, 1, agentStartedAt(9))
+			connMock2 := makeConnMock(t, 2, agentStartedAt(8))
+			connMock4 := makeConnMock(t, 4, agentStartedAt(6))
 
 			c1 := clients.New(t).ID("client-1").Connection(connMock1).Logger(testLog).Build()
 			c2 := clients.New(t).ID("client-2").Connection(connMock2).Logger(testLog).Build()
@@ -1299,10 +1299,10 @@ func TestHandlePostMultiClientCommandWithTags(t *testing.T) {
 			}
 
 			jp := makeJobsProvider(t, DataSourceOptions, testLog)
-			defer jp.Close()
+			defer func() { _ = jp.Close() }()
 
 			gp := makeGroupsProvider(t, DataSourceOptions)
-			defer gp.Close()
+			defer func() { _ = gp.Close() }()
 
 			al.initRouter()
 
@@ -1484,9 +1484,9 @@ func TestHandlePostMultiClientWSCommandWithTags(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			curUser := makeTestUser(testUser)
 
-			connMock1 := makeConnMock(t, 1, time.Date(2020, 10, 10, 10, 10, 1, 0, time.UTC))
-			connMock2 := makeConnMock(t, 2, time.Date(2020, 10, 10, 10, 10, 2, 0, time.UTC))
-			connMock4 := makeConnMock(t, 4, time.Date(2020, 10, 10, 10, 10, 4, 0, time.UTC))
+			connMock1 := makeConnMock(t, 1, agentStartedAt(9))
+			connMock2 := makeConnMock(t, 2, agentStartedAt(8))
+			connMock4 := makeConnMock(t, 4, agentStartedAt(6))
 
 			c1 := clients.New(t).ID("client-1").Connection(connMock1).Logger(testLog).Build()
 			c2 := clients.New(t).ID("client-2").Connection(connMock2).Logger(testLog).Build()
@@ -1537,10 +1537,10 @@ func TestHandlePostMultiClientWSCommandWithTags(t *testing.T) {
 			}
 
 			jp := makeJobsProvider(t, DataSourceOptions, testLog)
-			defer jp.Close()
+			defer func() { _ = jp.Close() }()
 
 			gp := makeGroupsProvider(t, DataSourceOptions)
-			defer gp.Close()
+			defer func() { _ = gp.Close() }()
 
 			al.initRouter()
 
@@ -1565,7 +1565,7 @@ func TestHandlePostMultiClientWSCommandWithTags(t *testing.T) {
 			wsURL := httpToWS(t, s.URL)
 			ws, _, err := websocket.DefaultDialer.Dial(wsURL, reqHeader)
 			assert.NoError(t, err)
-			defer ws.Close()
+			defer func() { _ = ws.Close() }()
 
 			// send the request to the handler under test
 			err = ws.WriteMessage(websocket.TextMessage, []byte(tc.requestBody))
@@ -1718,9 +1718,9 @@ func TestHandlePostMultiClientScriptWithTags(t *testing.T) {
 			testUser := "test-user"
 			curUser := makeTestUser(testUser)
 
-			connMock1 := makeConnMock(t, 1, time.Date(2020, 10, 10, 10, 10, 1, 0, time.UTC))
-			connMock2 := makeConnMock(t, 2, time.Date(2020, 10, 10, 10, 10, 2, 0, time.UTC))
-			connMock4 := makeConnMock(t, 4, time.Date(2020, 10, 10, 10, 10, 4, 0, time.UTC))
+			connMock1 := makeConnMock(t, 1, agentStartedAt(9))
+			connMock2 := makeConnMock(t, 2, agentStartedAt(8))
+			connMock4 := makeConnMock(t, 4, agentStartedAt(6))
 
 			c1 := clients.New(t).ID("client-1").Connection(connMock1).Logger(testLog).Build()
 			c2 := clients.New(t).ID("client-2").Connection(connMock2).Logger(testLog).Build()
@@ -1771,10 +1771,10 @@ func TestHandlePostMultiClientScriptWithTags(t *testing.T) {
 			}
 
 			jp := makeJobsProvider(t, DataSourceOptions, testLog)
-			defer jp.Close()
+			defer func() { _ = jp.Close() }()
 
 			gp := makeGroupsProvider(t, DataSourceOptions)
-			defer gp.Close()
+			defer func() { _ = gp.Close() }()
 
 			al.initRouter()
 
@@ -1958,9 +1958,9 @@ func TestHandlePostMultiClientWSScriptWithTags(t *testing.T) {
 			testLongLivedPwd := "theprefi_mynicefi-xedl-enth-long-livedpasswor"
 			curUser := makeTestUser(testUser)
 
-			connMock1 := makeConnMock(t, 1, time.Date(2020, 10, 10, 10, 10, 1, 0, time.UTC))
-			connMock2 := makeConnMock(t, 2, time.Date(2020, 10, 10, 10, 10, 2, 0, time.UTC))
-			connMock4 := makeConnMock(t, 4, time.Date(2020, 10, 10, 10, 10, 4, 0, time.UTC))
+			connMock1 := makeConnMock(t, 1, agentStartedAt(9))
+			connMock2 := makeConnMock(t, 2, agentStartedAt(8))
+			connMock4 := makeConnMock(t, 4, agentStartedAt(6))
 
 			c1 := clients.New(t).ID("client-1").Connection(connMock1).Logger(testLog).Build()
 			c2 := clients.New(t).ID("client-2").Connection(connMock2).Logger(testLog).Build()
@@ -2011,10 +2011,10 @@ func TestHandlePostMultiClientWSScriptWithTags(t *testing.T) {
 			}
 
 			jp := makeJobsProvider(t, DataSourceOptions, testLog)
-			defer jp.Close()
+			defer func() { _ = jp.Close() }()
 
 			gp := makeGroupsProvider(t, DataSourceOptions)
-			defer gp.Close()
+			defer func() { _ = gp.Close() }()
 
 			al.initRouter()
 
@@ -2039,7 +2039,7 @@ func TestHandlePostMultiClientWSScriptWithTags(t *testing.T) {
 			wsURL := httpToWS(t, s.URL)
 			ws, _, err := websocket.DefaultDialer.Dial(wsURL, reqHeader)
 			assert.NoError(t, err)
-			defer ws.Close()
+			defer func() { _ = ws.Close() }()
 
 			// send the request to the handler under test
 			err = ws.WriteMessage(websocket.TextMessage, []byte(tc.requestBody))
@@ -2114,6 +2114,14 @@ func httpToWS(t *testing.T, u string) string {
 	}
 
 	return wsURL.String()
+}
+
+// agentStartedAt builds the command start time an agent reports in its run-cmd
+// reply. The server only believes a reported time that sits close to its own
+// clock -- a job start time is compared against the server's elsewhere -- so
+// these are relative to now rather than a fixed calendar date.
+func agentStartedAt(secondsAgo int) time.Time {
+	return time.Now().UTC().Add(-time.Duration(secondsAgo) * time.Second)
 }
 
 func makeConnMock(t *testing.T, pid int, startedAt time.Time) (connMock *test.ConnMock) {

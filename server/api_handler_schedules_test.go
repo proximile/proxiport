@@ -150,9 +150,9 @@ func TestHandlePostScheduleMultiClientJobWithTags(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			curUser := makeTestUser(testUser)
 
-			connMock1 := makeConnMock(t, 1, time.Date(2020, 10, 10, 10, 10, 1, 0, time.UTC))
-			connMock2 := makeConnMock(t, 2, time.Date(2020, 10, 10, 10, 10, 2, 0, time.UTC))
-			connMock4 := makeConnMock(t, 4, time.Date(2020, 10, 10, 10, 10, 4, 0, time.UTC))
+			connMock1 := makeConnMock(t, 1, agentStartedAt(9))
+			connMock2 := makeConnMock(t, 2, agentStartedAt(8))
+			connMock4 := makeConnMock(t, 4, agentStartedAt(6))
 
 			c1 := clients.New(t).ID("client-1").Connection(connMock1).Logger(testLog).Build()
 			c2 := clients.New(t).ID("client-2").Connection(connMock2).Logger(testLog).Build()
@@ -197,10 +197,10 @@ func TestHandlePostScheduleMultiClientJobWithTags(t *testing.T) {
 			}
 
 			jp := makeJobsProvider(t, DataSourceOptions, testLog)
-			defer jp.Close()
+			defer func() { _ = jp.Close() }()
 
 			gp := makeGroupsProvider(t, DataSourceOptions)
-			defer gp.Close()
+			defer func() { _ = gp.Close() }()
 
 			scheduleManager := makeScheduleManager(t, jp, al, testLog)
 
@@ -379,9 +379,9 @@ func TestHandlePostUpdateScheduleMultiClientJobWithTags(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			curUser := makeTestUser(testUser)
 
-			connMock1 := makeConnMock(t, 1, time.Date(2020, 10, 10, 10, 10, 1, 0, time.UTC))
-			connMock2 := makeConnMock(t, 2, time.Date(2020, 10, 10, 10, 10, 2, 0, time.UTC))
-			connMock4 := makeConnMock(t, 4, time.Date(2020, 10, 10, 10, 10, 4, 0, time.UTC))
+			connMock1 := makeConnMock(t, 1, agentStartedAt(9))
+			connMock2 := makeConnMock(t, 2, agentStartedAt(8))
+			connMock4 := makeConnMock(t, 4, agentStartedAt(6))
 
 			c1 := clients.New(t).ID("client-1").Connection(connMock1).Logger(testLog).Build()
 			c2 := clients.New(t).ID("client-2").Connection(connMock2).Logger(testLog).Build()
@@ -426,10 +426,10 @@ func TestHandlePostUpdateScheduleMultiClientJobWithTags(t *testing.T) {
 			}
 
 			jp := makeJobsProvider(t, DataSourceOptions, testLog)
-			defer jp.Close()
+			defer func() { _ = jp.Close() }()
 
 			gp := makeGroupsProvider(t, DataSourceOptions)
-			defer gp.Close()
+			defer func() { _ = gp.Close() }()
 
 			scheduleManager := makeScheduleManager(t, jp, al, testLog)
 

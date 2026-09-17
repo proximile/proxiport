@@ -415,6 +415,7 @@ func (al *APIListener) handleExecuteCommand(ctx context.Context, w http.Response
 		IsScript:    executeInput.IsScript,
 	}
 	sshResp := &comm.RunCmdResponse{}
+	dispatchedAt := time.Now()
 	err = comm.SendRequestAndGetResponse(client.GetConnection(), comm.RequestTypeRunCmd, curJob, sshResp, al.Log())
 	if err != nil {
 		if _, ok := err.(*comm.ClientError); ok {
@@ -427,7 +428,16 @@ func (al *APIListener) handleExecuteCommand(ctx context.Context, w http.Response
 
 	// set fields received in response
 	curJob.PID = &sshResp.Pid
-	curJob.StartedAt = sshResp.StartedAt
+	// The start time comes off the agent's clock; see plausibleAgentStartedAt.
+	// This path had no server-side start time at all -- the job was persisted
+	// with whatever the agent said, or with the zero time if it said nothing.
+	if startedAt, ok := plausibleAgentStartedAt(dispatchedAt, time.Now(), sshResp.StartedAt); ok {
+		curJob.StartedAt = startedAt
+	} else {
+		al.Errorf("Job[id=%q], Agent reported an implausible command start time %s; keeping the server's %s.",
+			curJob.JID, sshResp.StartedAt.Format(time.RFC3339), dispatchedAt.Format(time.RFC3339))
+		curJob.StartedAt = dispatchedAt
+	}
 	curJob.Status = models.JobStatusRunning
 
 	if err := al.jobProvider.CreateJob(&curJob); err != nil {
