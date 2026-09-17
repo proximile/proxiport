@@ -15,6 +15,10 @@ import (
 
 type TunnelProtocol interface {
 	Start(ctx context.Context) error
+	// CanTerminate reports whether Terminate(force) would proceed, changing
+	// nothing either way. MultiProtocolTunnel asks every protocol before it
+	// stops any of them.
+	CanTerminate(force bool) error
 	Terminate(force bool) error
 	LastActive() time.Time
 	SetACL(*TunnelACL)
@@ -41,7 +45,31 @@ func (mt *MultiProtocolTunnel) Start(ctx context.Context) error {
 	return nil
 }
 
+func (mt *MultiProtocolTunnel) CanTerminate(force bool) error {
+	var result error
+	for _, tp := range mt.Protocols {
+		if err := tp.CanTerminate(force); err != nil {
+			result = multierror.Append(result, err)
+		}
+	}
+	return result
+}
+
+// Terminate stops every protocol, or none of them.
+//
+// It used to run straight through the list, appending errors. tunnelTCP
+// honors force and refuses while connections are live; tunnelUDP ignores
+// force and always closes. So a default (non-force) DELETE of a tcp+udp tunnel
+// with a live TCP session answered 409 to the operator -- who reasonably read
+// that as "nothing changed" -- while having already killed the UDP half for
+// good. The tunnel record survived, still advertising a UDP port the next
+// portDistributor.Refresh would see as free and could hand to another
+// operator's tunnel on another agent.
 func (mt *MultiProtocolTunnel) Terminate(force bool) error {
+	if err := mt.CanTerminate(force); err != nil {
+		return err
+	}
+
 	var result error
 	for _, tp := range mt.Protocols {
 		err := tp.Terminate(force)
@@ -113,6 +141,16 @@ func (t *Tunnel) Terminate(force bool) error {
 		return nil
 	}
 	return t.TunnelProtocol.Terminate(force)
+}
+
+// CanTerminate carries the same nil-interface guard as Terminate above: a
+// Tunnel restored from client storage has no live handlers, and the promoted
+// method would be a call through a nil interface.
+func (t *Tunnel) CanTerminate(force bool) error {
+	if t.TunnelProtocol == nil {
+		return nil
+	}
+	return t.TunnelProtocol.CanTerminate(force)
 }
 
 // LastActive reports when the tunnel last carried traffic.

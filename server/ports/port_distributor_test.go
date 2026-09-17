@@ -75,3 +75,33 @@ func TestPortDistributor_ConcurrentTCPUDP(t *testing.T) {
 
 	wg.Wait()
 }
+
+// A tunnel with an internal proxy binds the operator's pinned port for the
+// proxy and a random port for the tunnel behind it. checkLocalPort only
+// *checks* the pinned port -- nothing removes it from the pool -- so
+// GetRandomPort could hand the inner tunnel the very port the proxy was about
+// to bind, and the proxy's bind then failed with EADDRINUSE. That failure used
+// to be invisible (it happened inside a goroutine and was Debug-logged), so the
+// API answered 200 with a tunnel whose proxy never listened.
+func TestReserveKeepsAPortOutOfRandomAllocation(t *testing.T) {
+	for _, protocol := range []string{models.ProtocolTCP, models.ProtocolUDP, models.ProtocolTCPUDP} {
+		t.Run(protocol, func(t *testing.T) {
+			pd := NewPortDistributorForTests(
+				mapset.NewSetFromSlice([]interface{}{1, 2, 3}),
+				mapset.NewSetFromSlice([]interface{}{1, 2, 3}),
+				mapset.NewSetFromSlice([]interface{}{1, 2, 3}),
+			)
+
+			pd.Reserve(protocol, 2)
+
+			// Drain the pool: the reserved port must never come back out.
+			for i := 0; i < 3; i++ {
+				port, err := pd.GetRandomPort(protocol)
+				if err != nil {
+					break
+				}
+				assert.NotEqual(t, 2, port, "handed out a port that was reserved for a caller about to bind it")
+			}
+		})
+	}
+}
