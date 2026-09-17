@@ -149,7 +149,7 @@ func NewAPIListener(
 		return nil, fmt.Errorf("failed to bootstrap api: %v", err)
 	}
 
-	notificationsLogger := server.Logger.Fork("notifications")
+	notificationsLogger := server.Fork("notifications")
 
 	store := notificationsSQLite.NewRepository(db, server.Logger)
 	scriptConsumer := scriptRunner.NewConsumer(notificationsLogger.Fork("scriptrunner"), config.Notifications.NotificationScriptDir)
@@ -296,7 +296,7 @@ func NewAPIListener(
 			msgSrv,
 		)
 		userService.DeliverySrv = msgSrv
-		a.Logger.Infof("2FA is enabled via using %s", config.API.TwoFATokenDelivery)
+		a.Infof("2FA is enabled via using %s", config.API.TwoFATokenDelivery)
 	}
 
 	if config.API.TotPEnabled {
@@ -306,7 +306,7 @@ func NewAPIListener(
 			userService,
 			nil,
 		)
-		a.Logger.Infof("2FA is enabled via an Authenticator app")
+		a.Infof("2FA is enabled via an Authenticator app")
 	}
 
 	if config.API.MaxFailedLogin > 0 && config.API.BanTime > 0 {
@@ -383,6 +383,13 @@ func (al *APIListener) Close() error {
 		g.Go(al.apiSessions.Close)
 	}
 
+	// The cleaner was stored on the listener and then never closed, so its
+	// goroutine outlived every shutdown and went on issuing DELETEs against a
+	// database the rest of this function is closing. Close now waits for the
+	// worker to return, so this also drains an in-flight clean.
+	if al.notificationsCleaner != nil {
+		g.Go(al.notificationsCleaner.Close)
+	}
 	g.Go(al.notificationsStorage.Close)
 	g.Go(al.notificationsProcessor.Close)
 	g.Go(al.notificationsDB.Close)

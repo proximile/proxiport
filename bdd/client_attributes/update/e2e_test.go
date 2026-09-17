@@ -42,10 +42,20 @@ type UpdateAttributesTestSuite struct {
 	clientID      string
 }
 
+// attributesFixture is the committed content of client_attributes.json. The
+// agent rewrites that file when the test updates attributes through the API,
+// and the file is tracked -- so without restoring it the suite left a modified
+// tracked file behind, dirtying the working tree and risking the test's own
+// output being committed as the fixture.
+const attributesFixture = `{"tags":["vm"],"labels":{}}`
+
+func (suite *UpdateAttributesTestSuite) writeAttributesFixture() {
+	suite.NoError(os.WriteFile("./client_attributes.json", []byte(attributesFixture), 0600))
+}
+
 func (suite *UpdateAttributesTestSuite) SetupTest() {
-	helpers.CleanUp(suite.T(), "./rc-test-resurces", "./rd-test-resources")
-	err := os.WriteFile("./client_attributes.json", []byte("{\"tags\":[\"vm\"],\"labels\":{}}"), 0600)
-	suite.NoError(err)
+	helpers.CleanUp(suite.T(), "./rc-test-resources", "./rd-test-resources")
+	suite.writeAttributesFixture()
 	suite.ctx = context.Background()
 	ctx, cancel := context.WithTimeout(suite.ctx, time.Minute*5)
 	defer cancel()
@@ -57,6 +67,8 @@ func (suite *UpdateAttributesTestSuite) SetupTest() {
 func (suite *UpdateAttributesTestSuite) TearDownTest() {
 	helpers.LogAndIgnore(suite.clientProcess.Process.Kill())
 	helpers.LogAndIgnore(suite.serverProcess.Process.Kill())
+	// Put the tracked fixture back the way it is committed.
+	suite.writeAttributesFixture()
 	log.Println("done")
 }
 

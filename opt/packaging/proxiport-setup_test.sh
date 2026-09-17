@@ -16,6 +16,7 @@ set -u
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$HERE/proxiport-setup.sh"
+SELF="${BASH_SOURCE[0]}"
 
 fail=0
 ok()   { printf '  ok   - %s\n' "$1"; }
@@ -26,9 +27,16 @@ bad()  { printf '  FAIL - %s\n' "$1"; fail=1; }
 #----------------------------------------------------------------------
 if bash -n "$SCRIPT"; then ok "script parses (bash -n)"; else bad "bash -n failed"; fi
 
-# shellcheck is advisory here (not always installed); run it when present.
+# Run the linter when it is present; it is not installed everywhere.
+#
+# Careful: a comment whose first word after the hash is the linter's own name
+# gets parsed as a DIRECTIVE rather than prose. Phrasing this note the obvious
+# way made the note itself an SC1073/SC1072 error at severity=error -- and
+# because this block used to check only "$SCRIPT" and never "$SELF", nothing
+# ever reported it. Check both, and keep that word out of comment-initial
+# position.
 if command -v shellcheck >/dev/null 2>&1; then
-    if shellcheck -S error "$SCRIPT"; then ok "shellcheck (severity=error) clean"
+    if shellcheck -S error "$SCRIPT" "$SELF"; then ok "shellcheck (severity=error) clean"
     else bad "shellcheck reported errors"; fi
 else
     printf '  skip - shellcheck not installed\n'

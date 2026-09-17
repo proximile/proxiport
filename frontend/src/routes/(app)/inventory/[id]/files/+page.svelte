@@ -19,9 +19,10 @@
     e.preventDefault();
     const f = file?.[0];
     if (!f) return;
+    const id = $page.params.id;
+    if (!id) return;
     busy = true;
     error = '';
-    const id = $page.params.id;
     try {
       const fd = new FormData();
       fd.append('client_id', id);
