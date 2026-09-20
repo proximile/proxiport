@@ -10,6 +10,15 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+// The [api] auth pair in every bdd/**/proxiportd.conf. These are not the
+// published example-config placeholders: proxiportd refuses to start on those
+// (see validateNoPlaceholderSecrets), which is what silently killed this whole
+// suite once. Change these and the configs together.
+const (
+	apiUser = "bdd-admin"
+	apiPass = "bdd-admin-secret"
+)
+
 func CheckOperationHTTPStatus(suite *suite.Suite, requestURL string, method string, content []byte, expectedStatus int) {
 
 	client := &http.Client{
@@ -18,7 +27,7 @@ func CheckOperationHTTPStatus(suite *suite.Suite, requestURL string, method stri
 
 	req, err := http.NewRequest(method, requestURL, bytes.NewReader(content))
 	suite.NoError(err)
-	req.SetBasicAuth("admin", "foobaz")
+	req.SetBasicAuth(apiUser, apiPass)
 	res, err := client.Do(req)
 	suite.NoError(err)
 
@@ -39,7 +48,7 @@ func CallURL[T any](suite *suite.Suite, requestURL string) T {
 
 	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
 	suite.NoError(err)
-	req.SetBasicAuth("admin", "foobaz")
+	req.SetBasicAuth(apiUser, apiPass)
 	res, err := client.Do(req)
 	suite.NoError(err)
 	suite.Equal(http.StatusOK, res.StatusCode)

@@ -118,8 +118,18 @@
   }
 
   function selectPoint(ts: string) {
+    const id = $page.params.id;
+    if (!id) return;
     selectedTimestamp = ts;
-    loadProcesses($page.params.id, ts);
+    loadProcesses(id, ts);
+  }
+
+  // The route is /inventory/[id]/..., so the param is always present while
+  // this component is mounted -- but it is typed optional, and the guard is
+  // the same one the $effect above and the sibling routes already use.
+  function reload() {
+    const id = $page.params.id;
+    if (id) load(id);
   }
 </script>
 
@@ -132,11 +142,11 @@
         class:btn-ghost={period !== p}
         onclick={() => {
           period = p;
-          load($page.params.id);
+          reload();
         }}
       >{p}</button>
     {/each}
-    <button class="btn btn-ghost ml-auto" onclick={() => load($page.params.id)}>Refresh</button>
+    <button class="btn btn-ghost ml-auto" onclick={reload}>Refresh</button>
   </div>
 
   <ErrorBox message={error} />
