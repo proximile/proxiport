@@ -56,7 +56,13 @@ func (m *Monitor) Start(ctx context.Context) {
 }
 
 func (m *Monitor) Stop() {
+	// Under the write lock: sendMeasurement reads m.conn under the read half of
+	// this same mutex, and SetConn writes it under the write half. Clearing it
+	// here without the lock was the one unsynchronized write to the field.
+	m.mtx.Lock()
 	m.conn = nil
+	m.mtx.Unlock()
+
 	if m.stopFn == nil {
 		return
 	}
