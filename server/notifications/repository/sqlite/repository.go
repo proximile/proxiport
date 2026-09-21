@@ -45,7 +45,11 @@ func (r repository) Count(ctx context.Context, options *query.ListOptions) (int,
 
 	countOptions := *options
 	countOptions.Pagination = nil
-	q := "SELECT COUNT(*) FROM notifications_log ORDER by notification_id"
+	// No ORDER BY on a COUNT: it orders one row and, more to the point, the
+	// query builder appends WHERE after whatever the base query already ends
+	// with. See List.
+	countOptions.Sorts = nil
+	q := "SELECT COUNT(*) FROM notifications_log"
 	params := []interface{}{}
 	q, params = r.converter.AppendOptionsToQuery(&countOptions, q, params)
 
@@ -191,11 +195,18 @@ func (r repository) Details(ctx context.Context, nid string) (notifications.Noti
 func (r repository) List(ctx context.Context, options *query.ListOptions) ([]notifications.NotificationSummary, error) {
 	var res []notifications.NotificationSummary
 
-	q := `
-SELECT notification_id, state, transport, timestamp, out, err
-FROM notifications_log ORDER by timestamp desc`
+	// The default ordering has to go through the caller's options rather than
+	// being baked into the base query. AppendOptionsToQuery appends " WHERE ..."
+	// and " ORDER BY ..." by string concatenation with no notion of clause
+	// position, so a base query ending in ORDER BY produced
+	// "... ORDER by timestamp desc WHERE state = ?" -- rejected at prepare time.
+	// Every documented sort and filter on /api/v1/notification-logs answered
+	// HTTP 500; the endpoint worked only when neither was supplied.
+	listOptions := defaultNotificationsSort(options)
+
+	q := "SELECT notification_id, state, transport, timestamp, out, err FROM notifications_log"
 	params := []interface{}{}
-	q, params = r.converter.AppendOptionsToQuery(options, q, params)
+	q, params = r.converter.AppendOptionsToQuery(listOptions, q, params)
 
 	err := r.db.SelectContext(
 		ctx,
@@ -204,6 +215,24 @@ FROM notifications_log ORDER by timestamp desc`
 		params...,
 	)
 	return res, err
+}
+
+// defaultNotificationsSort returns options with the listing's newest-first
+// default applied when the caller asked for no particular order. It copies
+// rather than mutating, because the same options value is handed to Count next.
+func defaultNotificationsSort(options *query.ListOptions) *query.ListOptions {
+	if options == nil {
+		return &query.ListOptions{
+			Sorts: []query.SortOption{{Column: "timestamp", IsASC: false}},
+		}
+	}
+	if len(options.Sorts) > 0 {
+		return options
+	}
+
+	withDefault := *options
+	withDefault.Sorts = []query.SortOption{{Column: "timestamp", IsASC: false}}
+	return &withDefault
 }
 
 //nolint:revive

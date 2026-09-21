@@ -1,6 +1,7 @@
 package query_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -133,4 +134,46 @@ func TestNewPagination(t *testing.T) {
 	assert.Equal(t, pagination.Offset, "20")
 	assert.Equal(t, pagination.ValidatedLimit, 10)
 	assert.Equal(t, pagination.ValidatedOffset, 20)
+}
+
+// TestGetStartEndNeverReturnsAnInvalidSliceRange is L5. ValidatePagination
+// bounds page[offset] only from below, so an offset of MaxInt64 is accepted;
+// end was then computed as raw offset + limit, which wraps to a large negative
+// number and walks straight past the `end > totalCount` clamp. Every caller
+// slices with the result, so one query parameter panicked six list endpoints --
+// recovered into a 500, but with a full goroutine stack written to the log on
+// every request.
+func TestGetStartEndNeverReturnsAnInvalidSliceRange(t *testing.T) {
+	testCases := []struct {
+		Name       string
+		Offset     int
+		Limit      int
+		TotalCount int
+	}{
+		{Name: "offset at MaxInt64", Offset: math.MaxInt64, Limit: 20, TotalCount: 5},
+		{Name: "offset one below MaxInt64", Offset: math.MaxInt64 - 1, Limit: 1, TotalCount: 100},
+		{Name: "offset and limit both large", Offset: math.MaxInt64, Limit: math.MaxInt64, TotalCount: 3},
+		{Name: "offset past the end", Offset: 1000, Limit: 10, TotalCount: 5},
+		{Name: "empty collection", Offset: math.MaxInt64, Limit: 10, TotalCount: 0},
+		{Name: "ordinary page", Offset: 10, Limit: 10, TotalCount: 30},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+
+			pagination := &query.Pagination{ValidatedOffset: tc.Offset, ValidatedLimit: tc.Limit}
+			start, end := pagination.GetStartEnd(tc.TotalCount)
+
+			assert.GreaterOrEqual(t, start, 0, "start must not be negative")
+			assert.LessOrEqual(t, start, end, "start must not run past end")
+			assert.LessOrEqual(t, end, tc.TotalCount, "end must not run past the collection")
+
+			// The assertions above are the contract; this is the thing that
+			// actually panicked, so slice for real.
+			items := make([]int, tc.TotalCount)
+			assert.NotPanics(t, func() { _ = items[start:end] })
+		})
+	}
 }
