@@ -3,6 +3,7 @@
   import { apiGet, apiPut, apiPost, apiDelete, ApiException } from '$lib/api';
   import type { Client, Tunnel } from '$lib/types';
   import { fmtRelative } from '$lib/format';
+  import { singleHostAcl } from '$lib/encoding';
   import Spinner from '$lib/components/Spinner.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
@@ -167,7 +168,9 @@
 
   function buildAcl(): string {
     if (aclMode === 'anyone') return '';
-    if (aclMode === 'current') return aclIp ? `${aclIp}/32` : '';
+    // singleHostAcl, not a literal /32: on IPv6 that is a 2^96-address block
+    // and the server accepts it without complaint.
+    if (aclMode === 'current') return singleHostAcl(aclIp);
     return aclIp;
   }
 

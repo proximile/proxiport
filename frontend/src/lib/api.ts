@@ -6,6 +6,7 @@
  * (POST /login then POST /verify-2fa with the TOTP code).
  */
 import { tokenStore, vaultStatus, type VaultStatusShape } from './stores';
+import { utf8ToBase64 } from './encoding';
 import { get } from 'svelte/store';
 
 export type ApiError = { code?: string; title: string; detail?: string };
@@ -50,10 +51,29 @@ async function parseJson(res: Response): Promise<any> {
   return null;
 }
 
-async function raise(res: Response): Promise<never> {
+/**
+ * Endpoints where a 401 means "that secret was wrong", not "your session has
+ * ended".
+ *
+ * The vault unlock endpoint answers a wrong master passphrase with 401, and
+ * clearing the token on it signed the operator out of the entire console --
+ * back through username, password and a TOTP code -- for mistyping an
+ * unrelated secret. It was worse than an annoyance: the SPA only drops the JWT
+ * locally and never calls DELETE /logout on this path, so the console looked
+ * signed out while the bearer session stayed valid server-side for its full
+ * 24-hour lifetime.
+ */
+const SECRET_CHECK_PATHS = ['/vault-admin/sesame'];
+
+function endsSession(status: number, path: string): boolean {
+  if (status !== 401) return false;
+  return !SECRET_CHECK_PATHS.some((p) => path === p || path.startsWith(`${p}?`));
+}
+
+async function raise(res: Response, path = ''): Promise<never> {
   const body = await parseJson(res);
   const errors: ApiError[] = body?.errors ?? [{ title: res.statusText || `HTTP ${res.status}` }];
-  if (res.status === 401) {
+  if (endsSession(res.status, path)) {
     tokenStore.set(null);
   }
   throw new ApiException(res.status, errors);
@@ -63,7 +83,7 @@ async function raise(res: Response): Promise<never> {
 export async function apiGet<T = any>(path: string): Promise<T> {
   ensureToken();
   const res = await fetch(`/api/v1${path}`, { headers: { ...authHeader() } });
-  if (!res.ok) await raise(res);
+  if (!res.ok) await raise(res, path);
   const body = await parseJson(res);
   return (body && 'data' in body ? body.data : body) as T;
 }
@@ -90,7 +110,7 @@ export async function apiPost<T = any>(path: string, payload?: unknown): Promise
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: payload === undefined ? undefined : JSON.stringify(payload)
   });
-  if (!res.ok) await raise(res);
+  if (!res.ok) await raise(res, path);
   const body = await parseJson(res);
   return (body && 'data' in body ? body.data : body) as T;
 }
@@ -102,7 +122,7 @@ export async function apiPut<T = any>(path: string, payload?: unknown): Promise<
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: payload === undefined ? undefined : JSON.stringify(payload)
   });
-  if (!res.ok) await raise(res);
+  if (!res.ok) await raise(res, path);
   const body = await parseJson(res);
   return (body && 'data' in body ? body.data : body) as T;
 }
@@ -119,7 +139,7 @@ export async function apiDelete(path: string, payload?: unknown): Promise<void> 
     // the second factor, for one), so DELETE can carry a body.
     body: payload === undefined ? undefined : JSON.stringify(payload)
   });
-  if (!res.ok) await raise(res);
+  if (!res.ok) await raise(res, path);
 }
 
 /** POST a multipart form (used by the per-client Files push form). */
@@ -130,7 +150,7 @@ export async function apiPostForm<T = any>(path: string, form: FormData): Promis
     headers: { ...authHeader() }, // do NOT set Content-Type, browser handles boundary
     body: form
   });
-  if (!res.ok) await raise(res);
+  if (!res.ok) await raise(res, path);
   const body = await parseJson(res);
   return (body && 'data' in body ? body.data : body) as T;
 }
@@ -144,7 +164,11 @@ export async function apiPostForm<T = any>(path: string, form: FormData): Promis
  * With TOTP disabled, `data.token` is the full JWT and we're done.
  */
 export async function login(username: string, password: string): Promise<LoginResponse> {
-  const basic = btoa(`${username}:${password}`);
+  // UTF-8 first: btoa() throws outright on any code point above U+00FF, and
+  // for U+0080..U+00FF it encodes the single Latin-1 byte rather than the
+  // UTF-8 pair -- so a password with an accent was not merely rejected, it was
+  // sent as different bytes than the user typed and could never match.
+  const basic = utf8ToBase64(`${username}:${password}`);
   // /login is a GET with HTTP-basic auth (see api-doc/openapi/paths/login.yaml).
   // ?token-lifetime extends the server-side session cache TTL — without it,
   // bearer.DefaultTokenLifetime (10 minutes) kicks in and an idle tab will

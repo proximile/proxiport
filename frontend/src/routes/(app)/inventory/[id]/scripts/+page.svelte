@@ -4,6 +4,7 @@
   import type { Job } from '$lib/types';
   import Spinner from '$lib/components/Spinner.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { utf8ToBase64 } from '$lib/encoding';
 
   let script = $state('#!/bin/bash\nset -e\nuname -a\n');
   let interpreter = $state('/bin/bash');
@@ -14,20 +15,6 @@
   let error = $state('');
   let stream: string[] = $state([]);
   let currentJobId = $state('');
-
-  // Base64-encode a UTF-8 string. btoa() alone throws on any code point > 255
-  // (smart quotes, emoji, accented or CJK characters commonly pasted into a
-  // script), so encode to UTF-8 bytes first. Chunked to avoid blowing the call
-  // stack via String.fromCharCode(...) on large scripts.
-  function utf8ToBase64(s: string): string {
-    const bytes = new TextEncoder().encode(s);
-    let binary = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    }
-    return btoa(binary);
-  }
 
   async function run(e: Event) {
     e.preventDefault();
