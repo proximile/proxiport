@@ -19,10 +19,15 @@ package chclient
 // A pattern ending in "/**" protects that directory and everything under it;
 // anything else is a filepath.Match glob, which does not cross a separator.
 var FileReceptionGlobs = []string{
-	// Executable search paths and pseudo-filesystems.
-	"/bin", "/sbin", "/boot", "/usr/bin", "/usr/sbin",
-	"/usr/local/bin", "/usr/local/sbin",
-	"/dev", "/lib*", "/usr/lib*", "/run", "/proc", "/sys",
+	// Executable search paths and pseudo-filesystems. These are subtrees, not
+	// single globs: filepath.Match cannot cross a separator, so the bare form
+	// protected a file written directly into the directory and nothing below
+	// it -- leaving /usr/lib/<multiarch>/libnss_files.so.2, /usr/lib/sudo/
+	// sudoers.so, /run/systemd/system/*.service (a unit search path that
+	// outranks /usr/lib/systemd/system) and /boot/grub/grub.cfg reachable.
+	"/bin/**", "/sbin/**", "/boot/**", "/usr/bin/**", "/usr/sbin/**",
+	"/usr/local/bin/**", "/usr/local/sbin/**",
+	"/dev/**", "/lib*/**", "/usr/lib*/**", "/run/**", "/proc/**", "/sys/**",
 
 	// Anything that runs on a schedule, as root.
 	"/etc/crontab", "/etc/cron.allow", "/etc/cron.deny",
@@ -34,6 +39,15 @@ var FileReceptionGlobs = []string{
 	"/etc/systemd/**", "/usr/lib/systemd/**", "/lib/systemd/**",
 	"/usr/local/lib/systemd/**",
 	"/etc/init.d/**", "/etc/init/**", "/etc/rc.local", "/etc/rc*.d/**",
+
+	// The same class on macOS. This file is //go:build !windows, so it is the
+	// default list on the shipped darwin agents too, and launchd is how a file
+	// push becomes a persistent process there -- a .plist needs no execute bit,
+	// so MaxPushedFileMode does not stand in the way.
+	"/Library/LaunchDaemons/**", "/Library/LaunchAgents/**",
+	"/System/Library/LaunchDaemons/**", "/System/Library/LaunchAgents/**",
+	"/Users/*/Library/LaunchAgents/**", "/Library/StartupItems/**",
+	"/etc/periodic/**",
 
 	// Anything sourced into a root shell, or loaded into every process.
 	"/etc/profile", "/etc/profile.d/**", "/etc/bash.bashrc", "/etc/bashrc",
