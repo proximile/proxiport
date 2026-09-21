@@ -140,7 +140,9 @@ func TestList(t *testing.T) {
 		},
 		provider: dbProv,
 	}
-	defer auditLog.Close()
+	defer func() {
+		assert.NoError(t, auditLog.Close())
+	}()
 
 	auditLog.Entry(ApplicationLibraryScript, ActionCreate).Save()
 	auditLog.Entry(ApplicationLibraryScript, ActionUpdate).Save()
