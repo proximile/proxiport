@@ -48,6 +48,18 @@ type FilterOption struct {
 	Operator              FilterOperatorType
 	Values                []string // Values are [ValuesLogicalOperator]ed together (only AND, OR, default OR)
 	ValuesLogicalOperator FilterLogicalOperator
+
+	// CompareFunc names a SQL function applied to BOTH sides of the comparison
+	// before they are compared, so a column whose stored text is not
+	// byte-comparable with the caller's value is still compared as a value.
+	// The audit log uses DATETIME for exactly that reason: its rows carry
+	// whatever UTC offset the server had when each one was written, and a byte
+	// compare against an ISO-8601 value is meaningless.
+	//
+	// It is interpolated into the statement, so it must never be derived from
+	// request input. Nothing parses it out of a URL; every assignment in this
+	// tree is a compile-time constant.
+	CompareFunc string
 }
 
 func (fo FilterOption) String() string {

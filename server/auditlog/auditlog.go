@@ -2,12 +2,15 @@ package auditlog
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	apierrors "github.com/proximile/proxiport/server/api/errors"
 	"github.com/proximile/proxiport/server/api/users"
 	"github.com/proximile/proxiport/server/auditlog/config"
 
@@ -125,7 +128,12 @@ func (a *AuditLog) Entry(application, action string) *Entry {
 	}
 
 	e := &Entry{
-		Timestamp:   time.Now(),
+		// UTC, like every other timestamp this project stores. A local time is
+		// rendered by the driver with the host's offset, so a table written
+		// across a DST change carries two different offsets and its rows are
+		// not even ordered correctly by a text comparison, let alone
+		// comparable with a caller's ISO-8601 value.
+		Timestamp:   time.Now().UTC(),
 		Application: application,
 		Action:      action,
 
@@ -187,7 +195,96 @@ func listOptionsFor(r *http.Request, user *users.User) (*query.ListOptions, erro
 		return nil, err
 	}
 
+	if err := normalizeTimestampFilters(options.Filters); err != nil {
+		return nil, err
+	}
+
 	return options, nil
+}
+
+// timestampDbLayout is how SQLite's DATETIME() renders a normalised datetime,
+// and therefore the one form a bound value and a stored value are certain to
+// agree on.
+const timestampDbLayout = "2006-01-02 15:04:05"
+
+// timestampFilterLayouts are the forms a caller may write a timestamp in. The
+// zone-less ones are read as UTC, because that is what the rest of this API
+// means by a bare timestamp.
+var timestampFilterLayouts = []string{
+	time.RFC3339Nano,
+	time.RFC3339,
+	"2006-01-02T15:04:05",
+	timestampDbLayout,
+	"2006-01-02",
+}
+
+// normalizeTimestampFilters makes the audit log's timestamp filters compare as
+// instants rather than as bytes.
+//
+// Two things were wrong, and the first one is why an incident investigation
+// could reach the wrong conclusion. The caller's value went into the statement
+// exactly as written, so an ISO-8601 "2026-09-15T00:00:00Z" was byte-compared
+// against a stored "2026-09-15 14:30:00.123456789+02:00" -- and 'T' (0x54)
+// sorts above ' ' (0x20), so every row of that day compared as LESS than the
+// filter. A `since` query for today returned an empty list with HTTP 200. The
+// mirror case, `until`, matched every row in the database including
+// future-dated ones. Second, even for the space-separated form the stored value
+// carries an offset the filter does not.
+//
+// So: parse whatever the caller sent, render it in UTC in SQLite's own layout,
+// and have SQLite compare both sides through DATETIME(). The DATETIME() wrap is
+// what keeps rows written before this change -- in local time, with an offset
+// that itself moves across DST -- answering correctly.
+func normalizeTimestampFilters(filters []query.FilterOption) error {
+	for i := range filters {
+		if !isTimestampFilter(filters[i]) {
+			continue
+		}
+
+		for j, raw := range filters[i].Values {
+			parsed, err := parseTimestampFilterValue(raw)
+			if err != nil {
+				return apierrors.APIError{Message: err.Error(), HTTPStatus: http.StatusBadRequest}
+			}
+			filters[i].Values[j] = parsed.UTC().Format(timestampDbLayout)
+		}
+		filters[i].CompareFunc = "DATETIME"
+	}
+
+	return nil
+}
+
+func isTimestampFilter(fo query.FilterOption) bool {
+	if len(fo.Column) == 0 {
+		return false
+	}
+	for _, col := range fo.Column {
+		if col != "timestamp" {
+			return false
+		}
+	}
+	return true
+}
+
+func parseTimestampFilterValue(raw string) (time.Time, error) {
+	value := strings.TrimSpace(raw)
+
+	for _, layout := range timestampFilterLayouts {
+		if t, err := time.Parse(layout, value); err == nil {
+			return t, nil
+		}
+	}
+
+	// Unix seconds, which is the form the monitoring endpoints' gt/lt filters
+	// take -- an operator moving between the two should not have to find that
+	// out from an empty result set.
+	if epoch, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return time.Unix(epoch, 0).UTC(), nil
+	}
+
+	return time.Time{}, fmt.Errorf(
+		"illegal timestamp filter value %q: expected an RFC 3339 timestamp, %q, a date, or Unix seconds",
+		raw, timestampDbLayout)
 }
 
 func (a *AuditLog) List(r *http.Request, user *users.User) (*api.SuccessPayload, error) {

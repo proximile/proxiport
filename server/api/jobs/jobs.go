@@ -281,7 +281,9 @@ func (p *SqliteProvider) List(ctx context.Context, options *query.ListOptions) (
 	if len(options.Sorts) == 0 {
 		options.Sorts = []query.SortOption{
 			{
-				Column: "finished_at",
+				// DATETIME(), because rows written before job timestamps were
+				// normalised to UTC carry whatever offset their clock had.
+				Column: "DATETIME(finished_at)",
 				IsASC:  false,
 			},
 			{
@@ -483,9 +485,15 @@ func (p *SqliteProvider) toSqlite(job *models.Job) (*jobSqlite, error) {
 
 func convertToSqlite(job *models.Job) *jobSqlite {
 	res := &jobSqlite{
-		JID:       job.JID,
-		Status:    job.Status,
-		StartedAt: job.StartedAt,
+		JID:    job.JID,
+		Status: job.Status,
+		// UTC on the way in. A job's start time comes from two places -- the
+		// server's clock for a job that never reached its agent, and the
+		// AGENT's clock for one that did -- so without this the table holds a
+		// mixture of UTC offsets and no text ordering of started_at orders the
+		// instants. On a UTC server the two happen to agree, which is why it
+		// went unnoticed.
+		StartedAt: job.StartedAt.UTC(),
 		CreatedBy: job.CreatedBy,
 		ClientID:  job.ClientID,
 		Details: &JobDetails{
@@ -505,7 +513,7 @@ func convertToSqlite(job *models.Job) *jobSqlite {
 		res.MultiJobID = sql.NullString{String: *job.MultiJobID, Valid: true}
 	}
 	if job.FinishedAt != nil {
-		res.FinishedAt = sql.NullTime{Time: *job.FinishedAt, Valid: true}
+		res.FinishedAt = sql.NullTime{Time: job.FinishedAt.UTC(), Valid: true}
 	}
 	return res
 }
