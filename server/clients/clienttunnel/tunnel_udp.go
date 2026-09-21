@@ -29,6 +29,11 @@ type tunnelUDP struct {
 	done    chan struct{}
 	cancel  func()
 
+	// peers are the addresses this tunnel has received datagrams from. The
+	// outbound destination comes from the agent, so it is checked against
+	// this rather than trusted.
+	peers *udpPeerTable
+
 	// sshChan is the agent channel runOutbound reads. Kept so it can be
 	// closed: comm.UDPChannel.Decode takes no context, so canceling alone
 	// leaves runOutbound parked on it -- along with the agent's own
@@ -46,6 +51,7 @@ func newTunnelUDP(logger *logger.Logger, ssh ssh.Conn, remote models.Remote, acl
 		Remote:      remote,
 		sshConn:     ssh,
 		done:        make(chan struct{}),
+		peers:       newUDPPeerTable(),
 		lastActive:  time.Now(),
 		idleTimeout: time.Duration(remote.IdleTimeoutMinutes) * time.Minute,
 	}
@@ -146,6 +152,9 @@ func (t *tunnelUDP) runInbound(ctx context.Context) error {
 			}
 		}
 
+		// Only a peer the ACL admits becomes repliable.
+		t.peers.remember(sourceAddr)
+
 		err = t.channel.Encode(sourceAddr, buff[:n])
 		if err != nil {
 			return err
@@ -169,6 +178,27 @@ func (t *tunnelUDP) runOutbound(ctx context.Context) error {
 			return err
 		}
 
+		// The destination is whatever the agent encoded, and the socket is
+		// unconnected and wildcard-bound, so it would otherwise accept any
+		// destination: the server's own loopback services, or a network the
+		// agent cannot route to but the server can, with the datagram
+		// carrying the server's source address. An honest agent only ever
+		// echoes back an address the server gave it.
+		if !t.peers.known(addr) {
+			t.Debugf("Dropping outbound datagram to %s: no peer at that address has used this tunnel", addr)
+			continue
+		}
+
+		// Re-checked here, not just on the way in: the ACL can be narrowed
+		// while a peer is mid-exchange, and revoking access has to stop the
+		// replies too.
+		if acl := t.acl.Load(); acl != nil && !acl.CheckAccess(addr.IP) {
+			t.Debugf("Dropping outbound datagram to %s: not permitted by the tunnel ACL", addr)
+			continue
+		}
+
+		// After the checks, so a stream of rejected datagrams cannot hold the
+		// tunnel open past its idle timeout.
 		t.setLastActive()
 
 		_, err = t.conn.WriteToUDP(data, addr)
