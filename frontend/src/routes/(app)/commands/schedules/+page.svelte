@@ -3,10 +3,19 @@
   import { apiGet, apiPost, apiPut, apiDelete, asList } from '$lib/api';
   import type { Schedule, Client } from '$lib/types';
   import { fmtDate } from '$lib/format';
+  import { utf8ToBase64, base64ToUtf8 } from '$lib/encoding';
   import { pushToast } from '$lib/stores';
   import Spinner from '$lib/components/Spinner.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
+
+  // A schedule created before the script body was base64-encoded holds raw
+  // text, which does not decode to valid UTF-8 -- show it unchanged rather
+  // than blanking the operator's script or displaying mojibake.
+  function decodeScriptBody(stored: string): string {
+    if (!stored) return '';
+    return base64ToUtf8(stored) ?? stored;
+  }
 
   let rows: Schedule[] = $state([]);
   let clients: Client[] = $state([]);
@@ -74,7 +83,11 @@
         schedule: data.schedule ?? '',
         type: data.type ?? 'command',
         command: data.command ?? '',
-        script: data.script ?? '',
+        // Stored base64 has to come back as text, or an operator who edits an
+        // existing schedule re-encodes the encoded form and destroys it. A
+        // body stored before this was fixed is raw, and does not decode, so
+        // fall back to showing it as-is.
+        script: decodeScriptBody(data.script ?? ''),
         interpreter: data.interpreter ?? '/bin/bash',
         cwd: data.cwd ?? '',
         is_sudo: !!data.is_sudo,
@@ -129,7 +142,11 @@
     if (form.type === 'command') {
       body.command = form.command;
     } else {
-      body.script = form.script;
+      // The endpoint base64-decodes this and runs the decoded bytes. Sending
+      // the raw textarea made every real script fail validation, and made the
+      // few short bodies that happen to be valid base64 ('date', 'sync')
+      // execute three arbitrary bytes on the fleet instead.
+      body.script = utf8ToBase64(form.script);
       body.interpreter = form.interpreter?.trim() || undefined;
       body.cwd = form.cwd?.trim() || undefined;
       body.is_sudo = !!form.is_sudo;

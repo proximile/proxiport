@@ -99,6 +99,32 @@ describe('session invalidation', () => {
     expect(get(tokenStore)).toBeNull();
   });
 
+  // The vault answers a wrong master passphrase with 401. Treating that as a
+  // dead session signed the operator out of the whole console -- back through
+  // username, password and a TOTP code -- for mistyping an unrelated secret.
+  // And because this path never calls DELETE /logout, the discarded JWT stayed
+  // valid server-side for its full lifetime: signed out in the UI only.
+  it('keeps the token when the vault rejects a passphrase with 401', async () => {
+    tokenStore.set('jwt-abc');
+    fetchMock.mockResolvedValue(
+      jsonResponse({ errors: [{ title: 'wrong password provided' }] }, 401)
+    );
+
+    await expect(apiPost('/vault-admin/sesame', { password: 'wrong' })).rejects.toBeInstanceOf(
+      ApiException
+    );
+    expect(get(tokenStore)).toBe('jwt-abc');
+  });
+
+  // The exemption is for that one endpoint, not for anything vault-shaped.
+  it('still clears the token on a 401 from another vault endpoint', async () => {
+    tokenStore.set('jwt-abc');
+    fetchMock.mockResolvedValue(jsonResponse({ errors: [{ title: 'expired' }] }, 401));
+
+    await expect(apiGet('/vault-admin')).rejects.toBeInstanceOf(ApiException);
+    expect(get(tokenStore)).toBeNull();
+  });
+
   // A 403 means "authenticated but not permitted". Treating it as a session
   // failure would log a user out of the whole SPA for opening one page their
   // group cannot see.
@@ -258,5 +284,27 @@ describe('asList', () => {
 
   it('does not throw on a string', () => {
     expect(asList('nope')).toEqual([]);
+  });
+});
+
+describe('basic-auth encoding on login', () => {
+  // btoa() throws above U+00FF and silently sends the Latin-1 byte below it,
+  // so a password with any non-ASCII character could never be used to sign in.
+  it('sends a UTF-8 base64 credential, not a Latin-1 one', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: { token: 'jwt' } }));
+
+    await login('operator', 'pässwörd');
+
+    const [, init] = fetchMock.mock.calls[0];
+    const header = (init.headers as Record<string, string>).Authorization;
+    const decoded = new TextDecoder().decode(
+      Uint8Array.from(atob(header.replace('Basic ', '')), (c) => c.charCodeAt(0))
+    );
+    expect(decoded).toBe('operator:pässwörd');
+  });
+
+  it('does not throw on a password outside Latin-1', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: { token: 'jwt' } }));
+    await expect(login('operator', '🔐€')).resolves.toBeDefined();
   });
 });
