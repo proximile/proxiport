@@ -720,6 +720,10 @@ func (cl *ClientListener) handleSSHRequests(clientLog *logger.DynamicLogger, cli
 			measurement.ClientID = clientID
 			measurement.Timestamp = time.Now().UTC()
 
+			for _, discarded := range dropNonJSONMeasurementBlobs(&measurement) {
+				clientLog.Errorf("Discarding %s from %s: not valid JSON", discarded, clientID)
+			}
+
 			cl.server.monitoringQueue.Notify(measurement)
 		case comm.RequestTypeIPAddresses:
 			// Do not log the raw payload — it is operational data that should
@@ -995,4 +999,36 @@ func (cl *ClientListener) sendCapabilities(conn *ssh.ServerConn) {
 	if _, _, err = conn.SendRequest(comm.RequestTypePutCapabilities, false, payload); err != nil {
 		cl.log().Errorf("can't send capabilities: %v", err)
 	}
+}
+
+// dropNonJSONMeasurementBlobs clears any of a measurement's opaque JSON
+// documents that is not, in fact, JSON, and names what it cleared.
+//
+// Processes and Mountpoints are composed by the agent, stored verbatim and
+// spliced straight back into API responses as raw JSON. A blob that is not
+// valid JSON cannot be represented in a response at all -- encoding/json fails
+// on the WHOLE response -- so one poisoned row took out every monitoring
+// request for that client for as long as it was inside the requested window,
+// and the agent could keep it there by re-sending. Storing only what can be
+// served makes that unreachable at the source; types.JSONString.MarshalJSON
+// is the net under it for rows already on disk.
+func dropNonJSONMeasurementBlobs(m *models.Measurement) []string {
+	var discarded []string
+
+	blobs := []struct {
+		name  string
+		value *string
+	}{
+		{"processes", &m.Processes},
+		{"mountpoints", &m.Mountpoints},
+	}
+	for _, blob := range blobs {
+		if *blob.value == "" || json.Valid([]byte(*blob.value)) {
+			continue
+		}
+		*blob.value = ""
+		discarded = append(discarded, blob.name)
+	}
+
+	return discarded
 }

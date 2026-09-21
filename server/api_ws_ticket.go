@@ -22,7 +22,25 @@ const wsTicketTTL = 30 * time.Second
 // within wsTicketTTL, so a well-behaved fleet never approaches it.
 const maxOutstandingTickets = 8192
 
+// maxTicketsPerUser caps how much of that shared ceiling any one principal may
+// hold. Without it the cap was a denial-of-service primitive rather than a
+// defense: /ws-ticket sits behind authentication alone, with no permission gate
+// and no rate limiter, so one account with zero function permissions could keep
+// the store pinned at the global ceiling and every other operator's ticket
+// request answered 503 -- and a ticket is the only credential a browser can use
+// to open /ws/commands, /ws/scripts or /ws/uploads.
+//
+// A ticket lives 30s and is consumed on first use, so a real operator needs one
+// or two at a time even with several consoles open. 32 is generous for that and
+// is 1/256th of the shared ceiling.
+const maxTicketsPerUser = 32
+
 var errTooManyTickets = errors.New("too many outstanding websocket tickets, retry shortly")
+
+// errTooManyUserTickets is deliberately distinct: it tells the caller the limit
+// they hit is their own, and it keeps one noisy principal from looking like a
+// server-wide outage in the logs.
+var errTooManyUserTickets = errors.New("too many outstanding websocket tickets for this user, retry shortly")
 
 // WebSocketTicketQueryParam carries a one-time ticket on the WebSocket upgrade
 // URL. Browsers cannot set request headers on a WebSocket handshake, so some
@@ -58,13 +76,21 @@ func (s *wsTicketStore) issue(username string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
+	held := 0
 	for k, v := range s.tickets { // opportunistic sweep of expired tickets
 		if now.After(v.expiresAt) {
 			delete(s.tickets, k)
+			continue
+		}
+		if v.username == username {
+			held++
 		}
 	}
 	if len(s.tickets) >= maxOutstandingTickets {
 		return "", errTooManyTickets
+	}
+	if held >= maxTicketsPerUser {
+		return "", errTooManyUserTickets
 	}
 	s.tickets[ticket] = wsTicketEntry{username: username, expiresAt: now.Add(wsTicketTTL)}
 	return ticket, nil
@@ -101,7 +127,10 @@ func (al *APIListener) handleGetWSTicket(w http.ResponseWriter, req *http.Reques
 	ticket, err := al.wsTickets.issue(user.Username)
 	if err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, errTooManyTickets) {
+		switch {
+		case errors.Is(err, errTooManyUserTickets):
+			status = http.StatusTooManyRequests
+		case errors.Is(err, errTooManyTickets):
 			status = http.StatusServiceUnavailable
 		}
 		al.jsonErrorResponse(w, status, err)

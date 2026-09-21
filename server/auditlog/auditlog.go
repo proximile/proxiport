@@ -72,6 +72,16 @@ func (e *NotAllowedError) Error() string {
 	return e.Msg
 }
 
+// NotEnabledError is returned by the read paths when the server is running
+// with enable_audit_log = false. The routes are registered either way, so the
+// handler needs something to turn into an honest 404 rather than panicking on
+// a nil provider.
+type NotEnabledError struct{}
+
+func (e *NotEnabledError) Error() string {
+	return "audit log disabled. re-enable it to view audit entries."
+}
+
 // New builds the audit log. dek is the server data-encryption key (or nil): when
 // present, the audit chain's HMAC key is derived from it so entries are
 // tamper-evident. With no key the log still records entries, but the chain is
@@ -191,6 +201,17 @@ func listOptionsFor(r *http.Request, user *users.User) (*query.ListOptions, erro
 }
 
 func (a *AuditLog) List(r *http.Request, user *users.User) (*api.SuccessPayload, error) {
+	// Every sibling guards this -- Verify and savePreparedEntry both do -- but
+	// List did not, and the /auditlog routes are registered whether or not the
+	// audit log is enabled. With enable_audit_log = false the provider is a nil
+	// interface, so opening the SPA's Audit page panicked, which the recovery
+	// handler turned into a 500 plus a full goroutine stack in the server log,
+	// once per request. The honest answer is the one the disabled monitoring
+	// routes already give.
+	if a == nil || a.provider == nil {
+		return nil, &NotEnabledError{}
+	}
+
 	options, err := listOptionsFor(r, user)
 	if err != nil {
 		return nil, err

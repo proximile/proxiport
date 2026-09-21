@@ -435,6 +435,13 @@ func getTunnelsToReestablish(old, new []*models.Remote) []*models.Remote {
 	// with a port that is among random ports in old tunnels.
 loop1:
 	for _, curNew := range new {
+		if curNew == nil {
+			// The agent's Remotes come straight out of json.Unmarshal into a
+			// []*models.Remote, so `"Remotes":[null]` is a slice with a nil
+			// element. sanitizeAgentRemotes already knows that and skips them,
+			// but it runs later than this does.
+			continue
+		}
 		if curNew.IsLocalSpecified() {
 			for i, curOld := range old {
 				if !oldMarked[i] && curNew.String() == curOld.String() {
@@ -449,6 +456,9 @@ loop1:
 	// then check without local
 loop2:
 	for _, curNew := range new {
+		if curNew == nil {
+			continue
+		}
 		if !curNew.IsLocalSpecified() {
 			for i, curOld := range old {
 				if !oldMarked[i] && curOld.LocalPortRandom && curNew.Remote() == curOld.Remote() && curNew.EqualACL(curOld.ACL) {
@@ -462,16 +472,20 @@ loop2:
 
 	// add tunnels that left among old
 	var res []*models.Remote
-	for i, marked := range oldMarked {
-		if !marked {
-			r := *old[i]
-			// if it was random then set up zero values
-			if r.LocalPortRandom {
-				r.LocalHost = ""
-				r.LocalPort = ""
-			}
-			res = append(res, &r)
+	for i, curOld := range old {
+		// oldMarked is built with len(old), so this index is always in range;
+		// ranging over old rather than over oldMarked is what makes that
+		// obvious to a reader and to gosec.
+		if oldMarked[i] {
+			continue
 		}
+		r := *curOld
+		// if it was random then set up zero values
+		if r.LocalPortRandom {
+			r.LocalHost = ""
+			r.LocalPort = ""
+		}
+		res = append(res, &r)
 	}
 
 	return res
