@@ -1,9 +1,11 @@
 package auditlog
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/proximile/proxiport/server/api"
 	"github.com/proximile/proxiport/server/api/users"
 	"github.com/proximile/proxiport/server/auditlog/config"
 
@@ -167,4 +169,37 @@ func TestList(t *testing.T) {
 		})
 	}
 
+}
+
+// TestListWhenDisabled is L10. auditlog.New only builds a provider when the
+// audit log is enabled, but the /auditlog routes are registered either way, so
+// with enable_audit_log = false every sibling guarded the nil provider and List
+// did not: opening the SPA's Audit page panicked, which the router's recovery
+// handler turned into a 500 plus a full goroutine stack in the server log --
+// once per request, so a user holding the auditlog permission could loop the
+// page to pump stack traces into the control plane's disk.
+func TestListWhenDisabled(t *testing.T) {
+	auditLog, err := New(nil, nil, "", config.Config{Enable: false}, DataSourceOptions, nil)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest("GET", "/auditlog", nil)
+	user := &users.User{Username: "root", Groups: []string{users.Administrators}}
+
+	var payload *api.SuccessPayload
+	require.NotPanics(t, func() {
+		payload, err = auditLog.List(req, user)
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, payload)
+
+	var notEnabled *NotEnabledError
+	require.ErrorAs(t, err, &notEnabled, "the handler needs this to answer 404 rather than 500")
+
+	// The sibling guards are the reason this one was easy to miss; assert they
+	// are all still there.
+	verification, err := auditLog.Verify(context.Background())
+	require.NoError(t, err)
+	assert.False(t, verification.Enabled)
+	assert.NotPanics(t, func() { auditLog.Entry(ApplicationAuthUser, ActionCreate).Save() })
 }

@@ -39,7 +39,7 @@ func TestAPITokenOps(t *testing.T) {
 	// database
 	apiTokenDb, err := sqlite.New(":memory:", api_token.AssetNames(), api_token.Asset, DataSourceOptions)
 	require.NoError(err)
-	defer apiTokenDb.Close()
+	defer func() { require.NoError(apiTokenDb.Close()) }()
 	tokenProvider := authorization.NewSqliteProvider(apiTokenDb)
 	mockTokenManager := authorization.NewManager(tokenProvider)
 
@@ -74,6 +74,7 @@ func TestAPITokenOps(t *testing.T) {
 
 		wantStatusCode int
 		wantJSON       string
+		wantJSONSubstr string
 		wantErrCode    string
 		wantErrTitle   string
 		wantErrDetail  string
@@ -189,6 +190,40 @@ func TestAPITokenOps(t *testing.T) {
 			wantJSON:       `{"data":{"name": "new name", "prefix":"theprefi" }}`,
 		},
 		{
+			// M6: Save is an upsert, so a PUT to a prefix that does not exist
+			// used to CREATE a token row -- with an empty hash and an empty
+			// scope, one per request, listed by GET /me/tokens as if it were a
+			// real credential. Any authenticated principal could loop it to
+			// grow api.db without bound, and api.db also holds the API
+			// sessions.
+			descr:          "update a token that does not exist",
+			requestMethod:  http.MethodPut,
+			requestURL:     "/api/v1/me/tokens/nosuchpr",
+			requestBody:    strings.NewReader(`{"name": "a token I never created"}`),
+			wantStatusCode: http.StatusNotFound,
+			wantErrTitle:   "token not found",
+		},
+		{
+			// M6: the length bound used to be on the create path only, so an
+			// update could carry a name as large as api.max_request_bytes.
+			descr:          "update a token with too long of a name",
+			requestMethod:  http.MethodPut,
+			requestURL:     "/api/v1/me/tokens/theprefi",
+			requestBody:    strings.NewReader(`{"name":"` + strings.Repeat("I am a token and this is my name", 10) + `"}`),
+			wantStatusCode: http.StatusBadRequest,
+			wantErrTitle:   "missing or invalid name.",
+			wantErrDetail:  "field name is required, 250 characters max",
+		},
+		{
+			// ... and the token the failed update named is still the one it
+			// was, so neither refusal above wrote anything.
+			descr:          "the token survives both refusals",
+			requestMethod:  http.MethodGet,
+			requestURL:     "/api/v1/me/tokens",
+			wantStatusCode: http.StatusOK,
+			wantJSONSubstr: `"name":"new name"`,
+		},
+		{
 			descr:          "delete a token ",
 			requestMethod:  http.MethodDelete,
 			requestURL:     "/api/v1/me/tokens/" + MyalphaNumNewPrefix,
@@ -261,11 +296,13 @@ func TestAPITokenOps(t *testing.T) {
 			require.Equal(tc.wantStatusCode, w.Code)
 			if tc.wantStatusCode/100 == 2 { // any 2** status code is a success test case
 				// success case
-				if tc.wantJSON == "" {
+				switch {
+				case tc.wantJSONSubstr != "":
+					assert.Contains(w.Body.String(), tc.wantJSONSubstr)
+				case tc.wantJSON == "":
 					assert.Empty(w.Body.String())
-				} else {
+				default:
 					assert.JSONEq(tc.wantJSON, w.Body.String())
-
 				}
 			} else {
 				// failure case
@@ -341,10 +378,12 @@ func (s *MockUsersService) Change(user *users.User, username string) error {
 }
 
 func TestPostToken(t *testing.T) {
+	//nolint:gosec // G101: a bcrypt hash of a fixture password, not a credential
 	user := &users.User{
 		Username: "user1",
 		Password: "$2y$05$ep2DdPDeLDDhwRrED9q/vuVEzRpZtB5WHCFT7YbcmH9r9oNmlsZOm",
 	}
+	//nolint:gosec // G101: a bcrypt hash of a fixture password, not a credential
 	userWithoutToken := &users.User{
 		Username: "user2",
 		Password: "$2y$05$ep2DdPDeLDDhwRrED9q/vuVEzRpZtB5WHCFT7YbcmH9r9oNmlsZOm",
@@ -353,7 +392,7 @@ func TestPostToken(t *testing.T) {
 	// database for tokenManager, creates a token read+write
 	apiTokenDb, err := sqlite.New(":memory:", api_token.AssetNames(), api_token.Asset, DataSourceOptions)
 	require.NoError(t, err)
-	defer apiTokenDb.Close()
+	defer func() { require.NoError(t, apiTokenDb.Close()) }()
 	tokenProvider := authorization.NewSqliteProvider(apiTokenDb)
 	mockTokenManager := authorization.NewManager(tokenProvider)
 
@@ -405,10 +444,12 @@ func TestPostToken(t *testing.T) {
 func TestWrapWithAuthMiddleware(t *testing.T) {
 	ctx := context.Background()
 
+	//nolint:gosec // G101: a bcrypt hash of a fixture password, not a credential
 	user := &users.User{
 		Username: "user1",
 		Password: "$2y$05$ep2DdPDeLDDhwRrED9q/vuVEzRpZtB5WHCFT7YbcmH9r9oNmlsZOm",
 	}
+	//nolint:gosec // G101: a bcrypt hash of a fixture password, not a credential
 	userWithoutToken := &users.User{
 		Username: "user2",
 		Password: "$2y$05$ep2DdPDeLDDhwRrED9q/vuVEzRpZtB5WHCFT7YbcmH9r9oNmlsZOm",
@@ -543,10 +584,12 @@ func TestWrapWithAuthMiddleware(t *testing.T) {
 func TestAPISessionUpdates(t *testing.T) {
 	ctx := context.Background()
 
+	//nolint:gosec // G101: a bcrypt hash of a fixture password, not a credential
 	user := &users.User{
 		Username: "user1",
 		Password: "$2y$05$ep2DdPDeLDDhwRrED9q/vuVEzRpZtB5WHCFT7YbcmH9r9oNmlsZOm",
 	}
+	//nolint:gosec // G101: a bcrypt hash of a fixture password, not a credential
 	userWithoutToken := &users.User{
 		Username: "user2",
 		Password: "$2y$05$ep2DdPDeLDDhwRrED9q/vuVEzRpZtB5WHCFT7YbcmH9r9oNmlsZOm",
@@ -691,6 +734,7 @@ func TestHandleGetLogin(t *testing.T) {
 	authHeader := "Authentication-IsAuthenticated"
 	userHeader := "Authentication-User"
 	userGroup := "Administrators"
+	//nolint:gosec // G101: a bcrypt hash of a fixture password, not a credential
 	user := &users.User{
 		Username: "user1",
 		Password: "$2y$05$ep2DdPDeLDDhwRrED9q/vuVEzRpZtB5WHCFT7YbcmH9r9oNmlsZOm",

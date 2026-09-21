@@ -373,8 +373,7 @@ func (al *APIListener) handlePostToken(w http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	if len(r.Name) == 0 || len(r.Name) >= 250 {
-		al.jsonErrorResponseWithDetail(w, http.StatusBadRequest, "", "missing or invalid name.", "field name is required, 250 characters max")
+	if !al.validAPITokenName(w, r.Name, true) {
 		return
 	}
 
@@ -432,6 +431,29 @@ func (al *APIListener) handlePostToken(w http.ResponseWriter, req *http.Request)
 		}))
 }
 
+// maxAPITokenNameLength bounds the name on every write path. It used to be
+// checked only on create, so the update path accepted a name as large as
+// api.max_request_bytes.
+const maxAPITokenNameLength = 250
+
+// validAPITokenName answers the request itself when the name is unusable, so
+// that the create and update paths cannot drift apart on what a name may be.
+//
+// required separates the two: create must be given a name, while update treats
+// an empty one as "leave it alone" -- the upsert's DO UPDATE keeps the stored
+// name when :name is empty, and an expiry-only PUT is a documented operation.
+// The length bound applies to both, and used to apply only to create, so an
+// update could carry a name as large as api.max_request_bytes.
+func (al *APIListener) validAPITokenName(w http.ResponseWriter, name string, required bool) bool {
+	if (required && len(name) == 0) || len(name) >= maxAPITokenNameLength {
+		// Message kept verbatim: it is part of the API surface and an existing
+		// test pins it.
+		al.jsonErrorResponseWithDetail(w, http.StatusBadRequest, "", "missing or invalid name.", "field name is required, 250 characters max")
+		return false
+	}
+	return true
+}
+
 func (al *APIListener) handlePutToken(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	prefix := vars[routes.ParamTokenPrefix]
@@ -457,6 +479,25 @@ func (al *APIListener) handlePutToken(w http.ResponseWriter, req *http.Request) 
 	err = parseRequestBody(req.Body, &r)
 	if err != nil {
 		al.jsonError(w, err)
+		return
+	}
+
+	if !al.validAPITokenName(w, r.Name, false) {
+		return
+	}
+
+	// Save is an upsert. Without this lookup a PUT to a prefix that does not
+	// exist CREATED a token row -- with an empty hash and an empty scope, one
+	// per request, listed by GET /me/tokens as if it were a real credential.
+	// Any authenticated principal could loop it to grow api.db without bound,
+	// and api.db is also where the API sessions live.
+	existing, err := al.tokenManager.Get(req.Context(), user.Username, prefix)
+	if err != nil {
+		al.jsonErrorResponse(w, http.StatusInternalServerError, err)
+		return
+	}
+	if existing == nil {
+		al.jsonErrorResponseWithTitle(w, http.StatusNotFound, "token not found")
 		return
 	}
 

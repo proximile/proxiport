@@ -22,6 +22,12 @@ func (al *APIListener) handleListAuditLog(w http.ResponseWriter, req *http.Reque
 			al.jsonErrorResponseWithError(w, http.StatusForbidden, "filter forbidden", err)
 			return
 		}
+		var nee *auditlog.NotEnabledError
+		if errors.As(err, &nee) {
+			// Same answer the disabled monitoring routes give.
+			al.jsonErrorResponseWithTitle(w, http.StatusNotFound, err.Error())
+			return
+		}
 		al.jsonError(w, err)
 		return
 	}

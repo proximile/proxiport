@@ -100,3 +100,67 @@ func TestSanitizeAgentRemotesKeepsTheAgentsOwnProxySettings(t *testing.T) {
 	assert.True(t, got.HTTPProxy, "reverse_proxy must survive")
 	assert.Equal(t, "pikvm.lan", got.HostHeader, "host_header= must survive")
 }
+
+// TestGetTunnelsToReestablishSurvivesANullRemote is L4. The agent's Remotes are
+// json.Unmarshal'ed straight into a []*models.Remote, so `"Remotes":[null]` is
+// a slice with a nil element. sanitizeAgentRemotes already skips nil entries
+// and is tested for it -- but it runs AFTER this function, which dereferenced
+// the nil and panicked. net/http recovers that, so it aborted the handshake and
+// dumped a full panic stack into the server log instead of killing the daemon:
+// repeatable at will by an unprivileged agent.
+func TestGetTunnelsToReestablishSurvivesANullRemote(t *testing.T) {
+	pinned := &models.Remote{LocalHost: "0.0.0.0", LocalPort: "3390", RemoteHost: "0.0.0.0", RemotePort: "22"}
+	random := &models.Remote{LocalPortRandom: true, RemoteHost: "0.0.0.0", RemotePort: "22"}
+
+	testCases := []struct {
+		name string
+		old  []*models.Remote
+		new  []*models.Remote
+	}{
+		{
+			name: "a single null",
+			old:  []*models.Remote{pinned},
+			new:  []*models.Remote{nil},
+		},
+		{
+			name: "a null beside a pinned remote",
+			old:  []*models.Remote{pinned, random},
+			new:  []*models.Remote{pinned, nil},
+		},
+		{
+			// loop2 is a separate pass over the same slice and dereferences
+			// curNew again; guarding only loop1 still panicked here.
+			name: "a null beside a random-port remote, which only loop2 reaches",
+			old:  []*models.Remote{random, pinned},
+			new:  []*models.Remote{random, nil},
+		},
+		{
+			name: "nothing at all",
+			old:  []*models.Remote{pinned},
+			new:  nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			assert.NotPanics(t, func() {
+				getTunnelsToReestablish(tc.old, tc.new)
+			})
+		})
+	}
+}
+
+// TestGetTunnelsToReestablishStillReestablishes is the anti-vacuity half: the
+// nil guard must skip the null entry, not short-circuit the function. It
+// returns the old tunnels the reconnecting agent did NOT ask for again, so an
+// agent that reconnects carrying only a null must still get its tunnel back.
+func TestGetTunnelsToReestablishStillReestablishes(t *testing.T) {
+	remote := &models.Remote{LocalHost: "0.0.0.0", LocalPort: "3390", RemoteHost: "0.0.0.0", RemotePort: "22"}
+	existing := []*models.Remote{remote}
+
+	assert.Len(t, getTunnelsToReestablish(existing, nil), 1)
+	assert.Len(t, getTunnelsToReestablish(existing, []*models.Remote{nil}), 1)
+	assert.Empty(t, getTunnelsToReestablish(existing, []*models.Remote{remote}),
+		"a tunnel the agent asked for again is not one to re-establish")
+}
