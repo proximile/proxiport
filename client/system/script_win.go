@@ -17,7 +17,7 @@ func GetScriptExtensionOS(interpreter Interpreter) string {
 	isPowershell := interpreter.Matches(chshare.PowerShell, false)
 
 	if isPowershell {
-		return ".ps1"
+		return PowerShellScriptExt
 	}
 
 	return ".bat"

@@ -1,13 +1,15 @@
 package system
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/encoding/ianaindex"
+	"golang.org/x/text/encoding/simplifiedchinese"
 
 	chshare "github.com/proximile/proxiport/share"
 )
@@ -50,9 +52,20 @@ func TestDetectCmdOutputEncoding(t *testing.T) {
 			WantEncoding: charmap.Windows1252,
 		},
 		{
-			Name:      "unknown",
-			CmdOutput: "Active code page: 936.",
-			WantErr:   fmt.Errorf("could not get Encoding by IANA name using detected Code Page %s: %v", "936", errors.New("ianaindex: invalid encoding name")),
+			// Simplified Chinese. This case used to assert the defect: the bare
+			// "936" was handed to ianaindex, which rejects it, so detection
+			// failed and the agent wrote the script with no encoder at all.
+			Name:         "Code page 936",
+			CmdOutput:    "Active code page: 936.",
+			WantEncoding: simplifiedchinese.GBK,
+		},
+		{
+			// Turkish OEM. ianaindex knows the name and has no encoder for it,
+			// so detection fails honestly -- and the .ps1 is written with a BOM
+			// regardless, which is why that failure is survivable.
+			Name:      "a code page x/text has no encoder for",
+			CmdOutput: "Active code page: 857.",
+			WantErr:   fmt.Errorf("encoding with Code Page %s is not supported", "857"),
 		},
 		{
 			Name:      "invalid",
@@ -118,6 +131,75 @@ func TestDetectEncodingCommand(t *testing.T) {
 			gotInput, gotOutput := detectEncodingCommand(interpreter)
 			assert.Equal(t, tc.WantInput, gotInput)
 			assert.Equal(t, tc.WantOutput, gotOutput)
+		})
+	}
+}
+
+// TestEveryWindowsANSICodePageResolves is the general form of L7: whatever the
+// system locale of a Windows agent, [System.Text.Encoding]::Default.CodePage
+// returns one of these, and every one of them has to produce a usable encoder.
+// Before the mapping was filled in, eight of the nine failed -- 1252 was the
+// only ANSI page in the table -- and the failure was swallowed into a log line
+// while the script was written anyway.
+func TestEveryWindowsANSICodePageResolves(t *testing.T) {
+	windowsANSICodePages := []struct {
+		CodePage string
+		Locale   string
+	}{
+		{"874", "Thai"},
+		{"932", "Japanese"},
+		{"936", "Simplified Chinese"},
+		{"949", "Korean"},
+		{"950", "Traditional Chinese"},
+		{"1250", "Central European"},
+		{"1251", "Cyrillic"},
+		{"1252", "Western European"},
+		{"1253", "Greek"},
+		{"1254", "Turkish"},
+		{"1255", "Hebrew"},
+		{"1256", "Arabic"},
+		{"1257", "Baltic"},
+		{"1258", "Vietnamese"},
+	}
+
+	for _, tc := range windowsANSICodePages {
+		tc := tc
+		t.Run(tc.CodePage+" ("+tc.Locale+")", func(t *testing.T) {
+			t.Parallel()
+
+			enc, err := detectEncodingByCHCPOutput("Active code page: " + tc.CodePage + ".")
+			require.NoError(t, err, "code page %s (%s) must be detectable", tc.CodePage, tc.Locale)
+			require.NotNil(t, enc, "code page %s (%s) must yield an encoding", tc.CodePage, tc.Locale)
+
+			// An encoder that cannot round-trip plain ASCII would be worse than
+			// none at all, so check the mapping actually points somewhere sane.
+			got, err := enc.NewEncoder().String("echo ok")
+			require.NoError(t, err)
+			assert.Equal(t, "echo ok", got)
+		})
+	}
+}
+
+// TestCodePageMappingResolves keeps the table honest: every name in it must be
+// one golang.org/x/text answers to. A future entry that x/text cannot serve
+// would otherwise reintroduce L7 silently for that locale.
+func TestCodePageMappingResolves(t *testing.T) {
+	// utf-8 is the sentinel detectEncodingByCHCPOutput checks for by name and
+	// returns early on; utf-7 resolves but x/text declines to implement it, and
+	// the "not supported" error that produces is asserted above.
+	sentinels := map[string]bool{"65001": true, "65000": true}
+
+	for codePage, ianaName := range codePageToIANAMapping {
+		codePage, ianaName := codePage, ianaName
+		if sentinels[codePage] {
+			continue
+		}
+		t.Run(codePage, func(t *testing.T) {
+			t.Parallel()
+
+			enc, err := ianaindex.IANA.Encoding(ianaName)
+			require.NoError(t, err, "code page %s maps to %q, which ianaindex rejects", codePage, ianaName)
+			require.NotNil(t, enc, "code page %s maps to %q, which ianaindex has no encoder for", codePage, ianaName)
 		})
 	}
 }

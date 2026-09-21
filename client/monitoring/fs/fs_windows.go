@@ -4,10 +4,7 @@
 package fs
 
 import (
-	"bytes"
 	"context"
-	"strings"
-	"unsafe"
 
 	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/v3/disk"
@@ -44,24 +41,24 @@ func getPartitions(onlyUniqueDevices bool) ([]disk.PartitionStat, error) {
 
 // tryRetrieveRemoteDriveFSType can detect the original network share filesystem.
 // If filesystem wasn't recognized, the empty string returned.
-// Based on some insights from cygwin implementation.
+//
+// All of the buffer handling lives in remoteDriveFSType, which is portable and
+// therefore actually tested; the only thing here is the syscall itself. The
+// buffer is a []uint16 and the length handed to the kernel is len() of that same
+// slice, because ucchMax counts UTF-16 code units -- see dosDeviceQuery.
 func tryRetrieveRemoteDriveFSType(drivePath *uint16) (string, error) {
-	lpTargetBuffer := make([]byte, 256)
-	_, err := windows.QueryDosDevice(drivePath, (*uint16)(unsafe.Pointer(&lpTargetBuffer[0])), uint32(len(lpTargetBuffer)))
+	fsType, err := remoteDriveFSType(func(buf []uint16) (uint32, error) {
+		//nolint:gosec // len(buf) is bounded by dosDeviceMaxBufLen; see dosDeviceQuery
+		n, err := windows.QueryDosDevice(drivePath, &buf[0], uint32(len(buf)))
+		if errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) {
+			return 0, errBufferTooSmall
+		}
+		return n, err
+	})
 	if err != nil {
 		return "", errors.Wrapf(err, "while QueryDosDevice call")
 	}
-
-	dosDeviceName := string(bytes.Replace(lpTargetBuffer, []byte("\x00"), []byte(""), -1))
-	if strings.Contains(dosDeviceName, "LanmanRedirector\\") {
-		return "smbfs", nil
-	}
-
-	if strings.Contains(dosDeviceName, "MRxNfs\\") {
-		return "nfs", nil
-	}
-
-	return "", nil
+	return fsType, nil
 }
 
 // enablePerformanceCounters will enable performance counters by adding the EnableCounterForIoctl registry key
