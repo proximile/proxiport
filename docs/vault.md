@@ -47,8 +47,12 @@ curl -s -X POST \
   https://proxiport.example.com/api/v1/vault-admin/init
 ```
 
-The passphrase must be between 4 and 32 bytes. Anything outside that
-range is rejected.
+The passphrase must be between 8 and 256 bytes. Anything outside that
+range is rejected with a 400 naming the limit it missed.
+
+Earlier releases of this page published the range as 4 to 32 bytes.
+That was wrong in both directions: 4 bytes has never been accepted, and
+32 bytes is far below the real ceiling.
 
 ### Status
 
@@ -275,7 +279,8 @@ Encrypt `vault-backup.tar.gz` before storing it anywhere external.
 ## Hardening checklist
 
 - Pick a passphrase that survives a brute-force attempt against the
-  on-disk file — 32 random ASCII characters is a reasonable floor.
+  on-disk file — 32 random ASCII characters is a reasonable floor, and
+  the limit is 256 bytes, so there is a lot of room above it.
 - Store the passphrase in a password manager, not in a shell history
   or a script committed to version control.
 - Schedule regular clear-text backups and encrypt them at rest.

@@ -6,8 +6,10 @@ existing chisel control channel — no tunnel is opened, and no extra
 port on the agent host is exposed.
 
 For multi-line bodies and stored, reusable invocations, use
-[scripts](scripts.md) instead. The two share the same allow/deny
-filter on the agent.
+[scripts](scripts.md) instead. Note that the agent's `allow`/`deny`
+filter applies to **commands only** — a script job runs the
+operator-chosen interpreter without consulting it. See
+[Authorising commands on the agent](#authorising-commands-on-the-agent).
 
 ## How it works
 
