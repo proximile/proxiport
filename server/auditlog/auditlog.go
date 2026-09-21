@@ -158,7 +158,12 @@ func (a *AuditLog) savePreparedEntry(e *Entry) error {
 	return a.provider.Save(e)
 }
 
-func (a *AuditLog) List(r *http.Request, user *users.User) (*api.SuccessPayload, error) {
+// listOptionsFor builds the query options a request from this user produces,
+// including the filter that confines a non-admin to their own entries. It is a
+// function of its own so that a test can ask for exactly the options the server
+// would use -- the forced username filter is what makes the index this listing
+// depends on load-bearing.
+func listOptionsFor(r *http.Request, user *users.User) (*query.ListOptions, error) {
 	options := query.GetListOptions(r)
 	if !user.IsAdmin() {
 		// Deny none-admins looking for foreign audit logs
@@ -175,10 +180,18 @@ func (a *AuditLog) List(r *http.Request, user *users.User) (*api.SuccessPayload,
 			Values: []string{user.Username},
 		})
 	}
-	err := query.ValidateListOptions(options, supportedSorts, supportedFilters, nil, &query.PaginationConfig{
+	if err := query.ValidateListOptions(options, supportedSorts, supportedFilters, nil, &query.PaginationConfig{
 		DefaultLimit: 10,
 		MaxLimit:     100,
-	})
+	}); err != nil {
+		return nil, err
+	}
+
+	return options, nil
+}
+
+func (a *AuditLog) List(r *http.Request, user *users.User) (*api.SuccessPayload, error) {
+	options, err := listOptionsFor(r, user)
 	if err != nil {
 		return nil, err
 	}
