@@ -71,11 +71,37 @@ func (fo FilterOption) isSupported(supportedFields map[string]bool) bool {
 	return true
 }
 
+// setWildcardColumns expands filter[*] into the supported columns it can
+// legitimately stand for.
+//
+// The supported-field maps are keyed by the *filter* name, and a range filter
+// carries its operator in that name: "timestamp[gt]". Copying every key
+// verbatim put "timestamp[gt]" into the SQL as a column name, which SQLite
+// reads as the identifier timestamp followed by the bracket-quoted identifier
+// [gt] -- a syntax error at prepare time. So filter[*] answered HTTP 500 on
+// every endpoint family whose map declares a range filter, and worked on every
+// one whose map does not, which is why the API behaved inconsistently rather
+// than visibly wrongly.
+//
+// Operator-suffixed keys are dropped rather than trimmed. "timestamp[gt]"
+// declares that the field is filterable with a *comparison*; an equality
+// wildcard against a timestamp is not a search anyone means, and trimming would
+// also make the expanded column fail isSupported, which looks up the key as the
+// map holds it. What is left is exactly the set of plain, equality-filterable
+// fields -- which is what "filter on any field" means.
 func (fo *FilterOption) setWildcardColumns(supportedFields map[string]bool) {
-	fo.Column = make([]string, 0, len(supportedFields))
+	columns := make([]string, 0, len(supportedFields))
 	for field := range supportedFields {
-		fo.Column = append(fo.Column, field)
+		if strings.Contains(field, "[") {
+			continue
+		}
+		columns = append(columns, field)
 	}
+
+	// Map iteration order is random and the expansion decides both the SQL text
+	// and the order of its bound parameters, so sort it.
+	sort.Strings(columns)
+	fo.Column = columns
 }
 
 func ValidateFilterOptions(fo []FilterOption, supportedFields map[string]bool) errors2.APIErrors {
@@ -83,6 +109,16 @@ func ValidateFilterOptions(fo []FilterOption, supportedFields map[string]bool) e
 	for i := range fo {
 		if len(fo[i].Column) == 1 && fo[i].Column[0] == "*" {
 			fo[i].setWildcardColumns(supportedFields)
+			if len(fo[i].Column) == 0 {
+				// Nothing on this endpoint is filterable by equality -- the
+				// monitoring families declare only timestamp ranges. Say so,
+				// rather than handing an empty column list to the SQL builder.
+				errs = append(errs, errors2.APIError{
+					Message:    "unsupported filter field 'filter[*]'",
+					HTTPStatus: http.StatusBadRequest,
+				})
+				continue
+			}
 		}
 		ok := fo[i].isSupported(supportedFields)
 		if !ok {
@@ -114,7 +150,7 @@ func ParseFilterOptions(values url.Values) []FilterOption {
 		}
 
 		matches := filterRegex.FindStringSubmatch(filterKey)
-		if matches == nil || len(matches) < 4 {
+		if len(matches) < 4 {
 			continue
 		}
 

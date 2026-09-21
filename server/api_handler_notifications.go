@@ -7,30 +7,17 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/proximile/proxiport/server/api"
+	"github.com/proximile/proxiport/server/notifications"
 	"github.com/proximile/proxiport/server/routes"
 	"github.com/proximile/proxiport/share/query"
 )
 
-var (
-	supportedFilters = map[string]bool{
-		"state":            true,
-		"reference_id":     true,
-		"transport":        true,
-		"subject":          true,
-		"timestamp[gt]":    true,
-		"timestamp[lt]":    true,
-		"timestamp[since]": true,
-		"timestamp[until]": true,
-	}
-	supportedSorts = map[string]bool{
-		"timestamp": true,
-		"state":     true,
-	}
-)
-
 func (al *APIListener) notificationsList(ctx context.Context, options *query.ListOptions) (*api.SuccessPayload, error) {
 
-	err := query.ValidateListOptions(options, supportedSorts, supportedFilters, nil, &query.PaginationConfig{
+	// The advertised filter and sort sets live with the repository that has to
+	// serve them, so a filter cannot be advertised here and be unserveable
+	// there -- which is precisely what M4 was.
+	err := query.ValidateListOptions(options, notifications.SupportedSorts, notifications.SupportedFilters, nil, &query.PaginationConfig{
 		DefaultLimit: 10,
 		MaxLimit:     100,
 	})

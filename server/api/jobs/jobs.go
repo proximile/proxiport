@@ -258,6 +258,25 @@ func (p *SqliteProvider) GetByJID(clientID, jid string) (*models.Job, error) {
 	return job, nil
 }
 
+// jobsWithScheduleID is every job row plus the schedule_id that lives on the
+// parent multi_job, as a named derived table.
+//
+// The naming and the wrapping are both load-bearing. jid, started_at and
+// created_by exist in BOTH jobs and multi_jobs, and the query builder emits
+// filter and sort columns unqualified, so against the bare join SQLite rejected
+// the statement at prepare time with "ambiguous column name" -- which is to say
+// every documented filter[jid], filter[created_by] and filter[started_at][*] on
+// the job listings answered HTTP 500. Count already wrapped the join, which is
+// why List and Count disagreed for as long as they did; they now share this one
+// definition so they cannot drift apart again. The alias keeps fields[jobs]=...
+// working: the projection stays "SELECT jobs.*", which is what it always was,
+// so ReplaceStarSelect keeps no-opping on it. It must -- JobSupportedFields
+// declares a "result" resource whose members are not columns of any table, and
+// letting that path fire would replace a working projection with
+// "result.summary" and break every listing.
+const jobsWithScheduleID = "(SELECT jobs.*, schedule_id FROM jobs " +
+	"LEFT JOIN multi_jobs ON jobs.multi_job_id = multi_jobs.jid) jobs"
+
 func (p *SqliteProvider) List(ctx context.Context, options *query.ListOptions) ([]*models.Job, error) {
 	if len(options.Sorts) == 0 {
 		options.Sorts = []query.SortOption{
@@ -272,7 +291,7 @@ func (p *SqliteProvider) List(ctx context.Context, options *query.ListOptions) (
 		}
 	}
 
-	q := "SELECT jobs.*, schedule_id FROM jobs LEFT JOIN multi_jobs ON jobs.multi_job_id = multi_jobs.jid"
+	q := "SELECT jobs.* FROM " + jobsWithScheduleID
 	q, params := p.converter.AppendOptionsToQuery(options, q, nil)
 
 	var res []*jobSqlite
@@ -293,7 +312,7 @@ func (p *SqliteProvider) Count(ctx context.Context, options *query.ListOptions) 
 	countOptions := *options
 	countOptions.Pagination = nil
 
-	q := "SELECT count(*) FROM (SELECT jobs.*, schedule_id FROM jobs LEFT JOIN multi_jobs ON jobs.multi_job_id = multi_jobs.jid)"
+	q := "SELECT count(*) FROM " + jobsWithScheduleID
 	q, params := p.converter.AppendOptionsToQuery(&countOptions, q, nil)
 
 	var result int

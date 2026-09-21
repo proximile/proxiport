@@ -44,14 +44,16 @@ func (c *SQLConverter) AddWhere(filterOptions []FilterOption, q string, params [
 	}
 
 	whereParts := make([]string, 0, len(filterOptions))
-	for i := range filterOptions {
-		orParts := make([]string, 0, len(filterOptions[i].Values))
-		for _, col := range filterOptions[i].Column {
-			for _, val := range filterOptions[i].Values {
-				part := fmt.Sprintf("%s %s ?", col, filterOptions[i].Operator.Code())
+	for _, filterOption := range filterOptions {
+		operator := filterOption.Operator.Code()
+
+		orParts := make([]string, 0, len(filterOption.Values))
+		for _, col := range filterOption.Column {
+			for _, val := range filterOption.Values {
+				part := fmt.Sprintf("%s %s ?", col, operator)
 				if val == "" {
 					part = fmt.Sprintf("(%s OR %s IS NULL)", part, col)
-				} else if strings.Contains(val, "*") && filterOptions[i].Operator.Code() == "=" {
+				} else if strings.Contains(val, "*") && operator == "=" {
 					// Implement a SQL LIKE search triggered by a wildcard
 					if c.dbDriverName == "mysql" {
 						//MySQL needs the backslash escaped, that means double-backslash;  WHERE LOWER(id) LIKE 'op\%' escape "\\";
@@ -61,7 +63,7 @@ func (c *SQLConverter) AddWhere(filterOptions []FilterOption, q string, params [
 						part = fmt.Sprintf("LOWER(%s) LIKE ? ESCAPE '\\'", col)
 					}
 					// Escape the % sign to treat it literally, on the API side % must not become a wildcard
-					val = strings.Replace(val, "%", "\\%", -1)
+					val = strings.ReplaceAll(val, "%", "\\%")
 					// Make search case-insensitive
 					val = strings.ToLower(val)
 					// Replace wildcard * by sql wildcard %
@@ -72,11 +74,23 @@ func (c *SQLConverter) AddWhere(filterOptions []FilterOption, q string, params [
 			}
 		}
 
-		if len(orParts) > 1 {
+		switch {
+		case len(orParts) == 0:
+			// A filter with no columns or no values contributes no predicate.
+			// Indexing orParts[0] here used to panic; validation should stop an
+			// empty column list before it reaches the builder, but the builder
+			// is the last thing between a request and the database and should
+			// not be the thing that crashes.
+			continue
+		case len(orParts) > 1:
 			whereParts = append(whereParts, fmt.Sprintf("(%s)", strings.Join(orParts, " OR ")))
-		} else {
+		default:
 			whereParts = append(whereParts, orParts[0])
 		}
+	}
+
+	if len(whereParts) == 0 {
+		return q, params
 	}
 
 	concat := " WHERE "

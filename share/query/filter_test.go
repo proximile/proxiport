@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	errors2 "github.com/proximile/proxiport/server/api/errors"
 )
@@ -356,4 +357,71 @@ func TestSplitFilters(t *testing.T) {
 
 	assert.Equal(t, options[0:1], opt1)
 	assert.Equal(t, options[1:2], opt2)
+}
+
+// TestWildcardFilterExpandsToUsableColumns is L2. setWildcardColumns copied
+// every key of the supported-filter map into the SQL as a column name, and a
+// range filter's key carries its operator -- "timestamp[gt]". SQLite reads that
+// as the identifier timestamp followed by the bracket-quoted identifier [gt]
+// and refuses to prepare the statement, so filter[*] answered HTTP 500 on every
+// endpoint family whose map declares a range filter, and worked on every one
+// whose map does not.
+func TestWildcardFilterExpandsToUsableColumns(t *testing.T) {
+	t.Run("operator-suffixed keys never reach the SQL", func(t *testing.T) {
+		// The notification-log map, which is the one whose documentation
+		// explicitly advertises the wildcard form.
+		supported := map[string]bool{
+			"state":            true,
+			"reference_id":     true,
+			"transport":        true,
+			"subject":          true,
+			"timestamp[gt]":    true,
+			"timestamp[lt]":    true,
+			"timestamp[since]": true,
+			"timestamp[until]": true,
+		}
+
+		fo := []FilterOption{{Column: []string{"*"}, Values: []string{"error"}}}
+		require.Nil(t, ValidateFilterOptions(fo, supported))
+
+		assert.Equal(t, []string{"reference_id", "state", "subject", "transport"}, fo[0].Column,
+			"the expansion must be the equality-filterable fields, in a stable order")
+
+		converter := NewSQLConverter("sqlite")
+		q, params := converter.AddWhere(fo, "SELECT * FROM notifications_log", nil)
+		assert.NotContains(t, q, "[", "no bracketed identifier may reach the statement")
+		assert.Len(t, params, 4)
+	})
+
+	t.Run("a map with nothing but range filters is rejected, not mis-expanded", func(t *testing.T) {
+		// server/monitoring's metrics, processes and mountpoints families
+		// declare only timestamp ranges, so there is no field a wildcard
+		// equality match could mean.
+		supported := map[string]bool{
+			"timestamp[gt]":    true,
+			"timestamp[lt]":    true,
+			"timestamp[since]": true,
+			"timestamp[until]": true,
+		}
+
+		fo := []FilterOption{{Column: []string{"*"}, Values: []string{"anything"}}}
+		errs := ValidateFilterOptions(fo, supported)
+		require.NotNil(t, errs, "an unserveable wildcard must be a 400, not an empty WHERE clause")
+		assert.Contains(t, errs.Error(), "unsupported filter field")
+	})
+
+	t.Run("an explicit range filter is unaffected", func(t *testing.T) {
+		supported := map[string]bool{"timestamp[gt]": true}
+
+		fo := []FilterOption{{
+			Column:   []string{"timestamp"},
+			Operator: FilterOperatorTypeGT,
+			Values:   []string{"2026-09-15T00:00:00Z"},
+		}}
+		require.Nil(t, ValidateFilterOptions(fo, supported))
+
+		converter := NewSQLConverter("sqlite")
+		q, _ := converter.AddWhere(fo, "SELECT * FROM measurements", nil)
+		assert.Contains(t, q, "WHERE timestamp > ?")
+	})
 }
