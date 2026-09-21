@@ -141,12 +141,24 @@ func (p *SQLiteProvider) Verify(ctx context.Context) (ChainVerification, error) 
 	return verifyChain(p.hmacKey, rows), nil
 }
 
+// listQuery and countQuery build the statements List and Count run. They exist
+// as their own functions so a test can EXPLAIN exactly the statement the server
+// executes, rather than a copy of it that can drift away from this one.
+func (p *SQLiteProvider) listQuery(options *query.ListOptions) (string, []interface{}) {
+	return p.converter.ConvertListOptionsToQuery(options, "SELECT * FROM `auditlog`")
+}
+
+func (p *SQLiteProvider) countQuery(options *query.ListOptions) (string, []interface{}) {
+	countOptions := *options
+	countOptions.Pagination = nil
+
+	return p.converter.ConvertListOptionsToQuery(&countOptions, "SELECT COUNT(*) FROM `auditlog`")
+}
+
 func (p *SQLiteProvider) List(ctx context.Context, options *query.ListOptions) ([]*Entry, error) {
 	values := []*Entry{}
 
-	q := "SELECT * FROM `auditlog`"
-
-	q, params := p.converter.ConvertListOptionsToQuery(options, q)
+	q, params := p.listQuery(options)
 
 	err := p.db.SelectContext(ctx, &values, q, params...)
 	if err != nil {
@@ -159,10 +171,7 @@ func (p *SQLiteProvider) List(ctx context.Context, options *query.ListOptions) (
 func (p *SQLiteProvider) Count(ctx context.Context, options *query.ListOptions) (int, error) {
 	var result int
 
-	q := "SELECT COUNT(*) FROM `auditlog`"
-	countOptions := *options
-	countOptions.Pagination = nil
-	q, params := p.converter.ConvertListOptionsToQuery(&countOptions, q)
+	q, params := p.countQuery(options)
 
 	err := p.db.GetContext(ctx, &result, q, params...)
 	if err != nil {
