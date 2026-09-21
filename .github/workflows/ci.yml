@@ -39,6 +39,41 @@ jobs:
           go-version: "1.26.8"
           cache: true
 
+      # golangci-lint's gofmt only sees files it analyses, which is the host
+      # GOOS -- share/signal_windows.go sat unformatted behind a build tag
+      # where no gate could see it. This checks every tracked .go file
+      # directly, on the same `-s` setting golangci-lint uses, so the
+      # platform-specific files are covered too.
+      - name: gofmt -s (every tracked Go file)
+        run: |
+          mapfile -t gofiles < <(git ls-files '*.go')
+          if [ ${#gofiles[@]} -eq 0 ]; then
+            echo "no Go files matched -- the glob is wrong, failing rather than passing vacuously"
+            exit 1
+          fi
+          # Generated output is formatted by its generator, not by hand, and
+          # reformatting it here would be undone by the next `make generate`.
+          checked=()
+          for f in "${gofiles[@]}"; do
+            if head -1 "$f" | grep -q 'Code generated .* DO NOT EDIT'; then
+              continue
+            fi
+            checked+=("$f")
+          done
+          if [ ${#checked[@]} -eq 0 ]; then
+            echo "every Go file looked generated -- failing rather than passing vacuously"
+            exit 1
+          fi
+          printf 'checking %d of %d Go files (%d generated, skipped)\n' \
+            "${#checked[@]}" "${#gofiles[@]}" "$(( ${#gofiles[@]} - ${#checked[@]} ))"
+          unformatted=$(gofmt -s -l "${checked[@]}")
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt -s clean:"
+            printf '%s\n' "$unformatted"
+            echo "run: gofmt -s -w <file>"
+            exit 1
+          fi
+
       - name: go vet
         run: go vet ./...
 

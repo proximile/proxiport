@@ -112,6 +112,7 @@ func TestReserveKeepsAPortOutOfRandomAllocation(t *testing.T) {
 		})
 	}
 }
+
 // A protocol the agent invented used to index portsPools -- keyed only "tcp"
 // and "udp" -- to a nil mapset.Set interface, and IsPortBusy called Contains on
 // it. That panic landed in the connection handler, after the reconnect path had

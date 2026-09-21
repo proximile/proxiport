@@ -64,7 +64,7 @@ func TestGetRetrieveOptions(t *testing.T) {
 
 func TestValidateRetrieveOptionsWithErrors(t *testing.T) {
 	supportedFields := map[string]map[string]bool{
-		"res1": map[string]bool{
+		"res1": {
 			"f1": true,
 			"f2": true,
 		},
@@ -88,7 +88,7 @@ func TestValidateRetrieveOptionsWithErrors(t *testing.T) {
 
 func TestValidateRetrieveOptionsOk(t *testing.T) {
 	supportedFields := map[string]map[string]bool{
-		"res1": map[string]bool{
+		"res1": {
 			"f1": true,
 			"f2": true,
 		},

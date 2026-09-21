@@ -125,7 +125,15 @@ func (suite *NotificationsIntegrationTestSuite) TestDispatcherCreatesNotificatio
 		if len(suite.server.Messages()) != 1 {
 			return false
 		}
-		_, err := os.Stat(outFile)
+		// Wait for out.json to be READABLE, not merely present. test.sh is
+		// `cat /dev/stdin > out.json`, and the shell creates and truncates
+		// the file when it sets up the redirect -- before cat has written a
+		// byte. An os.Stat here therefore succeeded the instant the
+		// subprocess started, and the read below then decoded an empty file
+		// into the zero value. A partial write cannot decode either, since
+		// incomplete JSON is invalid JSON, so a successful decode means the
+		// script finished.
+		_, err := simpleops.ReadJSONFileIntoStruct[ScriptIO](outFile)
 		return err == nil
 	}, 10*time.Second, 20*time.Millisecond, "the mail and script consumers should both have run")
 

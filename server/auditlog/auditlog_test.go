@@ -35,7 +35,7 @@ func TestNotEnabled(t *testing.T) {
 		WithClientID("123")
 
 	e.Save()
-	e.SaveForMultipleClients([]*clientdata.Client{&clientdata.Client{}})
+	e.SaveForMultipleClients([]*clientdata.Client{{}})
 
 	assert.Equal(t, 0, len(mockProvider.entries))
 }
@@ -140,7 +140,9 @@ func TestList(t *testing.T) {
 		},
 		provider: dbProv,
 	}
-	defer auditLog.Close()
+	defer func() {
+		assert.NoError(t, auditLog.Close())
+	}()
 
 	auditLog.Entry(ApplicationLibraryScript, ActionCreate).Save()
 	auditLog.Entry(ApplicationLibraryScript, ActionUpdate).Save()
