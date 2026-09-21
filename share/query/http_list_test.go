@@ -101,7 +101,7 @@ func TestGetListOptions(t *testing.T) {
 
 func TestValidateListOptionsWithErrors(t *testing.T) {
 	supportedFields := map[string]map[string]bool{
-		"res1": map[string]bool{
+		"res1": {
 			"f1": true,
 			"f2": true,
 		},
@@ -160,7 +160,7 @@ func TestValidateListOptionsWithErrors(t *testing.T) {
 
 func TestValidateListOptionsOk(t *testing.T) {
 	supportedFields := map[string]map[string]bool{
-		"res1": map[string]bool{
+		"res1": {
 			"f1": true,
 			"f2": true,
 		},
