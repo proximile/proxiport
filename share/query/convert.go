@@ -49,8 +49,17 @@ func (c *SQLConverter) AddWhere(filterOptions []FilterOption, q string, params [
 
 		orParts := make([]string, 0, len(filterOption.Values))
 		for _, col := range filterOption.Column {
+			// Both sides, or neither: comparing DATETIME(col) against a raw
+			// bound value would be exactly the mismatch CompareFunc exists to
+			// remove.
+			lhs, placeholder := col, "?"
+			if filterOption.CompareFunc != "" {
+				lhs = fmt.Sprintf("%s(%s)", filterOption.CompareFunc, col)
+				placeholder = fmt.Sprintf("%s(?)", filterOption.CompareFunc)
+			}
+
 			for _, val := range filterOption.Values {
-				part := fmt.Sprintf("%s %s ?", col, operator)
+				part := fmt.Sprintf("%s %s %s", lhs, operator, placeholder)
 				if val == "" {
 					part = fmt.Sprintf("(%s OR %s IS NULL)", part, col)
 				} else if strings.Contains(val, "*") && operator == "=" {

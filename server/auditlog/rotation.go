@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,10 +19,30 @@ import (
 )
 
 const (
-	sqliteFilename  = "auditlog.db"
-	rotatedFilename = "auditlog.2006-01-02.db"
-	// rotatedGlob matches rotated files (auditlog.<date>.db) but not the
-	// active auditlog.db, whose name has no middle segment.
+	sqliteFilename = "auditlog.db"
+	// rotatedFilename is a UTC instant, and both halves of that matter.
+	//
+	// It used to be the local DATE. The rotation ticker is monotonic -- 24h
+	// from whenever the daemon started, never re-anchored to midnight -- so on
+	// the autumn DST fall-back, when the local day is 25 hours long, a tick
+	// whose phase lands in local [00:00, 01:00) recurs on the SAME local date
+	// 24 real hours later. Both rotations computed the same filename and
+	// os.Rename silently replaced the first rotated database with the second.
+	// A day of audit history gone, no error: a successful replace is not an
+	// error, and each rotated file carries its own genesis-anchored HMAC chain,
+	// so Verify cannot see the gap either. A UTC day is always 24 hours, so the
+	// date advances by exactly one per tick.
+	//
+	// Carrying the time as well makes the name unique by construction rather
+	// than by argument -- a restart re-phases the ticker, so two rotations can
+	// legitimately fall on one date. Colons are not in the name because Windows
+	// will not have them in a filename.
+	rotatedFilename = "auditlog.2006-01-02T15-04-05Z.db"
+	// rotatedGlob matches rotated files (auditlog.<instant>.db) but not the
+	// active auditlog.db, whose name has no middle segment. It also still
+	// matches the auditlog.<date>.db files written before this change, and
+	// those sort before same-day instants, which is the order they were
+	// written in.
 	rotatedGlob = "auditlog.*.db"
 )
 
@@ -86,6 +107,13 @@ func (r *RotationProvider) rotationLoop() {
 	}
 }
 
+// rotatedName is the file the live audit log is renamed to at the given
+// instant. It is a function of its own so the DST case that used to collide can
+// be exercised without a clock.
+func rotatedName(now time.Time) string {
+	return now.UTC().Format(rotatedFilename)
+}
+
 func (r *RotationProvider) rotate() error {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
@@ -96,7 +124,20 @@ func (r *RotationProvider) rotate() error {
 	}
 
 	sqliteFn := path.Join(r.dataDir, sqliteFilename)
-	rotatedFn := path.Join(r.dataDir, time.Now().Format(rotatedFilename))
+	rotatedFn := path.Join(r.dataDir, rotatedName(time.Now()))
+
+	// Refuse to write over an existing rotated file. The name is a UTC instant
+	// and so cannot collide in practice; this is here so that "rotation
+	// destroyed a day of audit history" is unreachable by construction rather
+	// than by reasoning about clocks.
+	if _, statErr := os.Lstat(rotatedFn); statErr == nil {
+		r.reopen()
+		return fmt.Errorf("refusing to rotate over the existing %s", filepath.Base(rotatedFn))
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		r.reopen()
+		return statErr
+	}
+
 	err = os.Rename(sqliteFn, rotatedFn)
 	if err != nil {
 		// The live file is still there, just closed. Reopen it so audit writes
@@ -128,8 +169,10 @@ func (r *RotationProvider) rotate() error {
 }
 
 // pruneRotated deletes the oldest rotated auditlog files beyond the configured
-// retention count. Retention <= 0 keeps every rotated file. Rotated names are
-// dated (auditlog.YYYY-MM-DD.db), so a lexicographic sort is chronological.
+// retention count. Retention <= 0 keeps every rotated file. Rotated names lead
+// with a UTC instant (auditlog.YYYY-MM-DDTHH-MM-SSZ.db), so a lexicographic
+// sort is chronological -- including against the auditlog.YYYY-MM-DD.db names
+// written before that format changed.
 func (r *RotationProvider) pruneRotated() error {
 	if r.retention <= 0 {
 		return nil

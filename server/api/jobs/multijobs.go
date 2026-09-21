@@ -46,7 +46,12 @@ func (p *SqliteProvider) GetMultiJob(ctx context.Context, jid string) (*models.M
 			{Column: []string{"multi_job_id"}, Values: []string{jid}},
 		},
 		Sorts: []query.SortOption{
-			{Column: "started_at", IsASC: false},
+			// DATETIME(), like GetMultiJobSummaries a few lines below. Jobs are
+			// stamped with time.Now(), which the driver renders with the host's
+			// UTC offset, and ordering that text lexicographically is not
+			// ordering the instants -- the two disagree whenever the offset is
+			// negative, and again either side of a DST change.
+			{Column: "DATETIME(started_at)", IsASC: false},
 			{Column: "jid", IsASC: true},
 		},
 		Pagination: query.NewPagination(DefaultLimit, 0),
@@ -206,8 +211,9 @@ func (j *multiJobSqlite) convert() *models.MultiJob {
 func convertMultiJobToSqlite(job *models.MultiJob) *multiJobSqlite {
 	return &multiJobSqlite{
 		multiJobSummarySqlite: multiJobSummarySqlite{
-			JID:        job.JID,
-			StartedAt:  job.StartedAt,
+			JID: job.JID,
+			// UTC on the way in, for the same reason as the child jobs.
+			StartedAt:  job.StartedAt.UTC(),
 			CreatedBy:  job.CreatedBy,
 			ScheduleID: job.ScheduleID,
 		},

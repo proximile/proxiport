@@ -67,7 +67,12 @@ func (s *monitoringService) SaveMeasurement(ctx context.Context, measurement *mo
 }
 
 func (s *monitoringService) DeleteMeasurementsOlderThan(ctx context.Context, period time.Duration) (int64, error) {
-	compare := time.Now().Add(-period)
+	// Measurements are stored from time.Now().UTC(), so the retention
+	// threshold has to be UTC too. Bound as a local time it was rendered by
+	// the driver with the host's offset and compared as text, which deleted
+	// (or kept) data by the size of that offset -- and on some deployments the
+	// retention window is a commitment.
+	compare := time.Now().Add(-period).UTC()
 
 	// DeleteMeasurementsBefore removes at most MaxDeletedEntries timestamps per
 	// call to avoid a stop-the-world delete; loop until the backlog is drained
@@ -366,7 +371,13 @@ func parseAndConvertFilterValues(filters []query.FilterOption) error {
 			if err != nil {
 				return errors.APIError{Message: fmt.Sprintf("Illegal timestamp value %s", fo.Values[0]), HTTPStatus: http.StatusBadRequest}
 			}
-			t := time.Unix(ti, 0)
+			// .UTC() is load-bearing: time.Unix returns a time in the
+			// server's local zone and layoutDb carries no zone token, so on a
+			// non-UTC host the epoch was rendered as local wall-clock text and
+			// compared byte-for-byte against rows stamped time.Now().UTC().
+			// Every window was off by the host's UTC offset, which for the
+			// SPA's +/-60s process lookup means it matched nothing at all.
+			t := time.Unix(ti, 0).UTC()
 			fo.Values[0] = t.Format(layoutDb)
 			continue
 		}
@@ -376,8 +387,12 @@ func parseAndConvertFilterValues(filters []query.FilterOption) error {
 			if err != nil {
 				return errors.APIError{Message: "Illegal time value", HTTPStatus: http.StatusBadRequest}
 			}
-			//fo.Values[0] = strconv.FormatInt(t.Unix(), 10)
-			fo.Values[0] = t.Format(layoutDb)
+			// Likewise: time.Parse keeps the caller's offset, and formatting
+			// with layoutDb then drops it instead of normalising it, so
+			// "2021-01-01T00:00:00+01:00" became the UTC instant
+			// 2021-01-01T00:00:00Z -- an hour of metrics missing from the
+			// start of the window and an extra hour at the end.
+			fo.Values[0] = t.UTC().Format(layoutDb)
 			continue
 		}
 	}
