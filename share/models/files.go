@@ -108,34 +108,57 @@ func (uf UploadedFile) ValidateDestinationPath(globPatters []string, log *logger
 			uf.DestinationPath)
 	}
 
-	destination := filepath.Clean(uf.DestinationPath)
-	destinationDir := filepath.Dir(destination)
+	// Every spelling that reaches the same file has to be checked, not just
+	// the one the caller typed. filepath.Clean is purely lexical, so before
+	// this a protected path was reachable through any alias of itself: on
+	// macOS /etc, /var and /tmp are symlinks into /private, so
+	// "/private/etc/sudoers.d/x" matched nothing and landed in the real
+	// sudoers.d; on Windows the same held for the \\?\ prefix and 8.3 short
+	// names. The alias can sit on either side -- the operator may list the
+	// canonical path while the push uses the symlink, or the reverse -- so
+	// both the destination and each pattern are resolved and every
+	// combination is tested.
+	given := stripExtendedLengthPrefix(uf.DestinationPath)
+	destinations := distinctPaths(
+		filepath.Clean(uf.DestinationPath),
+		filepath.Clean(given),
+		resolveForMatch(given),
+	)
 
 	for _, p := range globPatters {
 		if subtree, isSubtree := strings.CutSuffix(p, "/**"); isSubtree {
-			if pathIsWithin(destination, filepath.Clean(subtree)) {
-				return fmt.Errorf("target path %s is inside protected directory %s, therefore the file push request is rejected", destination, subtree)
+			for _, root := range distinctPaths(filepath.Clean(subtree), canonicalPattern(subtree)) {
+				for _, destination := range destinations {
+					if pathIsWithin(destination, root) {
+						return fmt.Errorf("target path %s is inside protected directory %s, therefore the file push request is rejected", destination, subtree)
+					}
+				}
 			}
 			continue
 		}
 
-		matchedDir, err := filepath.Match(p, destinationDir)
-		if err != nil {
-			log.Errorf("failed to match glob pattern %s against destination directory %s: %v", p, uf.DestinationPath, err)
-			continue
-		}
-		if matchedDir {
-			return fmt.Errorf("target path %s matches protected pattern %s, therefore the file push request is rejected", destinationDir, p)
-		}
+		for _, pattern := range distinctPaths(p, canonicalPattern(p)) {
+			for _, destination := range destinations {
+				destinationDir := filepath.Dir(destination)
 
-		matchedFile, err := filepath.Match(p, destination)
-		if err != nil {
-			log.Errorf("failed to match glob pattern %s against file name %s: %v", p, destination, err)
-			continue
-		}
+				matchedDir, err := filepath.Match(pattern, destinationDir)
+				if err != nil {
+					log.Errorf("failed to match glob pattern %s against destination directory %s: %v", pattern, uf.DestinationPath, err)
+					continue
+				}
+				if matchedDir {
+					return fmt.Errorf("target path %s matches protected pattern %s, therefore the file push request is rejected", destinationDir, p)
+				}
 
-		if matchedFile {
-			return fmt.Errorf("target path %s matches protected pattern %s, therefore the file push request is rejected", destination, p)
+				matchedFile, err := filepath.Match(pattern, destination)
+				if err != nil {
+					log.Errorf("failed to match glob pattern %s against file name %s: %v", pattern, destination, err)
+					continue
+				}
+				if matchedFile {
+					return fmt.Errorf("target path %s matches protected pattern %s, therefore the file push request is rejected", destination, p)
+				}
+			}
 		}
 	}
 
@@ -251,8 +274,139 @@ func IsAbsoluteDestination(p string) bool {
 // user -- so this walks target and its ancestors and filepath.Match-es each
 // against the root. Testing whole ancestor paths is also what keeps
 // "/etc/cron.daily-reports" from being treated as inside "/etc/cron.d".
+// caseInsensitiveFS reports whether this platform's filesystem is
+// case-insensitive by default. Only Windows was considered before, but APFS is
+// case-insensitive in its default configuration too, so "/Etc/sudoers.d/x"
+// reached the real file on macOS while matching the pattern nowhere. Treating
+// darwin as case-insensitive can only refuse more, which is the safe direction
+// for a filter of this kind.
+// stripExtendedLengthPrefix removes Windows' extended-length path prefix.
+//
+// `\\?\C:\Windows\System32\x` names exactly the same file as
+// `C:\Windows\System32\x`, and IsAbsoluteDestination accepts it because it
+// begins with `\\`. filepath.Clean does not remove the prefix on any platform,
+// so the pattern `C:\Windows/**` never matched it and every protected Windows
+// directory was reachable by prefixing the path. The UNC spelling
+// `\\?\UNC\server\share` maps back to `\\server\share`.
+//
+// This is plain string work with no filesystem access, so it behaves the same
+// wherever it runs and is exercised by tests on any platform.
+func stripExtendedLengthPrefix(p string) string {
+	const (
+		extended    = `\\?\`
+		extendedUNC = `\\?\UNC\`
+	)
+	if strings.HasPrefix(p, extendedUNC) {
+		return `\\` + p[len(extendedUNC):]
+	}
+	if strings.HasPrefix(p, extended) {
+		return p[len(extended):]
+	}
+	return p
+}
+
+// distinctPaths returns its arguments with empty and duplicate entries removed,
+// preserving order. Resolution usually yields the same path it was given, and
+// matching it twice is only wasted work.
+func distinctPaths(paths ...string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		seen := false
+		for _, existing := range out {
+			if existing == p {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// resolveForMatch returns p with symlinks resolved as far as the filesystem
+// allows.
+//
+// filepath.EvalSymlinks fails outright on a path that does not exist, and the
+// destination of a push usually does not exist yet -- that is the point of the
+// push. So resolve the deepest ancestor that does exist and re-attach the
+// unresolved remainder. A path where nothing resolves comes back cleaned but
+// otherwise unchanged, so it is still compared lexically rather than skipped.
+//
+// This runs on the agent, against the agent's own filesystem: the server never
+// calls ValidateDestinationPath (client/upload.go is the only caller), so there
+// is no question of resolving one host's paths on another.
+func resolveForMatch(p string) string {
+	cleaned := filepath.Clean(p)
+
+	rest := ""
+	for current := cleaned; ; {
+		if resolved, err := filepath.EvalSymlinks(current); err == nil {
+			if rest == "" {
+				return resolved
+			}
+			return filepath.Join(resolved, rest)
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return cleaned
+		}
+		rest = filepath.Join(filepath.Base(current), rest)
+		current = parent
+	}
+}
+
+// canonicalPattern resolves the leading, wildcard-free part of a protected
+// pattern, leaving the glob elements alone. "/etc/sudoers.d" becomes
+// "/private/etc/sudoers.d" on macOS, while "/home/*/.ssh" keeps its wildcard
+// and only "/home" is resolved.
+func canonicalPattern(pattern string) string {
+	prefix, rest := literalPrefix(pattern)
+	if prefix == "" {
+		return pattern
+	}
+
+	resolved := resolveForMatch(prefix)
+	if resolved == filepath.Clean(prefix) {
+		return pattern
+	}
+	if rest == "" {
+		return resolved
+	}
+	return resolved + string(filepath.Separator) + rest
+}
+
+// literalPrefix splits a pattern at its first element containing a glob
+// metacharacter. A backslash is not treated as one: it is the separator on
+// Windows, where the protected list is written with it.
+func literalPrefix(pattern string) (prefix, rest string) {
+	sep := string(filepath.Separator)
+	elems := strings.Split(pattern, sep)
+	for i, e := range elems {
+		if strings.ContainsAny(e, "*?[") {
+			return strings.Join(elems[:i], sep), strings.Join(elems[i:], sep)
+		}
+	}
+	return pattern, ""
+}
+
+func caseInsensitiveFS() bool {
+	return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+}
+
 func pathIsWithin(target, root string) bool {
-	if runtime.GOOS == "windows" {
+	return pathIsWithinFold(target, root, caseInsensitiveFS())
+}
+
+// pathIsWithinFold takes the fold decision as an argument so the case-folding
+// branch is reachable from a test on a case-sensitive platform.
+func pathIsWithinFold(target, root string, fold bool) bool {
+	if fold {
 		target = strings.ToLower(target)
 		root = strings.ToLower(root)
 	}
