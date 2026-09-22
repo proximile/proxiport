@@ -35,9 +35,18 @@ case "${1:-}" in
         ;;
 esac
 
+# The server's state and logs. Owned by `proxiport`, which is the server's
+# account and nothing else's -- see preinstall.sh for why.
 install -d -o proxiport -g proxiport -m 0750 /var/lib/proxiport
 install -d -o proxiport -g proxiport -m 0750 /var/log/proxiport
 install -d -o root -g root -m 0755 /etc/proxiport
+
+# The agent's own state and logs. Separate directories, because separate
+# accounts with a shared directory is not a separation.
+if [ -x /usr/bin/proxiport ]; then
+    install -d -o proxiport-agent -g proxiport-agent -m 0750 /var/lib/proxiport-agent
+    install -d -o proxiport-agent -g proxiport-agent -m 0750 /var/log/proxiport-agent
+fi
 
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload >/dev/null 2>&1 || true
@@ -59,15 +68,22 @@ rand_b64() {
 
 write_secret_file() {
     # write_secret_file <path> <content>
-    # Mode 0640 root:proxiport so an admin can `sudo cat` it and the
-    # proxiport daemon's group can read it if ever wired through.
+    #
+    # Mode 0600 owned by the SERVER's account. root can still `sudo cat` it,
+    # and the server can now shred it: the documented guarantee is that these
+    # files disappear at first admin login, and shredFile opens the file
+    # O_WRONLY as its first step. At 0640 root:proxiport the daemon could not
+    # open it for writing, so the shred returned EACCES into a Debug log line
+    # and the cleartext admin password stayed on disk indefinitely -- readable
+    # by exactly the uid the daemon runs as, which is what made a data_dir
+    # backup or a file-push job enough to recover it.
     _path="$1"
     _content="$2"
     if [ ! -e "$_path" ]; then
-        umask 027
+        umask 077
         printf '%s\n' "$_content" > "$_path"
-        chown root:proxiport "$_path"
-        chmod 0640 "$_path"
+        chown proxiport:proxiport "$_path"
+        chmod 0600 "$_path"
     fi
 }
 
@@ -140,12 +156,97 @@ if [ -f /etc/proxiport/proxiport.example.conf ] \
    && [ ! -f /etc/proxiport/proxiport.conf ]; then
     cp /etc/proxiport/proxiport.example.conf /etc/proxiport/proxiport.conf
     chmod 0640 /etc/proxiport/proxiport.conf
-    chown root:proxiport /etc/proxiport/proxiport.conf
+    chown root:proxiport-agent /etc/proxiport/proxiport.conf
 fi
 
 # ----------------------------------------------------------------------
 # upgrade: restart what was running, and skip the first-install banner
 # ----------------------------------------------------------------------
+
+# ----------------------------------------------------------------------
+# migration: the agent and the server no longer share an account
+# ----------------------------------------------------------------------
+# Up to 0.9.x both daemons ran as `proxiport` and wrote to the same
+# directories. `proxiport` is now the server's account alone and the agent runs
+# as `proxiport-agent`, so anything the agent needs has to follow it. Every
+# host that has ever installed this package needs this, which is why it runs
+# unconditionally rather than only on upgrade -- it is a no-op on a host that
+# is already right.
+
+if [ -x /usr/bin/proxiport ]; then
+    # The agent must be able to read its own config.
+    if [ -f /etc/proxiport/proxiport.conf ]; then
+        chown root:proxiport-agent /etc/proxiport/proxiport.conf
+        chmod 0640 /etc/proxiport/proxiport.conf
+    fi
+
+    # An existing config still names the old shared paths, and the agent can no
+    # longer write them. Repoint ONLY the shipped defaults; a path the operator
+    # chose is theirs and is reported instead of rewritten.
+    if [ -f /etc/proxiport/proxiport.conf ]; then
+        sed -i \
+            -e 's|^\([[:space:]]*\)log_file[[:space:]]*=[[:space:]]*"/var/log/proxiport/proxiport.log"|\1log_file = "/var/log/proxiport-agent/proxiport.log"|' \
+            -e 's|^\([[:space:]]*\)data_dir[[:space:]]*=[[:space:]]*"/var/lib/proxiport"|\1data_dir = "/var/lib/proxiport-agent"|' \
+            /etc/proxiport/proxiport.conf
+
+        if grep -qE '^[[:space:]]*(log_file|data_dir)[[:space:]]*=[[:space:]]*"/var/(log|lib)/proxiport[/"]' \
+                /etc/proxiport/proxiport.conf; then
+            cat >&2 <<'WARN'
+proxiport: WARNING - /etc/proxiport/proxiport.conf still points log_file or
+  data_dir at /var/log/proxiport or /var/lib/proxiport. Those now belong to the
+  ProxiPort SERVER's account and the agent cannot write them. Move them under
+  /var/log/proxiport-agent and /var/lib/proxiport-agent, or chown your chosen
+  paths to proxiport-agent, before restarting the agent.
+WARN
+        fi
+    fi
+
+    # Carry the agent's own state across. Its scripts directory is transient
+    # and is deliberately left behind.
+    if [ -f /var/lib/proxiport/state.json ] && [ ! -e /var/lib/proxiport-agent/state.json ]; then
+        mv /var/lib/proxiport/state.json /var/lib/proxiport-agent/state.json
+        chown proxiport-agent:proxiport-agent /var/lib/proxiport-agent/state.json
+    fi
+
+    # And its log, so the history is not orphaned under the server's account.
+    if [ -f /var/log/proxiport/proxiport.log ] && [ ! -e /var/log/proxiport-agent/proxiport.log ]; then
+        mv /var/log/proxiport/proxiport.log /var/log/proxiport-agent/proxiport.log
+        chown proxiport-agent:proxiport-agent /var/log/proxiport-agent/proxiport.log
+    fi
+
+    # Sudoers rules follow the agent's uid, and the agent's uid has changed.
+    if [ -d /etc/sudoers.d ] \
+       && grep -rlE '^[[:space:]]*proxiport[[:space:]]' /etc/sudoers.d/ >/dev/null 2>&1; then
+        cat >&2 <<'WARN'
+proxiport: WARNING - a sudoers rule under /etc/sudoers.d/ grants privileges to
+  the user `proxiport`. The agent now runs as `proxiport-agent`, so that rule
+  no longer applies to it and privileged commands will fail. Update the rule to
+  name proxiport-agent. (Leaving it as it is grants the rule to the ProxiPort
+  SERVER instead, which is not what it was written for -- remove it if you do
+  not want that.)
+WARN
+    fi
+fi
+
+# The server's own artifacts stay exactly where they are, under exactly the
+# account they were already under. Nothing about /var/lib/proxiport moves,
+# which is the point: a partially-failed chown -R over the databases, the vault
+# and the ACME key cache is a far worse failure than any of the above.
+#
+# The one exception is the pair of installer credential files. They were
+# written 0640 root:proxiport, which the daemon cannot open for writing, so
+# the shred it performs at first admin login returned EACCES and the cleartext
+# admin password stayed on disk -- on every install that has ever run. Hand
+# them to the account that is supposed to destroy them.
+if [ -x /usr/bin/proxiportd ]; then
+    for _cred in /var/lib/proxiport/initial-admin-password \
+                 /var/lib/proxiport/initial-client-auth; do
+        if [ -f "$_cred" ]; then
+            chown proxiport:proxiport "$_cred"
+            chmod 0600 "$_cred"
+        fi
+    done
+fi
 
 if [ "$is_upgrade" = 1 ]; then
     if command -v systemctl >/dev/null 2>&1; then
@@ -199,6 +300,10 @@ Edit /etc/proxiport/proxiport.conf and set:
   - fingerprint - the proxiportd host-key fingerprint (server SPA / log)
 
 Then:  systemctl enable --now proxiport
+
+The agent runs as `proxiport-agent`, which is NOT the ProxiPort server's
+account. If you grant the agent sudo rights, name proxiport-agent in
+/etc/sudoers.d/ -- a rule naming `proxiport` now applies to the server.
 EOF
 fi
 

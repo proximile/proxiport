@@ -153,10 +153,16 @@ has to do manually:
     /var/lib/proxiport/initial-client-auth      # first agent's auth pair
     ```
 
-    Both files are mode `0640 root:proxiport`. Read with `sudo cat`.
-    They are **shredded from disk the first time an admin logs in with a
-    password**, so retrieve them and store the credentials in a password
-    manager before that first login.
+    Both files are mode `0600 proxiport:proxiport` — owned by the
+    account the server runs as, so that it can destroy them. Read with
+    `sudo cat`. They are **shredded from disk the first time an admin
+    logs in with a password**, so retrieve them and store the
+    credentials in a password manager before that first login.
+
+    Before 0.10.0 they were `0640 root:proxiport`, which the daemon
+    could not open for writing — so the shred failed silently and the
+    cleartext credentials stayed on disk. An upgrade re-owns any files
+    it finds.
 
 - granted `CAP_NET_BIND_SERVICE` on `/usr/bin/proxiportd` so the
   unprivileged `proxiport` user can bind ports 80 and 443;
@@ -346,6 +352,17 @@ sudo install -m 0755 proxiport /usr/bin/proxiport
 sudo install -d /etc/proxiport
 sudo install -m 0644 proxiport.example.conf /etc/proxiport/proxiport.conf
 sudo install -m 0644 proxiport.service /lib/systemd/system/proxiport.service
+
+# The agent's own account and directories. `proxiport-agent` is NOT the
+# server's `proxiport`: the agent executes operator-supplied commands as its
+# own uid, so sharing one account would put it inside the server's trust
+# boundary on any host carrying both.
+sudo useradd --system --home /var/lib/proxiport-agent \
+             --shell /usr/sbin/nologin proxiport-agent || true
+sudo install -d -o proxiport-agent -g proxiport-agent -m 0750 /var/lib/proxiport-agent
+sudo install -d -o proxiport-agent -g proxiport-agent -m 0750 /var/log/proxiport-agent
+sudo chown root:proxiport-agent /etc/proxiport/proxiport.conf
+sudo chmod 0640 /etc/proxiport/proxiport.conf
 sudo systemctl daemon-reload
 ```
 

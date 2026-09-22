@@ -567,11 +567,17 @@ EOF
 
 # Persist the operator-visible credentials. The .deb postinstall also
 # writes initial-admin-password; overwrite with the new value.
-umask 027
+#
+# 0600 owned by the server's account, matching write_secret_file in
+# postinstall.sh: root still reads them with `sudo cat`, and the daemon can
+# now actually shred them at first admin login, which is what docs/install.md
+# has always promised. At 0640 root:proxiport the O_WRONLY open returned
+# EACCES and the cleartext credentials stayed on disk forever.
+umask 077
 printf 'admin:%s\n'    "$ADMIN_PASSWD"   > /var/lib/proxiport/initial-admin-password
 printf 'client1:%s\n'  "$CLIENT_PASSWD"  > /var/lib/proxiport/initial-client-auth
-chown root:proxiport /var/lib/proxiport/initial-admin-password /var/lib/proxiport/initial-client-auth
-chmod 0640           /var/lib/proxiport/initial-admin-password /var/lib/proxiport/initial-client-auth
+chown proxiport:proxiport /var/lib/proxiport/initial-admin-password /var/lib/proxiport/initial-client-auth
+chmod 0600                /var/lib/proxiport/initial-admin-password /var/lib/proxiport/initial-client-auth
 
 #======================================================================
 # Start the service

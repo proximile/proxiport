@@ -10,7 +10,11 @@ After=network.target network-online.target
 
 [Service]
 ExecStart=/usr/bin/proxiport "-c" "/etc/proxiport/proxiport.conf"
-User=proxiport
+# Not `proxiport`: that is the SERVER's account, and the agent runs
+# operator-supplied commands as its own uid. Sharing them put the agent inside
+# the server's trust boundary on any host carrying both packages.
+User=proxiport-agent
+Group=proxiport-agent
 Restart=always
 RestartSec=120
 EnvironmentFile=-/etc/sysconfig/proxiport

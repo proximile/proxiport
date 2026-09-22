@@ -106,7 +106,10 @@ ConditionFileIsExecutable=/usr/local/bin/proxiport
 [Service]
 ExecStart=/usr/local/bin/proxiport -c /etc/proxiport/proxiport.conf
 LimitNOFILE=1048576
-User=proxiport
+# The agent's own account. `proxiport` is the SERVER's; the two are
+# deliberately separate, because the agent executes operator-supplied
+# commands as its own uid.
+User=proxiport-agent
 Restart=always
 RestartSec=120
 WatchdogSec=200
