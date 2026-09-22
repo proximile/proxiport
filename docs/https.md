@@ -65,9 +65,14 @@ For nginx, the key directives are `proxy_set_header Upgrade`,
 `proxy_set_header Connection "upgrade"`, and a long `proxy_read_timeout`
 on the WebSocket location.
 
-If your proxy strips the original client IP, configure it to forward
-`X-Forwarded-For` — the `Only my current IP address` tunnel ACL preset
-reads that header. See [IP-address determination](ip-address-determination.md).
+Behind a proxy, also set `[api] trusted_proxies` to the address the
+proxy connects from and configure the proxy to forward
+`X-Forwarded-For`. Both halves are needed: the server ignores the
+header from any peer not on that list, and the list is empty by
+default — so without it the audit log records `127.0.0.1` for every
+operator action and the `Only my current IP address` tunnel ACL preset
+writes an ACL for the loopback. See
+[IP-address determination](ip-address-determination.md).
 
 ## Built-in ACME
 

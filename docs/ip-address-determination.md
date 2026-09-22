@@ -124,9 +124,32 @@ agent's), so it is unaffected by the agent's discovery setting.
 
 ## Forwarded-for handling on the server
 
-If you sit ProxiPort behind a reverse proxy, configure the proxy to
-forward `X-Forwarded-For`. The server uses that header to record the
-visitor IP for audit-log entries and for the tunnel ACL preset.
+This takes **two** settings, one on each side. Forwarding the header
+from the proxy is not enough on its own: the server ignores
+`X-Forwarded-For` unless the socket peer is listed in
+`[api] trusted_proxies`, and that list is **empty by default**.
+
+Without it the audit log records the proxy's address — usually
+`127.0.0.1` — for every operator action, and `GET /me/ip` returns the
+same, so the "Only my current IP address" tunnel ACL preset writes an
+ACL for the loopback rather than for the operator. Neither failure is
+reported: the header is simply not read.
+
+**1. Tell the server which peers may speak for someone else**, in
+`proxiportd.conf`:
+
+```toml
+[api]
+  ## CIDRs or addresses of the reverse proxies in front of this server.
+  ## Empty (the default) means X-Forwarded-For is never trusted.
+  trusted_proxies = ['127.0.0.1/32', '::1/128']
+```
+
+Use the address the proxy connects *from*, which for a proxy on the
+same host is the loopback the API is bound to. Keep this list as small
+as it can be: anything in it can claim to be any client.
+
+**2. Configure the proxy to send the header.** For nginx:
 
 ```nginx
 proxy_set_header X-Real-IP        $remote_addr;
@@ -141,6 +164,14 @@ at the edge — otherwise a client can spoof its source IP for audit
 log entries. Most reverse proxies do this by default; double-check
 yours.
 
+With built-in TLS (no proxy in front) leave `trusted_proxies` unset.
+The connection's remote address is the operator's address, and an
+empty list is what stops a client from claiming otherwise.
+
+To check it is working, make any state-changing API call through the
+proxy and read the `remote_ip` on the resulting audit-log row: it
+should be your address, not the proxy's.
+
 ## Hardening checklist
 
 - Decide whether the privacy tradeoff of outbound IP discovery is
@@ -150,11 +181,12 @@ yours.
   network.
 - Always set the refresh interval to a value that won't get you
   throttled — 30 minutes is the default and is rarely the bottleneck.
-- If you front the server with a reverse proxy, configure it to
-  forward `X-Forwarded-For` so the audit log records the real
-  visitor IP, not the proxy. With built-in TLS the connection
-  remote address is used directly and no header configuration is
-  needed.
+- If you front the server with a reverse proxy, do both halves: set
+  `[api] trusted_proxies` to the proxy's address **and** configure the
+  proxy to forward `X-Forwarded-For`. Either one alone leaves the audit
+  log recording the proxy instead of the operator. With built-in TLS
+  the connection remote address is used directly, no header
+  configuration is needed, and `trusted_proxies` should stay empty.
 
 See also: [client attributes](client-attributes.md) for tagging agents
 by location/role/datacenter, and

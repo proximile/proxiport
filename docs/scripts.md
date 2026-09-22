@@ -40,14 +40,21 @@ to `[remote-commands]`).
 If `[remote-commands] enabled` is `false`, scripts are also disabled —
 script execution reuses the command-execution code path.
 
-The script body, after the interpreter is prepended, must still pass
-the `[remote-commands]` allow/deny filter. The default allow regex
-covers `/usr/bin/.*`, `/usr/local/bin/.*`, and `C:\Windows\System32\.*`,
-which covers `/bin/sh`, `/usr/bin/python3`, `powershell.exe`, etc.
+!!! warning "The `allow`/`deny` filter does not apply to scripts"
 
-A common pitfall: if you override `allow` to a restrictive list, you
-must include the interpreters you want scripts to run with, otherwise
-the agent will reject them before the body executes.
+    A script body and its interpreter are **not** matched against
+    `[remote-commands] allow` or `deny`. The filter applies to the
+    command path only. A script job runs the interpreter the operator
+    chose, with the body the operator sent, and the only agent-side
+    control over that is `[remote-scripts] enabled`.
+
+    So narrowing `allow` does not narrow what scripts can do. If an
+    operator should not be able to run arbitrary code on a host, do not
+    give them the `scripts` permission, and leave
+    `[remote-scripts] enabled = false` on that agent.
+
+    Earlier releases of this page said the opposite. It was wrong: the
+    agent has never applied the filter to script jobs.
 
 ## Running a script
 
