@@ -115,6 +115,16 @@ func (al *APIListener) handleFileUploads(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	// Refuse to land on a staging path some other push is still being collected
+	// from. CreateFile truncates, so without this the second push would destroy
+	// a payload agents are mid-fetch on -- and entitle this caller's agents to
+	// whatever is left at that path.
+	if al.stagedUploads.IsStaged(uploadRequest.SourceFilePath) {
+		al.jsonErrorResponseWithTitle(w, http.StatusConflict,
+			fmt.Sprintf("file id %q is already being pushed; use a different id or wait for it to finish", uploadRequest.ID))
+		return
+	}
+
 	copiedBytes, err := al.filesAPI.CreateFile(uploadRequest.SourceFilePath, uploadRequest.File)
 	if err != nil {
 		al.jsonError(w, err)

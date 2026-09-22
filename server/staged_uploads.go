@@ -59,6 +59,28 @@ func (r *stagedUploadRegistry) Allow(clientID, path string) (release func()) {
 	}
 }
 
+// IsStaged reports whether ANY agent is currently being asked to collect path.
+//
+// The staging filename is derived from a caller-chosen upload id, so two
+// operators can name the same path. Truncating on write stops the second push
+// from splicing itself onto the first, but it would still destroy a payload the
+// first operator's agents are mid-collection on -- and entitle the second
+// operator's agents to whatever is at that path. A push that would land on a
+// path still being collected is refused instead.
+func (r *stagedUploadRegistry) IsStaged(path string) bool {
+	if r == nil || path == "" {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, paths := range r.byOwner {
+		if _, ok := paths[path]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // IsAllowed reports whether clientID is currently being asked to collect path.
 func (r *stagedUploadRegistry) IsAllowed(clientID, path string) bool {
 	if r == nil {

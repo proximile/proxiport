@@ -63,6 +63,8 @@ func (f *FileSystem) ReadDir(dir string) ([]os.FileInfo, error) {
 // If path is already a directory, it does nothing and returns nil.
 // It is created with mode 0777.
 func (f *FileSystem) MakeDirAll(dir string) error {
+	//nolint:gosec // G301: callers choose the mode they need via ChangeMode; the
+	// staging directory is narrowed to 0700 right after it is created.
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create dir %q: %s", dir, err)
 	}
@@ -72,15 +74,22 @@ func (f *FileSystem) MakeDirAll(dir string) error {
 // WriteJSON creates or truncates a given file and writes a given content to it as JSON
 // with indentation. If the file does not exist, it is created with mode 0666.
 func (f *FileSystem) WriteJSON(fileName string, content interface{}) error {
-	file, err := os.Create(fileName)
+	file, err := os.Create(fileName) //nolint:gosec // G304: operator-configured path; this package exists to open them
 	if err != nil {
 		return fmt.Errorf("failed to create file: %s", err)
 	}
-	defer file.Close()
+	// Closed explicitly rather than deferred-and-discarded: on a write path the
+	// close is where a failed flush surfaces, and swallowing it reports success
+	// for a file that is not on disk.
+	defer func() { _ = file.Close() }()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "	")
 	if err := encoder.Encode(content); err != nil {
+		return fmt.Errorf("failed to write data to file: %v", err)
+	}
+
+	if err := file.Close(); err != nil {
 		return fmt.Errorf("failed to write data to file: %v", err)
 	}
 
@@ -90,11 +99,11 @@ func (f *FileSystem) WriteJSON(fileName string, content interface{}) error {
 // Write creates or truncates a given file and writes a given content to it.
 // If the file does not exist, it is created with mode 0666.
 func (f *FileSystem) Write(fileName string, content string) error {
-	file, err := os.Create(fileName)
+	file, err := os.Create(fileName) //nolint:gosec // G304: operator-configured path; this package exists to open them
 	if err != nil {
 		return fmt.Errorf("failed to create file: %s", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if _, err := file.WriteString(content); err != nil {
 		return fmt.Errorf("failed to write data to file: %v", err)
@@ -106,7 +115,7 @@ func (f *FileSystem) Write(fileName string, content string) error {
 // ReadJSON reads a given file and stores the parsed content into a destination value.
 // A successful call returns err == nil, not err == EOF.
 func (f *FileSystem) ReadJSON(file string, dest interface{}) error {
-	b, err := ioutil.ReadFile(file)
+	b, err := os.ReadFile(file) //nolint:gosec // G304: operator-configured path; this package exists to open them
 	if err != nil {
 		return fmt.Errorf("failed to read data from file: %s", err)
 	}
@@ -120,7 +129,7 @@ func (f *FileSystem) ReadJSON(file string, dest interface{}) error {
 }
 
 func (f *FileSystem) Open(file string) (io.ReadWriteCloser, error) {
-	return os.Open(file)
+	return os.Open(file) //nolint:gosec // G304: operator-configured path; this package exists to open them
 }
 
 func (f *FileSystem) GetFileMode(file string) (os.FileMode, error) {
@@ -191,15 +200,32 @@ func (f *FileSystem) ChangeMode(path string, targetMode os.FileMode) error {
 	return nil
 }
 
+// CreateFile writes sourceReader to path, replacing whatever was there.
+//
+// O_TRUNC is the whole point. Without it a shorter write over a longer existing
+// file left the previous file's tail in place, and the server's file-push path
+// then computed the md5 by re-reading the file from disk -- so the agent
+// received a SPLICED payload with a checksum that matched it, verified it, and
+// wrote the corrupt file to the managed host reporting success. The staging
+// name is derived from a caller-chosen upload id, so reusing an id (automation
+// pushing "id=nginx-conf" twice, say) was enough. The agent's own temp path
+// already removed before writing; this one was the outlier.
 func (f *FileSystem) CreateFile(path string, sourceReader io.Reader) (writtenBytes int64, err error) {
-	targetFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, DefaultMode)
+	//nolint:gosec // G304: operator-configured path; this package exists to open them
+	targetFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, DefaultMode)
 	if err != nil {
 		return 0, err
 	}
-	defer targetFile.Close()
+	defer func() { _ = targetFile.Close() }()
 
 	copiedBytes, err := io.Copy(targetFile, sourceReader)
 	if err != nil {
+		return 0, err
+	}
+
+	// Same reason: the staged payload is only really written once the close
+	// succeeds, and the md5 the agent verifies is read back from this file.
+	if err := targetFile.Close(); err != nil {
 		return 0, err
 	}
 
@@ -229,7 +255,7 @@ func Md5HashMatch(expectedHashSum []byte, path string, fileAPI FileAPI) (match b
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	destinationMd5Hash, err := Md5HashFromReader(file)
 	if err != nil {
 		return false, err
