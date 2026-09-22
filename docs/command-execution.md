@@ -261,14 +261,23 @@ Linux, add an NOPASSWD sudoers rule scoped to exactly the commands
 the agent should be able to elevate:
 
 ```text
-# /etc/sudoers.d/proxiport
-proxiport ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart nginx
-proxiport ALL=(ALL) NOPASSWD: /usr/local/bin/maintenance.sh
+# /etc/sudoers.d/proxiport-agent
+proxiport-agent ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart nginx
+proxiport-agent ALL=(ALL) NOPASSWD: /usr/local/bin/maintenance.sh
 ```
 
-Avoid a blanket `proxiport ALL=(ALL) NOPASSWD: ALL` — at that point
-the allow/deny filter is the only thing standing between the API and
-full root.
+Avoid a blanket `proxiport-agent ALL=(ALL) NOPASSWD: ALL` — at that
+point the allow/deny filter is the only thing standing between the API
+and full root, and that filter does not apply to scripts at all.
+
+!!! warning "The agent's account changed in 0.10.0"
+
+    The agent used to run as `proxiport`, which is now the **server's**
+    account alone. A sudoers rule naming `proxiport` no longer applies
+    to the agent — privileged commands will fail — and it grants those
+    rights to the ProxiPort server instead, which is not what it was
+    written for. The package upgrade prints a warning when it finds
+    one. Rename the user in the rule, or remove it.
 
 ## Output size limits
 
