@@ -56,7 +56,7 @@ The agent will create `state.json` in its data directory.
 ## The state.json heartbeat
 
 Path: `{data_dir}/state.json`, defaulting to
-`/var/lib/proxiport/state.json`.
+`/var/lib/proxiport-agent/state.json`.
 
 ```json
 {
@@ -180,7 +180,7 @@ A minimal shell variant:
 #!/bin/sh
 threshold=600
 now=$(date +%s)
-last=$(jq -r .last_update_ts /var/lib/proxiport/state.json)
+last=$(jq -r .last_update_ts /var/lib/proxiport-agent/state.json)
 if [ $((now - last)) -gt "$threshold" ]; then
     logger -t proxiport-watchdog "stale heartbeat; restarting"
     systemctl restart proxiport
@@ -194,7 +194,7 @@ Schedule from cron, run as root.
 1. With the agent connected, watch `state.json` update:
 
    ```bash
-   watch -n 5 'jq . /var/lib/proxiport/state.json'
+   watch -n 5 'jq . /var/lib/proxiport-agent/state.json'
    ```
 
    The timestamp should advance on the `keep_alive` cadence.

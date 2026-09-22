@@ -42,7 +42,7 @@ TOML file:
 
 ```toml
 [client]
-  attributes_file_path = "/var/lib/proxiport/client_attributes.json"
+  attributes_file_path = "/var/lib/proxiport-agent/client_attributes.json"
 ```
 
 JSON example:

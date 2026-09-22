@@ -56,6 +56,43 @@ script execution reuses the command-execution code path.
     Earlier releases of this page said the opposite. It was wrong: the
     agent has never applied the filter to script jobs.
 
+## The scripts directory
+
+The agent writes each script body to `{data_dir}/scripts/` and then runs
+it. The path is **not** configurable — it is `data_dir` with `scripts`
+appended — and two properties of that directory decide whether script
+execution works at all.
+
+**It must not be readable or writable by anyone but the agent's own
+account.** Anything written there is executed as the agent, so a
+group- or world-accessible scripts directory is a way to run code as
+that account. The agent checks this at startup and refuses to run
+anything while it is wider than `0700`:
+
+```
+scripts directory /var/lib/proxiport-agent/scripts must be read-writable
+only by proxiport-agent[997]. Change directory mode from 0755 to 0700.
+Your setup is insecure
+```
+
+The packaged install and the pairing installer both create it correctly;
+you only need this if you set `data_dir` yourself.
+
+**Its filesystem must allow execution.** The agent `exec`s the file it
+writes, so a `data_dir` on a mount carrying `noexec` — common for
+`/var` or `/tmp` on a hardened host, and the default for a Docker
+`tmpfs` — fails every script job with:
+
+```
+failed to start a command: fork/exec
+/var/lib/proxiport-agent/scripts/<uuid>: permission denied
+```
+
+Nothing else reports it, and the same host runs ordinary *commands*
+fine: a command is handed to a shell to read, which needs no execute
+bit. If scripts fail this way and commands do not, check the mount
+options on `data_dir`.
+
 ## Running a script
 
 Bodies are base64-encoded because the JSON payload would otherwise
