@@ -2,6 +2,7 @@ package enc
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -45,11 +46,41 @@ func (e *Envelope) Enabled() bool {
 	return e != nil && len(e.dek) > 0
 }
 
-// IsEncrypted reports whether a stored value was produced by an Envelope (i.e.
-// carries the versioned encryption prefix). Values without the prefix are
-// treated as legacy plaintext.
+// envelopeVersionedPrefix matches the full versioned prefix an Envelope writes,
+// and nothing shorter. Matching the bare "enc:" treated any value that happened
+// to begin with those four characters as ciphertext -- which is a string a
+// command's stdout can easily contain (`grep -r 'enc:' /etc`), and a string a
+// hostile agent can return on purpose.
+var envelopeVersionedPrefix = regexp.MustCompile(`^` + envelopePrefix + `v[0-9]+:`)
+
+// IsEncrypted reports whether a stored value has the shape an Envelope writes:
+// the prefix, a version, and a colon. Values without it are legacy plaintext.
+//
+// Shape is not provenance. A caller deciding whether to ENCRYPT a value must
+// use Envelope.IsEncryptedBy instead -- a value can carry this shape and still
+// be untrusted content that has never been encrypted.
 func IsEncrypted(stored string) bool {
-	return strings.HasPrefix(stored, envelopePrefix)
+	return envelopeVersionedPrefix.MatchString(stored)
+}
+
+// IsEncryptedBy reports whether stored was produced by THIS Envelope: it has
+// the envelope shape AND decrypts under the current DEK.
+//
+// This is the question a write path means when it asks "is this already
+// encrypted, can I skip it?". Asking IsEncrypted instead meant that a command
+// whose output began with the sentinel was stored in CLEARTEXT under a
+// configured key -- the at-rest guarantee silently skipped for exactly the
+// values an attacker chooses -- and then failed to decrypt on every later read,
+// taking the whole job listing with it.
+//
+// A disabled Envelope can never answer true, which is correct: with no key, no
+// value here was produced by us.
+func (e *Envelope) IsEncryptedBy(stored string) bool {
+	if !e.Enabled() || !IsEncrypted(stored) {
+		return false
+	}
+	_, err := e.Decrypt(stored)
+	return err == nil
 }
 
 // Encrypt returns the at-rest representation of plaintext. When the Envelope is

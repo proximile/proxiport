@@ -146,7 +146,7 @@ func (p *SqliteProvider) encryptExistingResults() error {
 		if !needs {
 			continue
 		}
-		if err := p.encryptDetailsResult(&d); err != nil {
+		if err := p.encryptDetailsResult(&d, enc.IsEncrypted); err != nil {
 			return fmt.Errorf("encrypt jid %q: %w", r.JID, err)
 		}
 		encoded, err := json.Marshal(&d)
@@ -173,23 +173,39 @@ func isPlaintextField(v string) bool {
 // the error text — in place before the details JSON is stored. Summary is left
 // plaintext so the schedules "last execution" view can read it without the key,
 // and empty fields are skipped so they round-trip unchanged.
-func (p *SqliteProvider) encryptDetailsResult(d *JobDetails) error {
+// alreadyEncrypted decides whether a field can be left as it is.
+//
+// The two call sites mean different things by the question, and conflating them
+// is the defect. On the WRITE path the value is whatever the agent sent, so the
+// only safe answer is "did this envelope produce it?" -- treating a value that
+// merely looks like an envelope as already-encrypted stored attacker-chosen
+// output in cleartext under a configured key. On the BACKFILL path the value
+// came out of the database, so anything envelope-shaped is real ciphertext,
+// possibly under a key this server does not have, and re-wrapping it would
+// compound a key misconfiguration instead of surfacing it on read.
+func (p *SqliteProvider) encryptDetailsResult(d *JobDetails, alreadyEncrypted func(string) bool) error {
 	if d == nil || !p.enc.Enabled() {
 		return nil
 	}
-	if err := encryptStringField(p.enc, &d.Error); err != nil {
+	if err := encryptStringField(p.enc, &d.Error, alreadyEncrypted); err != nil {
 		return err
 	}
 	if d.Result != nil {
-		if err := encryptStringField(p.enc, &d.Result.StdOut); err != nil {
+		if err := encryptStringField(p.enc, &d.Result.StdOut, alreadyEncrypted); err != nil {
 			return err
 		}
-		if err := encryptStringField(p.enc, &d.Result.StdErr); err != nil {
+		if err := encryptStringField(p.enc, &d.Result.StdErr, alreadyEncrypted); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+
+// unreadableFieldNotice replaces a stored field that will not decrypt under the
+// current key, on the LISTING path only. It is deliberately not empty: an
+// operator needs to be able to tell "this produced no output" apart from "this
+// output exists and this server cannot read it".
+const unreadableFieldNotice = "<unavailable: encrypted with a key this server does not have>"
 
 // decryptJobResult is the decrypt-on-read step, mirroring encryptDetailsResult.
 // Legacy plaintext (no prefix) passes through unchanged; a value that carries
@@ -212,8 +228,35 @@ func (p *SqliteProvider) decryptJobResult(job *models.Job) error {
 	return nil
 }
 
-func encryptStringField(e *enc.Envelope, v *string) error {
-	if *v == "" || enc.IsEncrypted(*v) {
+// decryptJobResultInList is the listing's version. Fetching ONE job and failing
+// closed is an unambiguous answer to an unambiguous question. Failing a page of
+// fifty the same way is not: one unreadable row aborted the entire listing with
+// HTTP 500, so a single poisoned result took out an operator's view of a
+// fifty-client run -- and a hostile agent could keep that row on page one of
+// the default finished_at DESC sort indefinitely. The row is shown with a
+// notice where the field would be. The value itself is still never exposed.
+func (p *SqliteProvider) decryptJobResultInList(job *models.Job) {
+	if job == nil {
+		return
+	}
+	p.decryptFieldOrNotice(job.JID, "error", &job.Error)
+	if job.Result != nil {
+		p.decryptFieldOrNotice(job.JID, "stdout", &job.Result.StdOut)
+		p.decryptFieldOrNotice(job.JID, "stderr", &job.Result.StdErr)
+	}
+}
+
+func (p *SqliteProvider) decryptFieldOrNotice(jid, field string, v *string) {
+	if err := decryptStringField(p.enc, v); err != nil {
+		// Error, not Debug: the operator is being shown a job whose output
+		// this server cannot read, and the reason belongs in the log.
+		p.log.Errorf("job %s: %s is stored encrypted and will not decrypt: %v", jid, field, err)
+		*v = unreadableFieldNotice
+	}
+}
+
+func encryptStringField(e *enc.Envelope, v *string, alreadyEncrypted func(string) bool) error {
+	if *v == "" || alreadyEncrypted(*v) {
 		return nil
 	}
 	out, err := e.Encrypt(*v)
@@ -303,9 +346,7 @@ func (p *SqliteProvider) List(ctx context.Context, options *query.ListOptions) (
 	}
 	jobs := convertJobs(res)
 	for _, job := range jobs {
-		if err := p.decryptJobResult(job); err != nil {
-			return nil, err
-		}
+		p.decryptJobResultInList(job)
 	}
 	return jobs, nil
 }
@@ -475,7 +516,7 @@ func (p *SqliteProvider) toSqlite(job *models.Job) (*jobSqlite, error) {
 			resultCopy := *clone.Result
 			clone.Result = &resultCopy
 		}
-		if err := p.encryptDetailsResult(&clone); err != nil {
+		if err := p.encryptDetailsResult(&clone, p.enc.IsEncryptedBy); err != nil {
 			return nil, err
 		}
 		res.Details = &clone

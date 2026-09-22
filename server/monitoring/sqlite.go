@@ -111,7 +111,28 @@ func (p *SqliteProvider) encryptExistingMeasurements() error {
 }
 
 func (p *SqliteProvider) maybeEncrypt(v string) (out string, changed bool, err error) {
+	// Shape, not provenance: this is the BACKFILL path, so the value came out
+	// of the database and anything envelope-shaped is real ciphertext -- maybe
+	// under a key this server does not have. Re-wrapping that would compound a
+	// key misconfiguration rather than surface it on read. The write path asks
+	// a different question; see encryptForWrite.
 	if v == "" || enc.IsEncrypted(v) {
+		return v, false, nil
+	}
+	out, err = p.enc.Encrypt(v)
+	if err != nil {
+		return v, false, err
+	}
+	return out, true, nil
+}
+
+// encryptForWrite is the encrypt-on-write path for an agent-supplied blob. It
+// skips only a value this envelope itself produced: a measurement's processes
+// and mountpoints are composed by the agent, so a value that merely LOOKS like
+// an envelope is not evidence that it has ever been encrypted, and treating it
+// as such stored attacker-chosen content in cleartext under a configured key.
+func (p *SqliteProvider) encryptForWrite(v string) (out string, changed bool, err error) {
+	if v == "" || p.enc.IsEncryptedBy(v) {
 		return v, false, nil
 	}
 	out, err = p.enc.Encrypt(v)
@@ -279,12 +300,12 @@ func (p *SqliteProvider) CreateMeasurement(ctx context.Context, measurement *mod
 	// in-memory measurement is untouched and only the DB holds ciphertext.
 	if p.enc.Enabled() {
 		mCopy := *measurement
-		if ct, changed, err := p.maybeEncrypt(mCopy.Processes); err != nil {
+		if ct, changed, err := p.encryptForWrite(mCopy.Processes); err != nil {
 			return err
 		} else if changed {
 			mCopy.Processes = ct
 		}
-		if ct, changed, err := p.maybeEncrypt(mCopy.Mountpoints); err != nil {
+		if ct, changed, err := p.encryptForWrite(mCopy.Mountpoints); err != nil {
 			return err
 		} else if changed {
 			mCopy.Mountpoints = ct

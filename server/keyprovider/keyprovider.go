@@ -62,10 +62,32 @@ func (p staticProvider) Type() string  { return p.typ }
 func (p staticProvider) Enabled() bool { return len(p.dek) == DEKSize }
 func (p staticProvider) DEK() []byte   { return p.dek }
 
+// groupAndOtherPerm are the mode bits that give an account other than the
+// file's owner any access at all. A DEK file must carry none of them.
+const groupAndOtherPerm = os.FileMode(0077)
+
 // NewFileProvider reads and decodes a DEK from the file at path. A missing,
 // unreadable, or malformed key file is a hard error so the server fails closed
 // at boot rather than silently running without at-rest encryption.
+//
+// So is a key file anyone else can read. The DEK is the one key whose entire
+// job is to make a read of the config and the databases useless, and the
+// recipe this project's own example config printed -- `openssl rand -base64 32
+// > /etc/proxiport/dek.key` -- lands it 0644 under the default root umask,
+// inside a 0755 directory. Every other secret-bearing artifact here is
+// mode-enforced in code or in packaging; this was the one that was not, and
+// the daemon started without a word about it.
 func NewFileProvider(path string) (KeyProvider, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("read key file %q: %w", path, err)
+	}
+	if perm := info.Mode().Perm(); perm&groupAndOtherPerm != 0 {
+		return nil, fmt.Errorf(
+			"key file %q is mode %04o: the data-encryption key must not be readable by anyone else. Fix it with: chmod 0600 %s",
+			path, perm, path)
+	}
+
 	raw, err := os.ReadFile(path) //nolint:gosec // operator-configured key path
 	if err != nil {
 		return nil, fmt.Errorf("read key file %q: %w", path, err)

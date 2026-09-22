@@ -93,7 +93,23 @@ touching the running service.
 
 Configure a key provider (the `[key_provider]` section of
 `proxiportd.example.conf`) and those settings can live in the config as
-ciphertext instead. Encrypt a value with:
+ciphertext instead.
+
+With `type = "file"`, create the key so that only its owner can read it:
+
+```bash
+(umask 077 && openssl rand -base64 32 > /etc/proxiport/dek.key)
+chown proxiport /etc/proxiport/dek.key
+```
+
+The `umask 077` is not optional. Without it the default root umask leaves
+the key `0644` inside a world-traversable `/etc/proxiport`, which hands
+every local account the one key whose whole job is to make a read of the
+config and the databases useless. The server **refuses to start** on a key
+file that is readable by anyone but its owner, and names the `chmod` that
+fixes it.
+
+Encrypt a value with:
 
 ```bash
 proxiportd -c /etc/proxiport/proxiportd.conf secret encrypt
