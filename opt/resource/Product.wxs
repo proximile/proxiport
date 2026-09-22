@@ -25,9 +25,18 @@
 		<!-- License agreement text: dummy. Real text is set in WXS file -->
 		<WixVariable Id="WixUILicenseRtf" Value="dummy" />
 
-		<!-- UI customization -->
-		<WixVariable Id="WixUIBannerBmp" Value="opt\resource\images\BannerTop.bmp" />
-		<WixVariable Id="WixUIDialogBmp" Value="opt\resource\images\Dialog.bmp" />
+		<!-- UI customization: the installer takes WiX's default banner and
+		     dialog artwork.
+
+		     It used to point at BannerTop.bmp and Dialog.bmp, which were never
+		     redrawn when everything textual in this packaging was rebranded.
+		     Both rendered the RPort word-mark with "from REALVNC(R)" beneath
+		     it, and the dialog added that vendor's marketing tagline. So any
+		     MSI built from these sources told every Windows administrator who
+		     ran it that the software came from a commercial vendor that does
+		     not publish or support it. The bitmaps are deleted rather than left
+		     unreferenced. Point these at real artwork when there is some.
+		  -->
 
 		<!-- Define icons (ID should not be longer than 18 chars and must end with ".exe") -->
 		<Icon Id="Icon.exe" SourceFile="opt\resource\images\app.ico" />
