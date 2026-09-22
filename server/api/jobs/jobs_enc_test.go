@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"context"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -12,6 +13,7 @@ import (
 	"github.com/proximile/proxiport/server/test/jb"
 	"github.com/proximile/proxiport/share/enc"
 	"github.com/proximile/proxiport/share/models"
+	"github.com/proximile/proxiport/share/query"
 )
 
 var jobsTestDEK = []byte("0123456789abcdef0123456789abcdef")
@@ -113,4 +115,98 @@ func TestJobResultDisabledPassthrough(t *testing.T) {
 	got, err := p.GetByJID(job.ClientID, job.JID)
 	require.NoError(t, err)
 	assert.Equal(t, "SECRET-STDOUT", got.Result.StdOut)
+}
+
+// TestAgentOutputShapedLikeCiphertextIsStillEncrypted is M5's write half. A
+// job's stdout is whatever the agent sent. Deciding "already encrypted" from
+// its shape meant that output beginning with the sentinel was written to
+// jobs.db in CLEARTEXT even with a key provider configured -- the at-rest
+// guarantee skipped for precisely the values an attacker picks.
+func TestAgentOutputShapedLikeCiphertextIsStillEncrypted(t *testing.T) {
+	const forged = "enc:v1:this-is-not-ciphertext-it-is-command-output"
+
+	db, err := sqlite.New(":memory:", jobsmig.AssetNames(), jobsmig.Asset, DataSourceOptions)
+	require.NoError(t, err)
+
+	p := NewSqliteProvider(db, enc.NewEnvelope(jobsTestDEK), testLog)
+	defer func() { _ = p.Close() }()
+
+	job := jobWithOutput(t)
+	job.Result.StdOut = forged
+	require.NoError(t, p.SaveJob(job))
+
+	raw := rawDetails(t, p, job.JID)
+	assert.NotContains(t, raw, forged, "agent output must not reach the database in cleartext")
+	assert.Contains(t, raw, "enc:v1:")
+
+	got, err := p.GetByJID(job.ClientID, job.JID)
+	require.NoError(t, err, "and the row must still be readable afterwards")
+	assert.Equal(t, forged, got.Result.StdOut, "the output round-trips verbatim")
+}
+
+// TestSentinelShapedOutputRoundTripsWithNoKeyProvider covers the default
+// configuration, where there is no key at all. "enc:" was enough to make a
+// stored value look encrypted, so Decrypt refused it with "value is encrypted
+// but no key provider is configured" and the listing 500'd -- on a server that
+// has no at-rest encryption to protect.
+func TestSentinelShapedOutputRoundTripsWithNoKeyProvider(t *testing.T) {
+	db, err := sqlite.New(":memory:", jobsmig.AssetNames(), jobsmig.Asset, DataSourceOptions)
+	require.NoError(t, err)
+
+	p := NewSqliteProvider(db, nil, testLog)
+	defer func() { _ = p.Close() }()
+
+	for _, output := range []string{"enc:", "enc:x", "enc:hello world", "grep found enc: in /etc/hosts"} {
+		output := output
+		t.Run(output, func(t *testing.T) {
+			job := jobWithOutput(t)
+			job.Result.StdOut = output
+			require.NoError(t, p.SaveJob(job))
+
+			got, err := p.GetByJID(job.ClientID, job.JID)
+			require.NoError(t, err)
+			assert.Equal(t, output, got.Result.StdOut)
+		})
+	}
+}
+
+// TestListSurvivesOneUnreadableRow is M5's blast-radius half. Fetching one job
+// and failing closed is an unambiguous answer to an unambiguous question;
+// failing a page of fifty the same way is not. One unreadable row used to abort
+// the whole listing with HTTP 500 -- and a hostile agent could keep that row on
+// page one of the default finished_at DESC sort indefinitely.
+func TestListSurvivesOneUnreadableRow(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.New(":memory:", jobsmig.AssetNames(), jobsmig.Asset, DataSourceOptions)
+	require.NoError(t, err)
+
+	writer := NewSqliteProvider(db, enc.NewEnvelope(jobsTestDEK), testLog)
+	poisoned := jobWithOutput(t)
+	require.NoError(t, writer.SaveJob(poisoned))
+
+	readable := jobWithOutput(t)
+	readable.Result.StdOut = "plain output from before at-rest encryption"
+
+	wrongKey := []byte("ffffffffffffffffffffffffffffffff")
+	reader := NewSqliteProvider(db, enc.NewEnvelope(wrongKey), testLog)
+	defer func() { _ = reader.Close() }()
+	require.NoError(t, reader.SaveJob(readable))
+
+	jobs, err := reader.List(ctx, &query.ListOptions{})
+	require.NoError(t, err, "one unreadable row must not take the page with it")
+	require.Len(t, jobs, 2)
+
+	byJID := map[string]string{}
+	for _, j := range jobs {
+		byJID[j.JID] = j.Result.StdOut
+	}
+	assert.Equal(t, unreadableFieldNotice, byJID[poisoned.JID],
+		"the unreadable row says so rather than showing ciphertext or nothing")
+	assert.NotContains(t, byJID[poisoned.JID], "enc:v1:")
+	assert.Equal(t, "plain output from before at-rest encryption", byJID[readable.JID],
+		"and every other row is unaffected")
+
+	// A single-job fetch still fails closed, which is the contract it has.
+	_, err = reader.GetByJID(poisoned.ClientID, poisoned.JID)
+	require.Error(t, err)
 }

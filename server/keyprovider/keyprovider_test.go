@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var testKey = []byte("0123456789abcdef0123456789abcdef") // 32 bytes
@@ -138,4 +142,67 @@ func TestConfig_ParseAndValidate(t *testing.T) {
 			t.Fatal("Provider() before ParseAndValidate must be the disabled none provider")
 		}
 	})
+}
+
+// TestFileProviderRefusesAKeyAnyoneElseCanRead is M21. The DEK is the one key
+// whose entire job is to make a read of the config and the databases useless,
+// and it was the only secret-bearing artifact in this project with no mode
+// enforcement anywhere -- while the example config's own recipe
+// (`openssl rand -base64 32 > /etc/proxiport/dek.key`) lands it 0644 under the
+// default root umask, in a 0755 directory. The daemon started without a word.
+func TestFileProviderRefusesAKeyAnyoneElseCanRead(t *testing.T) {
+	dek := bytes.Repeat([]byte("k"), DEKSize)
+
+	testCases := []struct {
+		mode      os.FileMode
+		wantError bool
+	}{
+		{mode: 0600, wantError: false},
+		{mode: 0400, wantError: false},
+		{mode: 0700, wantError: false}, // odd for a key file, but exposes nothing
+		{mode: 0640, wantError: true},  // group-readable: the recipe in the runbook
+		{mode: 0644, wantError: true},  // what the documented command actually produces
+		{mode: 0604, wantError: true},
+		{mode: 0666, wantError: true},
+		{mode: 0660, wantError: true},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(fmt.Sprintf("%04o", tc.mode), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "dek.key")
+			require.NoError(t, os.WriteFile(path, dek, 0600))
+			require.NoError(t, os.Chmod(path, tc.mode))
+
+			provider, err := NewFileProvider(path)
+			if !tc.wantError {
+				require.NoError(t, err)
+				require.NotNil(t, provider)
+				assert.True(t, provider.Enabled())
+				return
+			}
+
+			require.Error(t, err, "mode %04o exposes the DEK to another account", tc.mode)
+			assert.Contains(t, err.Error(), "must not be readable by anyone else")
+			assert.Contains(t, err.Error(), "chmod 0600", "the error should say how to fix it")
+			assert.Nil(t, provider)
+		})
+	}
+}
+
+// TestFileProviderStillRejectsAMalformedKey is the anti-vacuity check: the new
+// stat must not short-circuit the decoding the provider already did.
+func TestFileProviderStillRejectsAMalformedKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dek.key")
+	require.NoError(t, os.WriteFile(path, []byte("far too short"), 0600))
+
+	_, err := NewFileProvider(path)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "must not be readable by anyone else")
+}
+
+func TestFileProviderReportsAMissingKeyFile(t *testing.T) {
+	_, err := NewFileProvider(filepath.Join(t.TempDir(), "no-such-key"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read key file")
 }

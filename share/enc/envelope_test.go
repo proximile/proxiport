@@ -1,8 +1,12 @@
 package enc
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -130,4 +134,68 @@ func TestEnvelope_EmptyRoundTrip(t *testing.T) {
 	if got != "" {
 		t.Fatalf("empty round-trip mismatch: got %q", got)
 	}
+}
+
+// TestIsEncryptedRequiresAVersionedPrefix is half of M5. The sentinel used to
+// be the bare "enc:", which is four characters any command's stdout can
+// contain -- `grep -r 'enc:' /etc` is enough, and a hostile agent can send it
+// on purpose. A write path asking "is this already encrypted?" then answered
+// yes, skipped encryption, and stored the value in cleartext under a
+// configured key; the read path then refused it and took the whole listing
+// with it.
+func TestIsEncryptedRequiresAVersionedPrefix(t *testing.T) {
+	testCases := []struct {
+		value string
+		want  bool
+	}{
+		{"", false},
+		{"enc:", false},
+		{"enc:x", false},
+		{"enc:hello", false},
+		{"enc:v", false},
+		{"enc:v1", false},
+		{"encrypted output follows", false},
+		{"the word enc: appears mid-string", false},
+		{"enc:v1:", true},
+		{"enc:v1:AAAA", true},
+		{"enc:v2:AAAA", true},
+		{"enc:v10:AAAA", true},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.value, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, IsEncrypted(tc.value))
+		})
+	}
+}
+
+// TestIsEncryptedByRequiresProvenanceNotShape is the other half. Shape is
+// forgeable -- an agent can send "enc:v1:whatever" -- so a write path has to
+// ask whether THIS envelope produced the value, which only the key can answer.
+func TestIsEncryptedByRequiresProvenanceNotShape(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	other := []byte("fedcba9876543210fedcba9876543210")
+
+	envelope := NewEnvelope(key)
+
+	ciphertext, err := envelope.Encrypt("real output")
+	require.NoError(t, err)
+	require.True(t, IsEncrypted(ciphertext))
+
+	assert.True(t, envelope.IsEncryptedBy(ciphertext), "our own ciphertext")
+	assert.False(t, envelope.IsEncryptedBy("enc:v1:whatever"), "forged shape is not provenance")
+	assert.False(t, envelope.IsEncryptedBy("enc:v1:"+base64.StdEncoding.EncodeToString([]byte("not ours"))),
+		"well-formed base64 that is not our ciphertext")
+	assert.False(t, envelope.IsEncryptedBy("plain output"), "plaintext")
+
+	foreign, err := NewEnvelope(other).Encrypt("real output")
+	require.NoError(t, err)
+	assert.False(t, envelope.IsEncryptedBy(foreign), "another key's ciphertext is not ours")
+	assert.True(t, IsEncrypted(foreign),
+		"but it IS envelope-shaped -- which is what the backfill path must respect")
+
+	disabled := NewEnvelope(nil)
+	assert.False(t, disabled.IsEncryptedBy(ciphertext), "with no key, nothing here was produced by us")
 }
