@@ -329,3 +329,28 @@ jobs:
       # skip when it cannot run.
       - name: packaging account split (fresh install + upgrade)
         run: bash opt/packaging/account_split_test.sh
+
+      # WiX sources are XML and are built only on a Windows packaging run, so
+      # a malformed one would otherwise be found by whoever next cuts an MSI.
+      # An XML comment may not contain "--", which is an easy thing to write
+      # by accident in prose.
+      - name: WiX sources are well-formed XML
+        run: |
+          mapfile -t wxs < <(git ls-files '*.wxs')
+          if [ ${#wxs[@]} -eq 0 ]; then
+            echo "no .wxs files matched -- the glob is wrong, failing rather than passing vacuously"
+            exit 1
+          fi
+          printf 'checking %d WiX source(s)\n' "${#wxs[@]}"
+          python3 - "${wxs[@]}" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          rc = 0
+          for path in sys.argv[1:]:
+              try:
+                  ET.parse(path)
+                  print(f"ok   {path}")
+              except ET.ParseError as exc:
+                  print(f"FAIL {path}: {exc}")
+                  rc = 1
+          sys.exit(rc)
+          PY
