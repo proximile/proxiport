@@ -361,7 +361,14 @@
   {#if !loading && rows.length > 0}
     <p class="text-xs text-slate-500">
       The installer one-liner is generated when a credential is created — the secret can't be read back later.
-      To pair a new agent, add a fresh credential{#if canWrite} with <span class="text-slate-400">+ Add credential</span>{/if}.
+      <!-- Each branch carries the whole sentence. Svelte trims the whitespace at a
+           block boundary, so a leading space inside {#if} is dropped and the two
+           words run together ("credentialwith") in the rendered page. -->
+      {#if canWrite}
+        To pair a new agent, add a fresh credential with <span class="text-slate-400">+ Add credential</span>.
+      {:else}
+        To pair a new agent, add a fresh credential.
+      {/if}
     </p>
   {/if}
 </div>
