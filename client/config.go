@@ -450,7 +450,10 @@ func parseRegexpList(regexpList []string) ([]*regexp.Regexp, error) {
 func PrepareDirs(c *ClientConfigHolder) error {
 	logger := logger.NewLogger("client", c.Logging.LogOutput, c.Logging.LogLevel)
 
-	if err := os.MkdirAll(c.Client.DataDir, os.ModePerm); err != nil {
+	// 0750, not os.ModePerm: this directory holds the agent's own state
+	// (watchdog heartbeat, in-flight file-reception uploads) and nothing
+	// outside the agent's user and group needs to read it.
+	if err := os.MkdirAll(c.Client.DataDir, 0o750); err != nil {
 		// Name the config key and a fix: the default data_dir is a
 		// system path (see DefaultDataDir), so a rootless run fails here
 		// with a bare "permission denied" that gives no hint at the cause.
@@ -530,6 +533,15 @@ func (c *ClientConfigHolder) parseInterpreterAliases() error {
 
 func (c *ClientConfigHolder) parseAndValidateIPAPIURL() error {
 	if c.Client.IPAPIURL == "" {
+		return nil
+	}
+	// The lookup builds its own direct connection and does not go through
+	// 'proxy', so on a proxied agent it would publish the address the proxy
+	// is there to hide. Turn it off rather than refuse to start: an agent
+	// that exits on a config it ran with before cannot be reached to fix it.
+	if c.Client.Proxy != "" {
+		log.Printf("WARNING: ip_api_url is ignored because proxy is set: the external-IP lookup does not go through the proxy and would reveal this host's address. Unset ip_api_url to silence this warning.")
+		c.Client.IPAPIURL = ""
 		return nil
 	}
 	u, err := url.Parse(c.Client.IPAPIURL)
