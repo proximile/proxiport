@@ -63,6 +63,12 @@ func NewSqliteProvider(dbPath string, dataSourceOptions sqlite.DataSourceOptions
 	if err := p.encryptExistingMeasurements(); err != nil {
 		logger.Errorf("monitoring at-rest backfill failed (new measurements are still encrypted): %v", err)
 	}
+	// Servers before v0.10.0 vacuumed on every start and left a -wal as large
+	// as the database. Nothing else shrinks a WAL that is already there until
+	// the first daily VACUUM, which a server restarted more often than daily
+	// never reaches, so truncate once at startup while nothing else is using
+	// the database.
+	p.truncateWAL(context.Background())
 	return p, nil
 }
 
@@ -363,10 +369,17 @@ func (p *SqliteProvider) Vacuum(ctx context.Context) error {
 	// Best-effort: the space is already reclaimed in the main database, so a
 	// checkpoint that cannot run right now (a concurrent reader holds it off)
 	// is not worth failing the cleanup over.
-	if _, err := p.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-		p.logger.Errorf("could not truncate the write-ahead log after VACUUM: %v", err)
-	}
+	p.truncateWAL(ctx)
 	return nil
+}
+
+// truncateWAL checkpoints the write-ahead log into the database and shrinks
+// the -wal file to zero. A no-op outside WAL mode. Failures are logged, not
+// returned: the data is intact either way, only the disk space is not back.
+func (p *SqliteProvider) truncateWAL(ctx context.Context) {
+	if _, err := p.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		p.logger.Errorf("could not truncate the write-ahead log: %v", err)
+	}
 }
 
 func (p *SqliteProvider) Close() error {

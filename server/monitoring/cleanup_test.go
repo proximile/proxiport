@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,4 +98,52 @@ func TestVacuumTruncatesWriteAheadLog(t *testing.T) {
 	after, err := os.Stat(walPath)
 	require.NoError(t, err)
 	assert.Zero(t, after.Size(), "VACUUM should leave a truncated WAL, not one the size of the database")
+}
+
+// A server upgraded from before v0.10.0 inherits a -wal as large as the
+// database. Opening the database must shrink it, rather than leave it until a
+// VACUUM that only runs after a full day of uptime.
+func TestOpenTruncatesInheritedWriteAheadLog(t *testing.T) {
+	srcDir := t.TempDir()
+	srcPath := filepath.Join(srcDir, "monitoring.db")
+
+	writer, err := NewSqliteProvider(srcPath, sqlite.DataSourceOptions{WALEnabled: true}, nil, testLog)
+	require.NoError(t, err)
+	defer func() { _ = writer.Close() }()
+
+	ctx := context.Background()
+	payload := strings.Repeat("x", 64*1024)
+	for i := 0; i < 50; i++ {
+		require.NoError(t, writer.CreateMeasurement(ctx, &models.Measurement{
+			ClientID:    fmt.Sprintf("client_%d", i),
+			Timestamp:   testStart.Add(time.Duration(i) * time.Second),
+			Processes:   payload,
+			Mountpoints: "{}",
+		}))
+	}
+
+	// Copy the database and its WAL while the writer still holds them open:
+	// the rows live in the -wal, as on a server stopped without a checkpoint.
+	dstDir := t.TempDir()
+	dstPath := filepath.Join(dstDir, "monitoring.db")
+	for _, suffix := range []string{"", "-wal"} {
+		b, err := os.ReadFile(srcPath + suffix) //nolint:gosec // G304: a path under t.TempDir()
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(dstPath+suffix, b, 0o600)) //nolint:gosec // G703: a path under t.TempDir()
+	}
+	inherited, err := os.Stat(dstPath + "-wal")
+	require.NoError(t, err)
+	require.Greater(t, inherited.Size(), int64(1024*1024), "precondition: an inherited WAL with the rows in it")
+
+	reader, err := NewSqliteProvider(dstPath, sqlite.DataSourceOptions{WALEnabled: true}, nil, testLog)
+	require.NoError(t, err)
+	defer func() { _ = reader.Close() }()
+
+	after, err := os.Stat(dstPath + "-wal")
+	require.NoError(t, err)
+	assert.Zero(t, after.Size(), "opening the database should truncate an inherited WAL")
+
+	var count int
+	require.NoError(t, reader.(*SqliteProvider).db.Get(&count, "SELECT COUNT(*) FROM measurements"))
+	assert.Equal(t, 50, count, "the rows from the WAL must survive the truncation")
 }
