@@ -441,6 +441,33 @@ proxiportd --version
     sudo systemctl enable --now proxiportd
     ```
 
+!!! warning "Upgrading from v0.9.x or earlier to v0.10.0: shrink the monitoring log file"
+    Before v0.10.0 the server rewrote `monitoring.db` on every start,
+    which left a write-ahead log (`monitoring.db-wal`) next to it as
+    large as the database itself — gigabytes on a busy fleet. v0.10.0
+    stops the rewrite, but it only shrinks a log that is already there
+    after its first daily compaction, which happens once the server
+    has run for 24 hours without a restart. Shrink it once, by hand,
+    right after the upgrade:
+
+    ```bash
+    ls -la /var/lib/proxiport/monitoring.db*      # note the -wal size
+    sudo systemctl stop proxiportd
+    sudo -u proxiport sqlite3 /var/lib/proxiport/monitoring.db \
+        'PRAGMA wal_checkpoint(TRUNCATE);'
+    sudo systemctl start proxiportd
+    ls -la /var/lib/proxiport/monitoring.db*      # -wal is now small
+    ```
+
+    The command prints `0|0|0` on success. A first value of `1` means
+    the server was still running and nothing was shrunk: stop it and
+    run the command again. It needs the `sqlite3` command-line tool
+    (`sudo apt-get install sqlite3`, or `sudo dnf install sqlite`).
+    The data stays intact: the log is folded into `monitoring.db` before
+    it is truncated. Releases after v0.10.0 do this themselves every time
+    the server starts, so upgrading straight to one of them needs no
+    manual step.
+
 Downgrading is the same command with an older package. The client
 database schema is versioned and migrated forward on start, so a
 downgrade across a schema change is not supported — snapshot
