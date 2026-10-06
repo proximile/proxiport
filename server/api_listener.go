@@ -156,17 +156,19 @@ func NewAPIListener(
 
 	notificationConsumers := []notifications.Consumer{scriptConsumer}
 
-	smtpConfig, err := rmailer.ConfigFromSMTPConfig(config.SMTP)
-	if err == nil {
+	// Without a working mailer, mail notifications are still consumed, by
+	// writing them to the log.
+	mailConsumer := notifications.Consumer(toLog.NewLogConsumer(notificationsLogger.Fork("smtp undeliverable"), notifications.TargetMail))
+	if !config.SMTP.IsConfigured() {
+		notificationsLogger.Infof("no [smtp] section configured: mail notifications are written to the log instead")
+	} else if smtpConfig, err := rmailer.ConfigFromSMTPConfig(config.SMTP); err != nil {
+		notificationsLogger.Errorf("failed to bootstrap smtp notifications: %v", err)
+	} else {
 		smtpLogger := notificationsLogger.Fork("smtp")
 		smtpLogger.Debugf("using smtp config: %v", smtpConfig)
-		mailConsumer := rmailer.NewConsumer(rmailer.NewRMailer(smtpConfig, smtpLogger), smtpLogger)
-		notificationConsumers = append(notificationConsumers, mailConsumer)
-	} else {
-		notificationsLogger.Errorf("failed to bootstrap smtp notifications: %v", err)
-		logConsumer := toLog.NewLogConsumer(notificationsLogger.Fork("smtp undeliverable"), notifications.TargetMail) // consume mail notifications even if mailer is not available
-		notificationConsumers = append(notificationConsumers, logConsumer)
+		mailConsumer = rmailer.NewConsumer(rmailer.NewRMailer(smtpConfig, smtpLogger), smtpLogger)
 	}
+	notificationConsumers = append(notificationConsumers, mailConsumer)
 
 	notificationLogger := logger.NewLogger("cleaner", config.Logging.LogOutput, logger.LogLevelInfo)
 	notificationProcessor := notifications.NewProcessor(notificationsLogger, store, notificationConsumers...)
