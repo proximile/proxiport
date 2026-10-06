@@ -240,6 +240,40 @@ func TestConfigParseAndValidateProxyURL(t *testing.T) {
 	}
 }
 
+// The external-IP lookup dials directly, so on an agent that reaches the
+// server through a proxy it would report the address the proxy hides.
+func TestConfigIgnoresIPAPIURLBehindProxy(t *testing.T) {
+	testCases := []struct {
+		Name          string
+		Proxy         string
+		ExpectedIPAPI string
+	}{
+		{
+			Name:          "no proxy",
+			ExpectedIPAPI: "https://ip.example.com/",
+		}, {
+			Name:          "http proxy",
+			Proxy:         "http://proxy.example.com:3128",
+			ExpectedIPAPI: "",
+		}, {
+			Name:          "socks5h proxy",
+			Proxy:         "socks5h://127.0.0.1:9050",
+			ExpectedIPAPI: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.Name, func(t *testing.T) {
+			config := getDefaultValidMinConfig()
+			config.Client.Proxy = tc.Proxy
+			config.Client.IPAPIURL = "https://ip.example.com/"
+
+			require.NoError(t, config.ParseAndValidate(true))
+			assert.Equal(t, tc.ExpectedIPAPI, config.Client.IPAPIURL)
+		})
+	}
+}
+
 func TestConfigParseAndValidateRemotes(t *testing.T) {
 	schemeHTTP := "http"
 	schemeHTTPS := "https"

@@ -56,6 +56,11 @@ under `[client]`:
 30; lower values produce more accurate state at the cost of more
 outbound calls.
 
+The discovery is turned off on an agent that has `proxy` set, and the
+agent logs a warning at startup. The lookup opens its own connection
+rather than going through the proxy, so it would report the address
+of the host the proxy is there to hide.
+
 ## Supported IP-discovery APIs
 
 The agent expects either of two response shapes:
