@@ -225,6 +225,13 @@ type SMTPConfig struct {
 	Secure       bool   `mapstructure:"secure"`
 }
 
+// IsConfigured reports whether any [smtp] setting is present. An empty
+// section means mail is not in use, which is not an error; a partly filled
+// one is a mistake the operator needs to hear about.
+func (c *SMTPConfig) IsConfigured() bool {
+	return c.Server != "" || c.SenderEmail != "" || c.AuthUsername != "" || c.AuthPassword != ""
+}
+
 func (c *SMTPConfig) Validate() error {
 	if c.Server == "" {
 		return errors.New("smtp.server is required")
