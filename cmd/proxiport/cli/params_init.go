@@ -61,6 +61,7 @@ func SetPFlags(pFlags *pflag.FlagSet) {
 	// needed always
 	pFlags.StringP("config", "c", "", "")
 	pFlags.String("service", "", "")
+	pFlags.Bool("e2e-fingerprint", false, "")
 
 	// needed ony when installing service to configure OS service
 	pFlags.String("service-user", "proxiport", "")
@@ -149,6 +150,7 @@ func SetViperConfigDefaults(viperCfg *viper.Viper) {
 	viperCfg.SetDefault("client.transport_dial_timeout", 45*time.Second)
 
 	viperCfg.SetDefault("monitoring.enabled", true)
+	viperCfg.SetDefault("e2e.listen", "127.0.0.1:7222")
 	viperCfg.SetDefault("monitoring.interval", chclient.DefaultMonitoringInterval)
 	viperCfg.SetDefault("monitoring.fs_type_include", []string{"ext3", "ext4", "xfs", "jfs", "ntfs", "btrfs", "hfs", "apfs", "exfat", "smbfs", "nfs"})
 	viperCfg.SetDefault("monitoring.fs_identify_mountpoints_by_device", true)

@@ -16,6 +16,7 @@ import (
 
 	"github.com/proximile/proxiport/share/files"
 
+	"github.com/proximile/proxiport/client/e2e"
 	"github.com/proximile/proxiport/client/system"
 	"github.com/proximile/proxiport/client/transport"
 	chshare "github.com/proximile/proxiport/share"
@@ -91,6 +92,10 @@ func (c *ClientConfigHolder) ParseAndValidate(skipScriptsDirValidation bool) err
 	}
 
 	if err := c.parseAndValidateIPAPIURL(); err != nil {
+		return err
+	}
+
+	if err := c.parseE2E(); err != nil {
 		return err
 	}
 
@@ -603,6 +608,45 @@ func (c *ClientConfigHolder) parseInterpreterAliases() error {
 		}
 
 		return fmt.Errorf("invalid interpreter alias %q: %v", alias, value)
+	}
+	return nil
+}
+
+// E2EHostKeyFileName is the default host key file, inside data_dir.
+const E2EHostKeyFileName = "e2e_host_ed25519_key"
+
+func (c *ClientConfigHolder) parseE2E() error {
+	if !c.E2E.Enabled {
+		return nil
+	}
+	if c.E2E.Listen == "" {
+		return errors.New("[e2e] listen cannot be empty")
+	}
+	if err := e2e.ValidateListen(c.E2E.Listen); err != nil {
+		return fmt.Errorf("[e2e] %w", err)
+	}
+	if c.E2E.AuthorizedKeysFile == "" {
+		return errors.New("[e2e] authorized_keys_file is required: it lists the operator keys allowed to connect")
+	}
+	if c.E2E.HostKeyFile == "" {
+		c.E2E.HostKeyFile = filepath.Join(c.Client.DataDir, E2EHostKeyFileName)
+	}
+	// Each of these lets the server run code or write files on this host,
+	// so a server that wants to can read the host key or add its own key to
+	// authorized_keys. The end-to-end session then protects only against
+	// the network, not against the server.
+	var exposed []string
+	if c.RemoteCommands.Enabled {
+		exposed = append(exposed, "[remote-commands]")
+	}
+	if c.RemoteScripts.Enabled {
+		exposed = append(exposed, "[remote-scripts]")
+	}
+	if c.FileReceptionConfig.Enabled {
+		exposed = append(exposed, "[file-reception]")
+	}
+	if len(exposed) > 0 {
+		log.Printf("WARNING: [e2e] is enabled but so is %s: the server can use them to read the e2e host key or authorize its own key, so e2e does not protect against the server. Disable them to rely on e2e against the server.", strings.Join(exposed, ", "))
 	}
 	return nil
 }

@@ -8,10 +8,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 
 	"github.com/spf13/pflag"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/proximile/proxiport/cmd/proxiport/servicemanagement"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/proximile/proxiport/share/files"
 
 	chclient "github.com/proximile/proxiport/client"
+	"github.com/proximile/proxiport/client/e2e"
 	chshare "github.com/proximile/proxiport/share"
 )
 
@@ -60,6 +63,12 @@ func main() {
 
 func runMain(*cobra.Command, []string) {
 	pFlags := RootCmd.PersistentFlags()
+	if show, _ := pFlags.GetBool("e2e-fingerprint"); show {
+		if err := printE2EFingerprint(pFlags); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	serviceManager, err := isServiceManager(pFlags)
 	if err != nil {
 		log.Fatal(err)
@@ -74,6 +83,31 @@ func runMain(*cobra.Command, []string) {
 			log.Fatal(err)
 		}
 	}
+}
+
+// printE2EFingerprint prints the e2e host key's fingerprint and public key, for
+// the operator to pin. The key is created by the agent on its first start with
+// [e2e] enabled.
+func printE2EFingerprint(pFlags *pflag.FlagSet) error {
+	cfgPath, err := pFlags.GetString("config")
+	if err != nil {
+		return err
+	}
+	config, err := cli.DecodeConfig(cfgPath, pFlags, false)
+	if err != nil {
+		return fmt.Errorf("invalid config: %v. Check your config file", err)
+	}
+	path := config.E2E.HostKeyFile
+	if path == "" {
+		path = filepath.Join(config.Client.DataDir, chclient.E2EHostKeyFileName)
+	}
+	fp, pub, err := e2e.Fingerprint(path)
+	if err != nil {
+		return fmt.Errorf("%v (the agent creates the key when it starts with [e2e] enabled)", err)
+	}
+	fmt.Println(fp)
+	fmt.Print(string(ssh.MarshalAuthorizedKey(pub)))
+	return nil
 }
 
 func ManageService(pFlags *pflag.FlagSet) error {

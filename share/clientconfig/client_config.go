@@ -20,6 +20,9 @@ type Config struct {
 	Tunnels                  TunnelsConfig       `json:"-" mapstructure:"tunnels"`
 	InterpreterAliasesConfig map[string]any      `json:"-" mapstructure:"interpreter-aliases"`
 	FileReceptionConfig      FileReceptionConfig `json:"file_reception" mapstructure:"file-reception"`
+	// E2E is json:"-": the server has no use for it, and the whole Config is
+	// sent to the server in the connection request.
+	E2E E2EConfig `json:"-" mapstructure:"e2e"`
 
 	InterpreterAliases          map[string]string                   `json:"interpreter_aliases"`
 	InterpreterAliasesEncodings map[string]InterpreterAliasEncoding `json:"interpreter_aliases_encodings"`
@@ -160,6 +163,15 @@ type MonitoringConfig struct {
 type FileReceptionConfig struct {
 	Protected []string `json:"protected" mapstructure:"protected"`
 	Enabled   bool     `json:"enabled" mapstructure:"enabled"`
+}
+
+// E2EConfig configures the agent's loopback SSH server for end-to-end
+// encrypted port forwarding.
+type E2EConfig struct {
+	Enabled            bool   `mapstructure:"enabled"`
+	Listen             string `mapstructure:"listen"`
+	HostKeyFile        string `mapstructure:"host_key_file"`
+	AuthorizedKeysFile string `mapstructure:"authorized_keys_file"`
 }
 
 type InterpreterAliasEncoding struct {
