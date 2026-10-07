@@ -28,6 +28,10 @@ type tunnelUDP struct {
 	channel *comm.UDPChannel
 	done    chan struct{}
 	cancel  func()
+	// chanClosed is closed once the agent channel has been closed after
+	// cancellation, so Terminate can wait for it rather than return while
+	// runOutbound may still be reading.
+	chanClosed chan struct{}
 
 	// peers are the addresses this tunnel has received datagrams from. The
 	// outbound destination comes from the agent, so it is checked against
@@ -51,6 +55,7 @@ func newTunnelUDP(logger *logger.Logger, ssh ssh.Conn, remote models.Remote, acl
 		Remote:      remote,
 		sshConn:     ssh,
 		done:        make(chan struct{}),
+		chanClosed:  make(chan struct{}),
 		peers:       newUDPPeerTable(),
 		lastActive:  time.Now(),
 		idleTimeout: time.Duration(remote.IdleTimeoutMinutes) * time.Minute,
@@ -108,6 +113,7 @@ func (t *tunnelUDP) start(ctx context.Context, sshChan io.ReadWriter) error {
 		if t.sshChan != nil {
 			_ = t.sshChan.Close()
 		}
+		close(t.chanClosed)
 	}()
 
 	return nil
@@ -218,6 +224,7 @@ func (t *tunnelUDP) CanTerminate(force bool) error {
 func (t *tunnelUDP) Terminate(force bool) error {
 	t.cancel()
 	<-t.done
+	<-t.chanClosed
 
 	return nil
 }
