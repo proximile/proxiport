@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
@@ -270,6 +271,52 @@ func TestConfigIgnoresIPAPIURLBehindProxy(t *testing.T) {
 
 			require.NoError(t, config.ParseAndValidate(true))
 			assert.Equal(t, tc.ExpectedIPAPI, config.Client.IPAPIURL)
+		})
+	}
+}
+
+func TestConfigParseE2E(t *testing.T) {
+	testCases := []struct {
+		Name          string
+		E2E           clientconfig.E2EConfig
+		ExpectedError string
+		ExpectedKey   string
+	}{
+		{
+			Name: "disabled ignores everything",
+			E2E:  clientconfig.E2EConfig{Listen: "0.0.0.0:22"},
+		}, {
+			Name:        "host key defaults into data_dir",
+			E2E:         clientconfig.E2EConfig{Enabled: true, Listen: "127.0.0.1:7222", AuthorizedKeysFile: "/etc/proxiport/e2e_authorized_keys"},
+			ExpectedKey: filepath.Join("/var/lib/proxiport-agent", E2EHostKeyFileName),
+		}, {
+			Name:        "explicit host key kept",
+			E2E:         clientconfig.E2EConfig{Enabled: true, Listen: "127.0.0.1:7222", AuthorizedKeysFile: "/k", HostKeyFile: "/h"},
+			ExpectedKey: "/h",
+		}, {
+			Name:          "non-loopback listen",
+			E2E:           clientconfig.E2EConfig{Enabled: true, Listen: "0.0.0.0:7222", AuthorizedKeysFile: "/k"},
+			ExpectedError: "must be a loopback IP",
+		}, {
+			Name:          "authorized keys required",
+			E2E:           clientconfig.E2EConfig{Enabled: true, Listen: "127.0.0.1:7222"},
+			ExpectedError: "authorized_keys_file is required",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.Name, func(t *testing.T) {
+			config := getDefaultValidMinConfig()
+			config.Client.DataDir = "/var/lib/proxiport-agent"
+			config.E2E = tc.E2E
+			err := config.ParseAndValidate(true)
+			if tc.ExpectedError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.ExpectedError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.ExpectedKey, config.E2E.HostKeyFile)
 		})
 	}
 }

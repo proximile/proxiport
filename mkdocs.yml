@@ -48,6 +48,7 @@ nav:
     - Command execution: command-execution.md
     - Scripts: scripts.md
     - Tunnel hosting: tunnel-hosting.md
+    - End-to-end encrypted forwarding: e2e-forwarding.md
     - Watchdog: watchdog.md
     - Vault: vault.md
   - Configuration:

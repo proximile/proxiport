@@ -1,5 +1,6 @@
 package cli
 
+//nolint:gosec // G101: the credentials in this help text are placeholders
 var ClientHelp = `
   Usage: proxiport [options] [<server> [remote] [remote] [remote] ...]
 
@@ -111,6 +112,9 @@ var ClientHelp = `
     The only arguments compatible with --service are --service-user and --config, others will be ignored.
 
     --service-user, An optional arg specifying user to run proxiport service under. Only on linux. Defaults to proxiport.
+
+    --e2e-fingerprint, Print the fingerprint and public key of the [e2e] host key, for operators to pin, and exit.
+    The agent creates the key the first time it starts with [e2e] enabled.
 
     --log-level, Specify log level. Values: "error", "info", "debug" (defaults to "info")
 

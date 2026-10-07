@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/proximile/proxiport/client/e2e"
 	ipAddresses "github.com/proximile/proxiport/client/ip_addresses"
 
 	"github.com/proximile/proxiport/share/random"
@@ -235,12 +236,44 @@ func (c *Client) Start(ctx context.Context) error {
 		go c.keepAliveLoop(ctx)
 	}
 
+	c.startE2E(ctx)
+
 	//connection loop
 	go c.connectionLoop(ctx, true)
 
 	c.updates.Start(ctx)
 
 	return nil
+}
+
+// startE2E runs the loopback SSH server for end-to-end encrypted forwards. A
+// failure is logged rather than returned: the agent stays connected and
+// manageable, and only the e2e path is unavailable.
+func (c *Client) startE2E(ctx context.Context) {
+	cfg := c.configHolder.E2E
+	if !cfg.Enabled {
+		return
+	}
+	l := c.Fork("e2e")
+	srv, err := e2e.New(e2e.Config{
+		Listen:             cfg.Listen,
+		HostKeyFile:        cfg.HostKeyFile,
+		AuthorizedKeysFile: cfg.AuthorizedKeysFile,
+		Allowed: func(remote string) bool {
+			allowed, err := TunnelIsAllowed(c.configHolder.Client.TunnelAllowed, remote)
+			if err != nil {
+				l.Errorf("Could not check if %q is allowed: %v", remote, err)
+				return false
+			}
+			return allowed
+		},
+	}, l)
+	if err == nil {
+		err = srv.Start(ctx)
+	}
+	if err != nil {
+		l.Errorf("not started: %v", err)
+	}
 }
 
 func (c *Client) getConn() (sshConnection ssh.Conn) {
