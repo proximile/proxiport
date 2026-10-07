@@ -3,6 +3,7 @@ package clientconfig_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -33,4 +34,26 @@ host_header = "app.internal"
 	assert.Equal(t, "https", cfg.Tunnels.Scheme)
 	assert.True(t, cfg.Tunnels.ReverseProxy, "reverse_proxy must bind from the config file")
 	assert.Equal(t, "app.internal", cfg.Tunnels.HostHeader, "host_header must bind from the config file")
+}
+
+// TestTransportsConfigBinds guards that the egress chain decodes from the
+// config file. A field without a mapstructure tag is silently dropped by viper
+// — the same failure the tunnels block above exists to catch — and a silently
+// dropped transports list would leave the agent dialing direct while its config
+// says otherwise, which is the worst possible way for this key to fail.
+func TestTransportsConfigBinds(t *testing.T) {
+	const body = `
+[client]
+transports = ["socks5h://127.0.0.1:9050", "direct"]
+transport_dial_timeout = "20s"
+`
+	v := viper.New()
+	v.SetConfigType("toml")
+	var cfg clientconfig.Config
+	require.NoError(t, chshare.DecodeViperConfig(v, &cfg, strings.NewReader(body)))
+
+	assert.Equal(t, []string{"socks5h://127.0.0.1:9050", "direct"}, cfg.Client.Transports,
+		"transports must bind from the config file")
+	assert.Equal(t, 20*time.Second, cfg.Client.TransportDialTimeout,
+		"transport_dial_timeout must bind from the config file")
 }

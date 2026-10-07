@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/proximile/proxiport/share/files"
 
 	"github.com/proximile/proxiport/client/system"
+	"github.com/proximile/proxiport/client/transport"
 	chshare "github.com/proximile/proxiport/share"
 	"github.com/proximile/proxiport/share/clientconfig"
 	"github.com/proximile/proxiport/share/logger"
@@ -41,6 +43,11 @@ func (c *ClientConfigHolder) ParseAndValidate(skipScriptsDirValidation bool) err
 		return err
 	}
 	if err := c.parseFallbackServers(); err != nil {
+		return err
+	}
+	// After the server list is known (the .onion checks below need it) and
+	// before parseProxyURL, which this may not be combined with.
+	if err := c.parseTransports(); err != nil {
 		return err
 	}
 	if err := c.parseProxyURL(); err != nil {
@@ -209,12 +216,81 @@ func (c *ClientConfigHolder) parseProxyURL() error {
 		if err != nil {
 			return fmt.Errorf("invalid proxy URL: %v", err)
 		}
-		if proxyURL.Scheme == "https" {
-			return fmt.Errorf("https proxies not (yet) supported")
+		// Validate the scheme through the transport parser so 'proxy' and
+		// 'transports' accept exactly the same set, and so an unusable scheme
+		// fails here at startup instead of on every connection attempt forever.
+		if _, err := transport.ParseSpec(p); err != nil {
+			return fmt.Errorf("invalid proxy: %w", err)
 		}
 		c.Client.ProxyURL = proxyURL
 	}
 	return nil
+}
+
+// parseTransports validates the ordered egress list.
+//
+// It runs before parseProxyURL because the two keys are alternatives, and after
+// parseFallbackServers because the .onion rules below have to see every server
+// the agent might dial.
+func (c *ClientConfigHolder) parseTransports() error {
+	if len(c.Client.Transports) == 0 {
+		return nil
+	}
+	if c.Client.Proxy != "" {
+		return errors.New("'transports' and 'proxy' cannot both be set: 'proxy' is the single-entry form of 'transports', so list it as the first entry instead")
+	}
+
+	chain, err := transport.BuildChain(c.Client.Transports)
+	if err != nil {
+		return err
+	}
+
+	// Over Tor the server is reached as ws://, never wss:// — no CA issues a
+	// certificate for a .onion name — so the SSH host-key pin is the only thing
+	// authenticating the server. Refuse to start unpinned rather than hand the
+	// first connection to whoever answers.
+	if onion := c.firstOnionEndpoint(); onion != "" && c.Client.Fingerprint == "" {
+		return fmt.Errorf(
+			"server %q is a .onion address and 'transports' is set, but no 'fingerprint' is pinned: "+
+				"a .onion endpoint is reached over ws:// with no TLS, so the host-key pin is the only "+
+				"authentication of the server", onion)
+	}
+
+	// ip_api_url builds its own HTTP transport and cannot traverse the chain,
+	// so leaving it on would publish this host's real address while the control
+	// connection is proxied. Refuse rather than silently ignore either key.
+	if c.Client.IPAPIURL != "" {
+		return errors.New("'ip_api_url' cannot be used with 'transports': the external-IP lookup builds its own connection, does not go through the transport chain, and would reveal this host's real address — unset 'ip_api_url'")
+	}
+
+	if chain.HasDirect() && len(chain) > 1 {
+		log.Printf(
+			"WARNING: transports permits a clearnet dial: entry %d is %q, so if every earlier transport fails the agent will reach the server over the open internet. Remove it to fail closed.",
+			len(chain)-1, transport.DirectSpec)
+	}
+
+	return nil
+}
+
+// firstOnionEndpoint returns the first configured server address whose host is
+// a .onion name, or "" if none is.
+func (c *ClientConfigHolder) firstOnionEndpoint() string {
+	for _, server := range append([]string{c.Client.Server}, c.Client.FallbackServers...) {
+		if server == "" {
+			continue
+		}
+		host := server
+		if u, err := url.Parse(server); err == nil && u.Host != "" {
+			host = u.Host
+		}
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		if strings.HasSuffix(strings.ToLower(host), ".onion") {
+			return server
+		}
+	}
+	return ""
 }
 
 func (c *ClientConfigHolder) parseRemotes() error {
