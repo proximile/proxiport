@@ -99,14 +99,33 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+    # Archive members are root-owned. Without this the tarball carries the
+    # build runner's uid and gid, and `tar xzf` as root restores them, so an
+    # extracted binary belongs to whichever local account has that uid.
+    builds_info:
+      owner: root
+      group: root
     files:
-      - proxiport.example.conf
+      - src: proxiport.example.conf
+        dst: proxiport.example.conf
+        info: &root_owned
+          owner: root
+          group: root
       - src: opt/systemd/proxiport.service
         dst: proxiport.service
-      - LICENSE
-      - LICENSE-MIT
-      - NOTICE
-      - README.md
+        info: *root_owned
+      - src: LICENSE
+        dst: LICENSE
+        info: *root_owned
+      - src: LICENSE-MIT
+        dst: LICENSE-MIT
+        info: *root_owned
+      - src: NOTICE
+        dst: NOTICE
+        info: *root_owned
+      - src: README.md
+        dst: README.md
+        info: *root_owned
   - id: proxiportd-only
     name_template: >-
       proxiportd_{{ .Version }}_{{ .Os }}_
@@ -117,18 +136,34 @@ archives:
       {{- if .Mips }}_{{ .Mips }}{{ end }}
     ids:
       - proxiportd
+    builds_info:
+      owner: root
+      group: root
     files:
-      - proxiportd.example.conf
+      - src: proxiportd.example.conf
+        dst: proxiportd.example.conf
+        info: *root_owned
       - src: opt/systemd/proxiportd.service
         dst: proxiportd.service
+        info: *root_owned
       - src: opt/packaging/proxiport-setup.sh
         dst: proxiport-setup
+        info: *root_owned
       - src: frontend/build
         dst: docroot
-      - LICENSE
-      - LICENSE-MIT
-      - NOTICE
-      - README.md
+        info: *root_owned
+      - src: LICENSE
+        dst: LICENSE
+        info: *root_owned
+      - src: LICENSE-MIT
+        dst: LICENSE-MIT
+        info: *root_owned
+      - src: NOTICE
+        dst: NOTICE
+        info: *root_owned
+      - src: README.md
+        dst: README.md
+        info: *root_owned
 nfpms:
   # Agent package: static, ships everywhere proxiport runs as a service.
   - id: proxiport
@@ -217,11 +252,12 @@ nfpms:
         file_info:
           mode: 0755
       # Bundle the built SPA so the server serves a web UI out of the box.
-      # postinstall enables doc_root in the seeded config and chowns this
-      # tree to the proxiport user. Built by the release workflow before
-      # goreleaser runs.
+      # postinstall points doc_root in the seeded config at it. The tree is
+      # root's under /usr/share, where only root can write: the daemon reads
+      # it and never owns it. Built by the release workflow before goreleaser
+      # runs.
       - src: ./frontend/build
-        dst: /var/lib/proxiport/docroot
+        dst: /usr/share/proxiport/docroot
         type: tree
       - src: ./LICENSE
         dst: /usr/share/doc/proxiportd/LICENSE

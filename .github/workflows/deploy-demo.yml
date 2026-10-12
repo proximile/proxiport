@@ -145,10 +145,13 @@ jobs:
               install -o root -g root -m 0755 /tmp/proxiportd.new /usr/local/bin/proxiportd
               rm /tmp/proxiportd.new
 
-              install -d -o proxiport -g proxiport -m 0750 /var/lib/proxiport/docroot
-              rsync -a --delete /tmp/proxiport-spa.new/ /var/lib/proxiport/docroot/
-              chown -R proxiport:proxiport /var/lib/proxiport/docroot
+              # The SPA is root's and read-only for the daemon. A droplet
+              # deployed before the move still has doc_root at the old
+              # daemon-owned path; repoint only that shipped default.
+              install -d -o root -g root -m 0755 /usr/share/proxiport/docroot
+              rsync -a --delete --chown=root:root --chmod=D0755,F0644 /tmp/proxiport-spa.new/ /usr/share/proxiport/docroot/
               rm -rf /tmp/proxiport-spa.new
+              sed -i 's|^\(\s*\)doc_root = "/var/lib/proxiport/docroot"|\1doc_root = "/usr/share/proxiport/docroot"|' /etc/proxiport/proxiportd.conf
 
               systemctl restart proxiportd
 
