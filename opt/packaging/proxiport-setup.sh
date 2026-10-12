@@ -469,7 +469,7 @@ sed -i -E "/^\[api\]/,/^\[/ {
     s|^[[:space:]]*#[[:space:]]*auth_group_details_table[[:space:]]*=|  auth_group_details_table =|
     s|^[[:space:]]*#?[[:space:]]*jwt_secret[[:space:]]*=.*|  jwt_secret = \"${JWT_SECRET}\"|
     s|^[[:space:]]*#[[:space:]]*totp_account_name[[:space:]]*=.*|  totp_account_name = \"${FQDN}\"|
-    s|^[[:space:]]*#?[[:space:]]*doc_root[[:space:]]*=.*|  doc_root = \"/var/lib/proxiport/docroot\"|
+    s|^[[:space:]]*#?[[:space:]]*doc_root[[:space:]]*=.*|  doc_root = \"/usr/share/proxiport/docroot\"|
 }" "$CONFIG_FILE"
 
 if [ "$USE_ACME" -eq 1 ]; then
@@ -524,15 +524,41 @@ rm -f "$tmp_cfg"
 # Database
 #======================================================================
 
+# /var/lib/proxiport belongs to the daemon's account, so nothing is written
+# through a path in there: a redirect, touch or sqlite3 open would follow a
+# link the daemon planted, and the chown after it would hand the link's target
+# to the daemon. Files are built in a root-only staging directory beside the
+# data directory and renamed into place; rename never follows links. When the
+# data directory is its own mount the rename is not possible, and place_file
+# falls back to creating the destination with O_EXCL, which fails on a link
+# rather than following it.
+[ -d /var/lib/proxiport ] || install -d -o proxiport -g proxiport -m 0750 /var/lib/proxiport
+STAGE=$(mktemp -d /var/lib/.proxiport-setup.XXXXXX)
+trap 'rm -rf "$STAGE"' EXIT
+if [ "$(stat -c %d "$STAGE")" = "$(stat -c %d /var/lib/proxiport)" ]; then
+    STAGE_SAME_FS=1
+else
+    STAGE_SAME_FS=0
+fi
+
+place_file() {
+    # place_file <staged> <dst> <umask>
+    rm -f "$2"
+    if [ "$STAGE_SAME_FS" = 1 ]; then
+        mv -T "$1" "$2"
+    else
+        (umask "$3"; set -C; cat "$1" > "$2")
+        chown -h --reference="$1" "$2"
+        rm -f "$1"
+    fi
+}
+
 throw_info "Creating user database at $DB_FILE"
-test -e "$DB_FILE" && rm -f "$DB_FILE"
-touch "$DB_FILE"
-chown proxiport:proxiport "$DB_FILE"
-chmod 0640 "$DB_FILE"
+DB_TMP="$STAGE/user-auth.db"
 
 # Schema mirrors the upstream openrport schema verbatim — same tables,
 # same indexes, same column types.
-sqlite3 "$DB_FILE" <<EOF
+sqlite3 "$DB_TMP" <<EOF
 CREATE TABLE "users" (
   "username"         TEXT(150) NOT NULL,
   "password"         TEXT(255) NOT NULL,
@@ -564,6 +590,12 @@ CREATE TABLE "clients_auth" (
 );
 INSERT INTO clients_auth VALUES ('client1', '${CLIENT_PASSWD}');
 EOF
+chown proxiport:proxiport "$DB_TMP"
+chmod 0640 "$DB_TMP"
+# A previous database's WAL and shm sidecars would be replayed into the new
+# file, so they go with it.
+rm -f "$DB_FILE-wal" "$DB_FILE-shm" "$DB_FILE-journal"
+place_file "$DB_TMP" "$DB_FILE" 027
 
 # Persist the operator-visible credentials. The .deb postinstall also
 # writes initial-admin-password; overwrite with the new value.
@@ -574,10 +606,12 @@ EOF
 # has always promised. At 0640 root:proxiport the O_WRONLY open returned
 # EACCES and the cleartext credentials stayed on disk forever.
 umask 077
-printf 'admin:%s\n'    "$ADMIN_PASSWD"   > /var/lib/proxiport/initial-admin-password
-printf 'client1:%s\n'  "$CLIENT_PASSWD"  > /var/lib/proxiport/initial-client-auth
-chown proxiport:proxiport /var/lib/proxiport/initial-admin-password /var/lib/proxiport/initial-client-auth
-chmod 0600                /var/lib/proxiport/initial-admin-password /var/lib/proxiport/initial-client-auth
+printf 'admin:%s\n'    "$ADMIN_PASSWD"   > "$STAGE/initial-admin-password"
+printf 'client1:%s\n'  "$CLIENT_PASSWD"  > "$STAGE/initial-client-auth"
+chown proxiport:proxiport "$STAGE/initial-admin-password" "$STAGE/initial-client-auth"
+chmod 0600                "$STAGE/initial-admin-password" "$STAGE/initial-client-auth"
+place_file "$STAGE/initial-admin-password" /var/lib/proxiport/initial-admin-password 077
+place_file "$STAGE/initial-client-auth"    /var/lib/proxiport/initial-client-auth    077
 
 #======================================================================
 # Start the service

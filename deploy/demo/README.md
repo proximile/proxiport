@@ -39,7 +39,7 @@ The script:
 4. Stages everything under `/tmp/proxiport-demo` on the target.
 5. Runs [`deploy/server/install.sh`](../server/install.sh) remotely
    (installs the systemd unit, issues a Let's Encrypt cert via
-   certbot, drops the SPA into `/var/lib/proxiport/docroot`).
+   certbot, drops the SPA into `/usr/share/proxiport/docroot`).
 6. Starts `proxiportd` and prints the systemd status.
 
 Re-run any time to redeploy the latest local tree. Existing certs

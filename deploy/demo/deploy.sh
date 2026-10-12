@@ -101,9 +101,8 @@ if [[ -n "${DRY_RUN:-}" ]]; then
     echo "    cd $REMOTE_STAGE && \\"
     echo "      sudo HOST=$HOST EMAIL=$EMAIL STAGE=$REMOTE_STAGE \\"
     echo "      bash $REMOTE_STAGE/install.sh"
-    echo "    sudo install -d -o proxiport -g proxiport -m 0750 /var/lib/proxiport/docroot"
-    echo "    sudo rsync -a $REMOTE_STAGE/spa/ /var/lib/proxiport/docroot/"
-    echo "    sudo chown -R proxiport:proxiport /var/lib/proxiport/docroot"
+    echo "    sudo install -d -o root -g root -m 0755 /usr/share/proxiport/docroot"
+    echo "    sudo rsync -a --delete --chown=root:root --chmod=D0755,F0644 $REMOTE_STAGE/spa/ /usr/share/proxiport/docroot/"
     echo "    sudo systemctl restart proxiportd"
     exit 0
 fi
@@ -123,9 +122,10 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "
     set -euo pipefail
     cd $REMOTE_STAGE
     sudo HOST=$HOST EMAIL=$EMAIL STAGE=$REMOTE_STAGE bash $REMOTE_STAGE/install.sh
-    sudo install -d -o proxiport -g proxiport -m 0750 /var/lib/proxiport/docroot
-    sudo rsync -a --delete $REMOTE_STAGE/spa/ /var/lib/proxiport/docroot/
-    sudo chown -R proxiport:proxiport /var/lib/proxiport/docroot
+    # The SPA is root's and read-only for the daemon: a tree the daemon could
+    # write is a tree it could rearrange under the next root-run deploy.
+    sudo install -d -o root -g root -m 0755 /usr/share/proxiport/docroot
+    sudo rsync -a --delete --chown=root:root --chmod=D0755,F0644 $REMOTE_STAGE/spa/ /usr/share/proxiport/docroot/
     sudo systemctl restart proxiportd
     sleep 2
     sudo systemctl --no-pager --full status proxiportd | head -20

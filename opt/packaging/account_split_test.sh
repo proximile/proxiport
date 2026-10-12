@@ -35,8 +35,16 @@ if [ "$(id -u)" -ne 0 ]; then
         exit 1
     fi
     echo "account_split_test: re-running as root inside $IMAGE"
-    exec docker run --rm -v "$REPO_ROOT":/src:ro -w /src "$IMAGE" \
+    exec docker run --rm -e ACCOUNT_SPLIT_IN_CONTAINER=1 -v "$REPO_ROOT":/src:ro -w /src "$IMAGE" \
         bash /src/opt/packaging/account_split_test.sh
+fi
+
+# Root on a real host would have its /etc/proxiport, its daemon directories
+# and its proxiport accounts reset below. Only run where that is disposable.
+if [ -z "${ACCOUNT_SPLIT_IN_CONTAINER:-}" ] && [ ! -e /.dockerenv ]; then
+    echo "account_split_test: refusing to run as root outside a container:" >&2
+    echo "  it resets /etc/proxiport, /var/lib/proxiport, /var/log/proxiport and the proxiport accounts." >&2
+    exit 1
 fi
 
 SRC="${REPO_ROOT}"
@@ -55,8 +63,8 @@ lay_payload() {
     printf '#!/bin/sh\nexit 0\n' > /usr/bin/proxiportd
     printf '#!/bin/sh\nexit 0\n' > /usr/bin/proxiport
     chmod 0755 /usr/bin/proxiportd /usr/bin/proxiport
-    install -d /var/lib/proxiport/docroot
-    printf 'spa\n' > /var/lib/proxiport/docroot/index.html
+    install -d /usr/share/proxiport/docroot
+    printf 'spa\n' > /usr/share/proxiport/docroot/index.html
 }
 
 # seed_previous_release recreates what a 0.9.x install left behind: one shared
@@ -87,6 +95,9 @@ seed_previous_release() {
     chown proxiport:proxiport /var/lib/proxiport/state.json
     printf 'agent log\n' > /var/log/proxiport/proxiport.log
     chown proxiport:proxiport /var/log/proxiport/proxiport.log
+    # The old package put the SPA in the daemon's tree and chowned it over.
+    install -d -o proxiport -g proxiport /var/lib/proxiport/docroot
+    printf 'old spa\n' > /var/lib/proxiport/docroot/index.html
     chown -R proxiport:proxiport /var/lib/proxiport/docroot
     # The agent's config still names the shared paths, as an upgraded host's does.
     sed -i 's|^\(\s*\)log_file = "/var/log/proxiport-agent/proxiport.log"|\1log_file = "/var/log/proxiport/proxiport.log"|' \
@@ -94,7 +105,7 @@ seed_previous_release() {
 }
 
 reset_host() {
-    rm -rf /etc/proxiport /var/lib/proxiport /var/lib/proxiport-agent \
+    rm -rf /etc/proxiport /var/lib/proxiport /var/lib/proxiport-agent /usr/share/proxiport \
            /var/log/proxiport /var/log/proxiport-agent /lib/systemd/system/proxiport*.service
     for u in proxiport proxiport-agent; do
         getent passwd "$u" >/dev/null 2>&1 && userdel "$u" 2>/dev/null || true

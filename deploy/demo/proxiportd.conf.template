@@ -50,7 +50,7 @@
   cert_file = "/etc/letsencrypt/live/__HOST__/fullchain.pem"
   key_file = "/etc/letsencrypt/live/__HOST__/privkey.pem"
 
-  doc_root = "/var/lib/proxiport/docroot"
+  doc_root = "/usr/share/proxiport/docroot"
 
 [key_provider]
   # Optional at-rest encryption of recoverable secrets (the vault's stored

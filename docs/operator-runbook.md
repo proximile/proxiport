@@ -24,7 +24,7 @@ sudo journalctl -u proxiport -f
 | --- | --- |
 | Server config | `/etc/proxiport/proxiportd.conf` |
 | Server data | `/var/lib/proxiport/` |
-| Server SPA files | `/var/lib/proxiport/docroot/` |
+| Server SPA files | `/usr/share/proxiport/docroot/` (root-owned, read-only for the daemon) |
 | Server logs (default) | `/var/log/proxiport/proxiportd.log` (and journald) |
 | Server PID file | `/run/proxiportd.pid` |
 | Agent config | `/etc/proxiport/proxiport.conf` |
