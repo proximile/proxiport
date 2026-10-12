@@ -252,14 +252,27 @@ persistent storage.
 
 ## Updating
 
+**Package installs** (`.deb` / `.rpm`, the common case): install the
+new package over the old one, exactly as in
+[Upgrading](install.md#upgrading). The package restarts a running
+`proxiportd` itself, runs schema migrations on that first start, and
+since v0.11.1 moves the web UI to `/usr/share/proxiport/docroot` and
+rewrites a default `doc_root` for you (see
+[Upgrading to v0.11.1 or later](install.md#upgrading-to-v0111-or-later)
+for what it prints and what to check). Tail the logs afterwards.
+
+**Tarball installs:**
+
 1. Stop the service.
-2. Replace the binary in `/usr/local/bin/proxiportd` (or wherever
-   your package manager put it).
+2. Replace the binary at `/usr/bin/proxiportd` (where the tarball
+   steps put it) and the web UI under `/usr/share/proxiport/docroot`,
+   both root-owned.
 3. Start the service. Schema migrations, if any, run on first
    start.
 4. Tail the logs to confirm.
 
-For the agent, the same shape applies on each managed host.
+For the agent, the same shape applies on each managed host; agents
+installed through the pairing service update with its `update` script.
 
 ## Tunnels
 
