@@ -49,12 +49,12 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/wwt/guac v1.3.2
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.60.0
-	golang.org/x/sync v0.23.0
-	golang.org/x/sys v0.48.0
-	golang.org/x/term v0.46.0
-	golang.org/x/text v0.42.0
+	golang.org/x/crypto v0.58.0
+	golang.org/x/net v0.61.0
+	golang.org/x/sync v0.24.0
+	golang.org/x/sys v0.49.0
+	golang.org/x/term v0.47.0
+	golang.org/x/text v0.43.0
 	gopkg.in/h2non/gock.v1 v1.1.2
 )
 
