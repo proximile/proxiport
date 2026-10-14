@@ -139,26 +139,34 @@ jobs:
 
           # Atomic-ish swap + restart. The reset timer's own state
           # (admin password file, seed DB, agent compose) is left
-          # alone — this workflow only touches the binary and SPA.
-          $SSH "$DEMO_SSH_USER@$DEMO_HOST" "
+          # alone -- this workflow only touches the binary and SPA.
+          # The script reaches the droplet on stdin from a quoted heredoc,
+          # so its own quoting arrives at the remote shell untouched.
+          $SSH "$DEMO_SSH_USER@$DEMO_HOST" 'bash -s' <<'REMOTE'
               set -euxo pipefail
               install -o root -g root -m 0755 /tmp/proxiportd.new /usr/local/bin/proxiportd
               rm /tmp/proxiportd.new
 
               # The SPA is root's and read-only for the daemon. A droplet
               # deployed before the move still has doc_root at the old
-              # daemon-owned path; repoint only that shipped default.
+              # daemon-owned path; repoint only that shipped default, in
+              # whatever quoting or spacing it was written, and do not
+              # restart if it still names the old path afterwards.
               install -d -o root -g root -m 0755 /usr/share/proxiport/docroot
               rsync -a --delete --chown=root:root --chmod=D0755,F0644 /tmp/proxiport-spa.new/ /usr/share/proxiport/docroot/
               rm -rf /tmp/proxiport-spa.new
-              sed -i 's|^\(\s*\)doc_root = "/var/lib/proxiport/docroot"|\1doc_root = "/usr/share/proxiport/docroot"|' /etc/proxiport/proxiportd.conf
+              sed -i --follow-symlinks -E '/^[[:space:]]*\[[[:space:]]*api[[:space:]]*\]/,/^[[:space:]]*\[/ s|^([[:space:]]*)doc_root[[:space:]]*=[[:space:]]*["'"'"']/var/lib/proxiport/docroot/?["'"'"']([[:space:]]*(#.*)?)$|\1doc_root = "/usr/share/proxiport/docroot"\2|' /etc/proxiport/proxiportd.conf
+              if grep -qE '^[[:space:]]*(api\.)?doc_root[[:space:]]*=[[:space:]]*["'"'"']/var/lib/proxiport/docroot' /etc/proxiport/proxiportd.conf; then
+                  echo "doc_root still points at /var/lib/proxiport/docroot after the rewrite; not restarting" >&2
+                  exit 1
+              fi
 
               systemctl restart proxiportd
 
               # Trigger a reset so the agent fleet relaunches with
               # the new binary (and the demo DB seed is freshly applied).
               systemctl start proxiport-demo-reset.service
-          "
+          REMOTE
 
       - name: Smoke-test the deploy
         run: |
