@@ -14,7 +14,7 @@ import (
 	"github.com/proximile/proxiport/share/logger"
 )
 
-// TestRotatedNamesDoNotCollideAcrossADSTFallBack is L14.
+// TestRotatedNamesDoNotCollideAcrossADSTFallBack guards the rotated filename.
 //
 // The rotation ticker is monotonic -- 24h from whenever the daemon started,
 // never re-anchored to midnight -- while the rotated filename came from the

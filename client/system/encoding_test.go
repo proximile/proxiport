@@ -135,7 +135,7 @@ func TestDetectEncodingCommand(t *testing.T) {
 	}
 }
 
-// TestEveryWindowsANSICodePageResolves is the general form of L7: whatever the
+// TestEveryWindowsANSICodePageResolves covers every ANSI page: whatever the
 // system locale of a Windows agent, [System.Text.Encoding]::Default.CodePage
 // returns one of these, and every one of them has to produce a usable encoder.
 // Before the mapping was filled in, eight of the nine failed -- 1252 was the
@@ -182,7 +182,7 @@ func TestEveryWindowsANSICodePageResolves(t *testing.T) {
 
 // TestCodePageMappingResolves keeps the table honest: every name in it must be
 // one golang.org/x/text answers to. A future entry that x/text cannot serve
-// would otherwise reintroduce L7 silently for that locale.
+// would otherwise bring the unusable-encoder failure back for that locale.
 func TestCodePageMappingResolves(t *testing.T) {
 	// utf-8 is the sentinel detectEncodingByCHCPOutput checks for by name and
 	// returns early on; utf-7 resolves but x/text declines to implement it, and

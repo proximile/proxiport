@@ -190,7 +190,7 @@ func TestAPITokenOps(t *testing.T) {
 			wantJSON:       `{"data":{"name": "new name", "prefix":"theprefi" }}`,
 		},
 		{
-			// M6: Save is an upsert, so a PUT to a prefix that does not exist
+			// Save is an upsert, so a PUT to a prefix that does not exist
 			// used to CREATE a token row -- with an empty hash and an empty
 			// scope, one per request, listed by GET /me/tokens as if it were a
 			// real credential. Any authenticated principal could loop it to
@@ -204,7 +204,7 @@ func TestAPITokenOps(t *testing.T) {
 			wantErrTitle:   "token not found",
 		},
 		{
-			// M6: the length bound used to be on the create path only, so an
+			// The length bound used to be on the create path only, so an
 			// update could carry a name as large as api.max_request_bytes.
 			descr:          "update a token with too long of a name",
 			requestMethod:  http.MethodPut,

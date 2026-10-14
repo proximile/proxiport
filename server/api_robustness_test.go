@@ -12,7 +12,7 @@ import (
 	"github.com/proximile/proxiport/share/types"
 )
 
-// TestTicketQuotaIsPerUserNotJustGlobal is M11. /ws-ticket sits behind
+// TestTicketQuotaIsPerUserNotJustGlobal: /ws-ticket sits behind
 // authentication alone -- no permission gate, no rate limiter anywhere on the
 // API -- and a ticket is the only credential a browser can use to open
 // /ws/commands, /ws/scripts or /ws/uploads. With one shared ceiling and no
@@ -63,7 +63,7 @@ func TestTicketQuotaFreesSlotsAsTicketsAreRedeemed(t *testing.T) {
 	assert.NoError(t, err, "a redeemed ticket must give its holder the slot back")
 }
 
-// TestDropNonJSONMeasurementBlobs is L3 at the source. A measurement's
+// TestDropNonJSONMeasurementBlobs guards the fix at the source. A measurement's
 // processes and mountpoints are composed by the agent, stored verbatim, and
 // spliced back into responses as raw JSON -- so a blob that is not JSON makes
 // encoding/json fail on the whole response, and every monitoring request for

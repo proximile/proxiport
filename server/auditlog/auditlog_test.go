@@ -171,7 +171,7 @@ func TestList(t *testing.T) {
 
 }
 
-// TestListWhenDisabled is L10. auditlog.New only builds a provider when the
+// TestListWhenDisabled: auditlog.New only builds a provider when the
 // audit log is enabled, but the /auditlog routes are registered either way, so
 // with enable_audit_log = false every sibling guarded the nil provider and List
 // did not: opening the SPA's Audit page panicked, which the router's recovery

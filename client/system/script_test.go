@@ -94,10 +94,10 @@ func TestValidateScriptDir(t *testing.T) {
 	}
 }
 
-// TestEncodeScriptWritesPowerShellAsSelfDescribingUTF8 is the general fix for
-// L7. The code-page table now covers every Windows ANSI page x/text can serve,
-// but a table is a list and a list has an end: 857 (Turkish OEM) has no encoder
-// at all, and a page added to Windows tomorrow would not be in it. A .ps1 that
+// TestEncodeScriptWritesPowerShellAsSelfDescribingUTF8 is the general fix. The
+// code-page table now covers every Windows ANSI page x/text can serve, but a
+// table is a list and a list has an end: 857 (Turkish OEM) has no encoder at
+// all, and a page added to Windows tomorrow would not be in it. A .ps1 that
 // carries a BOM does not depend on the table being complete, because
 // powershell.exe stops guessing.
 func TestEncodeScriptWritesPowerShellAsSelfDescribingUTF8(t *testing.T) {

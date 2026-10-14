@@ -15,7 +15,7 @@ import (
 	"github.com/proximile/proxiport/share/query"
 )
 
-// TestNonAdminAuditListingUsesTheUsernameIndex is M2.
+// TestNonAdminAuditListingUsesTheUsernameIndex checks the index is really used.
 //
 // AuditLog.List force-appends `username = <caller>` to every request from a
 // non-admin, and runs it twice -- once for the page and once for the count.

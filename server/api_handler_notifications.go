@@ -16,7 +16,8 @@ func (al *APIListener) notificationsList(ctx context.Context, options *query.Lis
 
 	// The advertised filter and sort sets live with the repository that has to
 	// serve them, so a filter cannot be advertised here and be unserveable
-	// there -- which is precisely what M4 was.
+	// there -- which is how every advertised notification-log filter came to
+	// answer 500.
 	err := query.ValidateListOptions(options, notifications.SupportedSorts, notifications.SupportedFilters, nil, &query.PaginationConfig{
 		DefaultLimit: 10,
 		MaxLimit:     100,

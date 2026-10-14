@@ -117,7 +117,7 @@ func TestJobResultDisabledPassthrough(t *testing.T) {
 	assert.Equal(t, "SECRET-STDOUT", got.Result.StdOut)
 }
 
-// TestAgentOutputShapedLikeCiphertextIsStillEncrypted is M5's write half. A
+// TestAgentOutputShapedLikeCiphertextIsStillEncrypted guards the write path. A
 // job's stdout is whatever the agent sent. Deciding "already encrypted" from
 // its shape meant that output beginning with the sentinel was written to
 // jobs.db in CLEARTEXT even with a key provider configured -- the at-rest
@@ -170,7 +170,7 @@ func TestSentinelShapedOutputRoundTripsWithNoKeyProvider(t *testing.T) {
 	}
 }
 
-// TestListSurvivesOneUnreadableRow is M5's blast-radius half. Fetching one job
+// TestListSurvivesOneUnreadableRow guards the blast radius. Fetching one job
 // and failing closed is an unambiguous answer to an unambiguous question;
 // failing a page of fifty the same way is not. One unreadable row used to abort
 // the whole listing with HTTP 500 -- and a hostile agent could keep that row on

@@ -181,7 +181,7 @@ assert_boundary() {
         fail "$server cannot write its own state or log directory"
     fi
 
-    # H11: the server has to be able to destroy the installer credentials it is
+    # The server has to be able to destroy the installer credentials it is
     # documented to destroy. Opening for writing is shredFile's first step.
     local cred=/var/lib/proxiport/initial-admin-password
     if [ -f "$cred" ]; then

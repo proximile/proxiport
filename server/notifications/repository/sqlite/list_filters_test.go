@@ -15,7 +15,7 @@ import (
 	"github.com/proximile/proxiport/share/query"
 )
 
-// TestEveryAdvertisedNotificationFilterAndSortIsUsable is M4. Both List and
+// TestEveryAdvertisedNotificationFilterAndSortIsUsable: both List and
 // Count started from a base query that already ended in ORDER BY, and the query
 // builder appends " WHERE ..." and " ORDER BY ..." by string concatenation with
 // no notion of clause position. So every documented sort and filter on

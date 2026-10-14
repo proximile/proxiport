@@ -359,7 +359,7 @@ func TestSplitFilters(t *testing.T) {
 	assert.Equal(t, options[1:2], opt2)
 }
 
-// TestWildcardFilterExpandsToUsableColumns is L2. setWildcardColumns copied
+// TestWildcardFilterExpandsToUsableColumns: setWildcardColumns copied
 // every key of the supported-filter map into the SQL as a column name, and a
 // range filter's key carries its operator -- "timestamp[gt]". SQLite reads that
 // as the identifier timestamp followed by the bracket-quoted identifier [gt]

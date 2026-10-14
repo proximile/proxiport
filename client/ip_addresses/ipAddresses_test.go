@@ -49,7 +49,7 @@ func newTestFetcher(t *testing.T) *Fetcher {
 	)
 }
 
-// TestStopDuringTheLookupDoesNotReachTheOldConnection is M14. Against the
+// TestStopDuringTheLookupDoesNotReachTheOldConnection: against the
 // unfixed tree this panics: sendIPAddresses read conn before the lookup, Stop
 // nils it while the lookup is in flight, and SendRequest is then called on a
 // nil ssh.Conn from a bare goroutine -- which kills the whole agent, at a

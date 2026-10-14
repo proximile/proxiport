@@ -147,7 +147,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # The agent ships to every platform listed in .goreleaser.yml, but nothing
-    # in this workflow or in the local pre-push gate ever set GOOS. Every file
+    # in this workflow ever set GOOS. Every file
     # behind a //go:build windows, darwin or *bsd tag was therefore shipped to
     # users without once being compiled, vetted or linted by a gate -- and the
     # server-side lens of that gap is what let a wrong-sized QueryDosDevice
