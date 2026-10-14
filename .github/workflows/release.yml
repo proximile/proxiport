@@ -46,6 +46,9 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run build
+          # nfpm and the archives copy the tree's modes as they are on disk;
+          # pin them so the package does not inherit the builder's umask.
+          chmod -R u=rwX,go=rX build
 
       # The proxiportd build is CGO=1 (sqlite). The runner is x86_64; the
       # aarch64 cross toolchain (gcc-aarch64-linux-gnu) is required to

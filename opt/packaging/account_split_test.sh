@@ -83,6 +83,8 @@ seed_previous_release() {
     done
     # The config is what actually holds the secrets.
     sed -i 's|key_seed = "<YOUR_SEED>"|key_seed = "SEEDSEEDSEED"|' /etc/proxiport/proxiportd.conf
+    # ... and the old package pointed doc_root at its daemon-owned docroot.
+    sed -i 's|^\s*#\?\s*doc_root\s*=.*|  doc_root = "/var/lib/proxiport/docroot"|' /etc/proxiport/proxiportd.conf
     for f in jobs.db auditlog.db clients.db user-auth.db vault.db; do
         printf 'db\n' > "/var/lib/proxiport/$f"
         chown proxiport:proxiport "/var/lib/proxiport/$f"
@@ -220,6 +222,13 @@ if [ -f /var/lib/proxiport-agent/state.json ]; then
     pass "the agent's state.json moved to its new data directory"
 else
     fail "the agent's state.json was left behind under the server's account"
+fi
+# The seeded config pointed doc_root at the daemon-owned tree the old package
+# used; the upgrade must repoint it at the shipped root-owned one.
+if grep -qE '^[[:space:]]*doc_root[[:space:]]*=[[:space:]]*"/usr/share/proxiport/docroot"' /etc/proxiport/proxiportd.conf; then
+    pass "doc_root was repointed from the old daemon-owned docroot"
+else
+    fail "doc_root still names the old docroot: $(grep doc_root /etc/proxiport/proxiportd.conf | tr '\n' '|')"
 fi
 
 printf '\n'

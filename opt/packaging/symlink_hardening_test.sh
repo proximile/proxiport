@@ -305,6 +305,9 @@ scenario_hard_link_dir_and_writable_log() {
 
     as_server 'printf "{}\n" > /var/lib/proxiport/state.json
                printf "agent log\n" > /var/log/proxiport/proxiport.log'
+    # su's umask differs between images (0022 on Debian, 0002 on Ubuntu), so
+    # the mode the hook must preserve is whatever the fixture got.
+    log_mode_before="$(stat -c '%a' /var/log/proxiport/proxiport.log)"
     as_agent 'mkdir /var/lib/proxiport-agent/state.json'
     chmod g+w /var/log
 
@@ -330,7 +333,7 @@ scenario_hard_link_dir_and_writable_log() {
     fi
 
     if [ -f /var/log/proxiport-agent/proxiport.log ] && [ ! -L /var/log/proxiport-agent/proxiport.log ] \
-       && [ "$(ident /var/log/proxiport-agent/proxiport.log)" = "proxiport-agent:proxiport-agent 644 1" ]; then
+       && [ "$(ident /var/log/proxiport-agent/proxiport.log)" = "proxiport-agent:proxiport-agent $log_mode_before 1" ]; then
         pass "the agent's log was moved although /var/log was group-writable"
     else
         fail "the agent's log was not moved: $(ls -la /var/log/proxiport /var/log/proxiport-agent 2>&1 | tr '\n' '|')"
@@ -447,11 +450,130 @@ scenario_separate_mounts() {
     check_no_leftover_staging
 }
 
+# ---------------------------------------------------------------------------
+# Scenario 5: the old docroot holds links when the next package is unpacked,
+#             and doc_root is spelled in ways the repoint must handle
+# ---------------------------------------------------------------------------
+# The package manager erases the obsolete 0.11.0 docroot paths during the
+# upgrade and follows a directory link while doing so (rpm 4.16 erased the
+# freshly installed SPA through a link to it). preinstall must drop every link
+# there first, without touching anything else, and must never follow one.
+
+scenario_preinstall_drops_links_in_old_docroot() {
+    printf '\n=== preinstall drops the daemon'"'"'s links in the old docroot; doc_root spellings ===\n'
+    reset_host
+    lay_payload
+    sh "$SRC/opt/packaging/preinstall.sh"
+    run_hook
+
+    # The old tree, daemon-owned, with the daemon's links in and at it.
+    install -d -o proxiport -g proxiport -m 0755 /var/lib/proxiport/docroot
+    as_server 'printf "old\n" > /var/lib/proxiport/docroot/index.html
+               ln -s /etc /var/lib/proxiport/docroot/_app
+               mkdir /var/lib/proxiport/docroot/assets
+               ln -s /etc/shadow /var/lib/proxiport/docroot/assets/app.css'
+    etc_before="$(ident /etc)"
+    shadow_before="$(ident /etc/shadow)"
+
+    if DPKG_MAINTSCRIPT_PACKAGE=proxiportd sh "$SRC/opt/packaging/preinstall.sh" upgrade 0.11.0; then
+        pass "preinstall completes with links under the old docroot"
+    else
+        fail "preinstall failed with links under the old docroot"
+    fi
+    if [ ! -L /var/lib/proxiport/docroot/_app ] && [ ! -e /var/lib/proxiport/docroot/_app ] \
+       && [ ! -L /var/lib/proxiport/docroot/assets/app.css ]; then
+        pass "the links under the old docroot are gone"
+    else
+        fail "a link under the old docroot survived: $(ls -la /var/lib/proxiport/docroot /var/lib/proxiport/docroot/assets | tr '\n' '|')"
+    fi
+    if [ -f /var/lib/proxiport/docroot/index.html ] && [ -d /var/lib/proxiport/docroot/assets ]; then
+        pass "the old docroot's regular entries were left for the package manager"
+    else
+        fail "preinstall removed more than links from the old docroot"
+    fi
+    check_unchanged /etc "$etc_before"
+    check_unchanged /etc/shadow "$shadow_before"
+
+    # Now the whole old docroot is a link to the new one. The agent package
+    # runs the same script and must leave it alone (on a tarball-server host
+    # it may be the operator's); the server package removes it.
+    rm -rf /var/lib/proxiport/docroot
+    as_server 'ln -s /usr/share/proxiport/docroot /var/lib/proxiport/docroot'
+    if RPM_PACKAGE_NAME=proxiport sh "$SRC/opt/packaging/preinstall.sh" 2 \
+       && [ -L /var/lib/proxiport/docroot ]; then
+        pass "the agent package leaves a link at the old docroot alone"
+    else
+        fail "the agent package's preinstall touched the old docroot link"
+    fi
+    if sh "$SRC/opt/packaging/preinstall.sh" 2 \
+       && [ ! -L /var/lib/proxiport/docroot ] && [ ! -e /var/lib/proxiport/docroot ] \
+       && [ -f /usr/share/proxiport/docroot/index.html ]; then
+        pass "a daemon-owned link at the old docroot is removed and its target untouched (rpm: no package name in the environment)"
+    else
+        fail "the link at the old docroot was not removed, or its target was: $(ls -la /var/lib/proxiport /usr/share/proxiport/docroot | tr '\n' '|')"
+    fi
+    # A link the operator made as root is theirs, whichever package runs this.
+    ln -s /opt/spa /var/lib/proxiport/docroot
+    if sh "$SRC/opt/packaging/preinstall.sh" 2 && [ -L /var/lib/proxiport/docroot ]; then
+        pass "a root-owned link at the old docroot is left alone"
+    else
+        fail "preinstall removed the operator's root-owned link at the old docroot"
+    fi
+    rm -f /var/lib/proxiport/docroot
+
+    # doc_root spellings: a quoted, slashed, commented default is still the
+    # default and is repointed, keeping the comment ...
+    sed -i "s|doc_root = \"/usr/share/proxiport/docroot\"|doc_root = '/var/lib/proxiport/docroot/' # web UI|" /etc/proxiport/proxiportd.conf
+    run_hook configure 0.11.0
+    if grep -qE '^[[:space:]]*doc_root = "/usr/share/proxiport/docroot" # web UI$' /etc/proxiport/proxiportd.conf; then
+        pass "a single-quoted, slashed, commented default doc_root was repointed"
+    else
+        fail "the spelled-differently default was not repointed: $(grep doc_root /etc/proxiport/proxiportd.conf | tr '\n' '|')"
+    fi
+    # ... while a value the package cannot rewrite is reported, not ignored.
+    sed -i 's|doc_root = "/usr/share/proxiport/docroot" # web UI|doc_root = "/var/lib/proxiport/docroot" # custom|' /etc/proxiport/proxiportd.conf
+    sed -i 's|^\[api\]|[ api ]|' /etc/proxiport/proxiportd.conf
+    run_hook configure 0.11.0
+    check_doc_root /usr/share/proxiport/docroot
+    sed -i 's|^\[ api \]|[api]|' /etc/proxiport/proxiportd.conf
+    printf 'api.doc_root = "/var/lib/proxiport/docroot"\n' >> /etc/proxiport/proxiportd.conf
+    run_hook configure 0.11.0
+    check_warned 'still points doc_root at /var/lib/proxiport/docroot' "a doc_root it could not repoint"
+
+    # A host whose server came from a tarball has /usr/bin/proxiportd but no
+    # shipped SPA; the agent package's postinstall must not repoint its doc_root.
+    sed -i 's|doc_root = "/usr/share/proxiport/docroot"|doc_root = "/var/lib/proxiport/docroot"|' /etc/proxiport/proxiportd.conf
+    mv /usr/share/proxiport/docroot/index.html /tmp/index.html.aside
+    run_hook configure 0.11.0
+    mv /tmp/index.html.aside /usr/share/proxiport/docroot/index.html
+    check_doc_root /var/lib/proxiport/docroot
+    if ! grep -q 'still points doc_root' "$HOOK_ERR"; then
+        pass "no doc_root warning on a host without the shipped SPA"
+    else
+        fail "the hook warned about doc_root on a host without the shipped SPA"
+    fi
+    sed -i 's|doc_root = "/var/lib/proxiport/docroot"|doc_root = "/usr/share/proxiport/docroot"|' /etc/proxiport/proxiportd.conf
+
+    # A config that is a symlink stays one.
+    mv /etc/proxiport/proxiportd.conf /etc/proxiport/real.conf
+    ln -s real.conf /etc/proxiport/proxiportd.conf
+    sed -i 's|doc_root = "/usr/share/proxiport/docroot"|doc_root = "/var/lib/proxiport/docroot"|' /etc/proxiport/real.conf
+    run_hook configure 0.11.0
+    if [ -L /etc/proxiport/proxiportd.conf ] && grep -q 'doc_root = "/usr/share/proxiport/docroot"' /etc/proxiport/real.conf; then
+        pass "a symlinked config was edited through the link and is still a link"
+    else
+        fail "the symlinked config was replaced or not edited: $(ls -la /etc/proxiport | tr '\n' '|') $(grep doc_root /etc/proxiport/real.conf | tr '\n' '|')"
+    fi
+    rm -f /etc/proxiport/proxiportd.conf; mv /etc/proxiport/real.conf /etc/proxiport/proxiportd.conf
+    check_no_leftover_staging
+}
+
 case "$SCENARIO" in
     same-fs)
         scenario_links_on_upgrade
         scenario_first_install_dangling_link
         scenario_hard_link_dir_and_writable_log
+        scenario_preinstall_drops_links_in_old_docroot
         ;;
     separate-mount)
         scenario_separate_mounts

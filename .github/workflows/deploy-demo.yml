@@ -95,7 +95,7 @@ jobs:
           cosign verify-blob \
               --certificate stage/checksums.txt.pem \
               --signature stage/checksums.txt.sig \
-              --certificate-identity-regexp 'https://github.com/${{ github.repository }}' \
+              --certificate-identity-regexp '^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
               stage/checksums.txt
 
@@ -170,6 +170,12 @@ jobs:
               sleep 2
           done
           [[ "$CODE" == "200" ]] || { echo "demo did not return 200 after restart"; exit 1; }
+
+          # The old SPA tree would answer 200 too; make sure the served build is
+          # the one this job just built and pushed.
+          if ! curl -sS "https://$DEMO_HOST/_app/version.json" | cmp -s - frontend/build/_app/version.json; then
+              echo "the served SPA is not the build this job pushed"; exit 1
+          fi
 
           TOKEN=$(curl -sS -X POST "https://$DEMO_HOST/api/v1/login" \
                   -H 'Content-Type: application/json' \

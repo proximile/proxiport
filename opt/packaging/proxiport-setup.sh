@@ -184,7 +184,7 @@ eval set -- "$PARSED"
 while true; do
     case "$1" in
         -h|--help)          print_help; exit 0 ;;
-        -v|--version)       echo "proxiport-setup 0.1.5"; exit 0 ;;
+        -v|--version)       echo "proxiport-setup (bundled with the proxiportd package; see proxiportd --version)"; exit 0 ;;
         -d|--fqdn)          FQDN="$2"; shift 2 ;;
         -e|--email)         EMAIL="$2"; shift 2 ;;
         -a|--api-port)      API_PORT="$2"; shift 2 ;;
@@ -408,7 +408,9 @@ KEY_SEED=$(openssl rand -hex 32)
 JWT_SECRET=$(openssl rand -base64 24 | tr -d '=')
 ADMIN_PASSWD=$(openssl rand -base64 16 | tr -d '/+=' | cut -c1-18)
 CLIENT_PASSWD=$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-22)
-ADMIN_HASH=$(htpasswd -nbB -C 10 admin "$ADMIN_PASSWD" | cut -d: -f2)
+# -i reads the password from stdin: a value on a command line is visible to
+# every local account in /proc/<pid>/cmdline for as long as htpasswd runs.
+ADMIN_HASH=$(printf '%s\n' "$ADMIN_PASSWD" | htpasswd -niB -C 10 admin | cut -d: -f2)
 
 #======================================================================
 # Edit proxiportd.conf
@@ -420,12 +422,22 @@ ADMIN_HASH=$(htpasswd -nbB -C 10 admin "$ADMIN_PASSWD" | cut -d: -f2)
 
 # helper: set `key = val` inside a specific TOML section, replacing the
 # (possibly commented-out) existing line.
+# The sed program goes through a 0600 temp file rather than sed's argument
+# list, because some values are secrets (key_seed) and /proc/<pid>/cmdline is
+# world-readable while sed runs.
+sed_script_file() {
+    umask 077
+    mktemp "${TMPDIR:-/tmp}/proxiport-setup.XXXXXX"
+}
+
 set_in_section() {
-    local section="$1" key="$2" val="$3"
+    local section="$1" key="$2" val="$3" script
     val=${val//|/\\|}
-    sed -i -E "/^\[${section}\]/,/^\[/ {
-        s|^[[:space:]]*#?[[:space:]]*${key}[[:space:]]*=.*|  ${key} = ${val}|
-    }" "$CONFIG_FILE"
+    script=$(sed_script_file) || return 1
+    printf '/^\\[%s\\]/,/^\\[/ {\n    s|^[[:space:]]*#?[[:space:]]*%s[[:space:]]*=.*|  %s = %s|\n}\n' \
+        "$section" "$key" "$key" "$val" > "$script"
+    sed -i -E -f "$script" "$CONFIG_FILE"
+    rm -f "$script"
 }
 
 # helper: uncomment a bare key inside a section (value already correct).
@@ -460,17 +472,22 @@ uncomment_in_section "server" "auth_table"
 # Now the [api] block. We have to be careful — sed -E with a top-level
 # address pattern would match both [server] address and [api] address.
 # Restrict the [api] mutations to the section using a range.
-sed -i -E "/^\[api\]/,/^\[/ {
-    s|^[[:space:]]*#?[[:space:]]*address[[:space:]]*=.*|  address = \"0.0.0.0:${API_PORT}\"|
-    s|^[[:space:]]*#?[[:space:]]*base_url[[:space:]]*=.*|  base_url = \"https://${FQDN}\"|
-    s|^([[:space:]]*)auth[[:space:]]*=[[:space:]]*\".*\"|\1# auth =|
+API_SED=$(sed_script_file)
+cat > "$API_SED" <<EOF
+/^\[api\]/,/^\[/ {
+    s|^[[:space:]]*#?[[:space:]]*address[[:space:]]*=.*|  address = "0.0.0.0:${API_PORT}"|
+    s|^[[:space:]]*#?[[:space:]]*base_url[[:space:]]*=.*|  base_url = "https://${FQDN}"|
+    s|^([[:space:]]*)auth[[:space:]]*=[[:space:]]*".*"|\1# auth =|
     s|^[[:space:]]*#[[:space:]]*auth_user_table[[:space:]]*=|  auth_user_table =|
     s|^[[:space:]]*#[[:space:]]*auth_group_table[[:space:]]*=|  auth_group_table =|
     s|^[[:space:]]*#[[:space:]]*auth_group_details_table[[:space:]]*=|  auth_group_details_table =|
-    s|^[[:space:]]*#?[[:space:]]*jwt_secret[[:space:]]*=.*|  jwt_secret = \"${JWT_SECRET}\"|
-    s|^[[:space:]]*#[[:space:]]*totp_account_name[[:space:]]*=.*|  totp_account_name = \"${FQDN}\"|
-    s|^[[:space:]]*#?[[:space:]]*doc_root[[:space:]]*=.*|  doc_root = \"/usr/share/proxiport/docroot\"|
-}" "$CONFIG_FILE"
+    s|^[[:space:]]*#?[[:space:]]*jwt_secret[[:space:]]*=.*|  jwt_secret = "${JWT_SECRET}"|
+    s|^[[:space:]]*#[[:space:]]*totp_account_name[[:space:]]*=.*|  totp_account_name = "${FQDN}"|
+    s|^[[:space:]]*#?[[:space:]]*doc_root[[:space:]]*=.*|  doc_root = "/usr/share/proxiport/docroot"|
+}
+EOF
+sed -i -E -f "$API_SED" "$CONFIG_FILE"
+rm -f "$API_SED"
 
 if [ "$USE_ACME" -eq 1 ]; then
     sed -i -E "/^\[api\]/,/^\[/ {

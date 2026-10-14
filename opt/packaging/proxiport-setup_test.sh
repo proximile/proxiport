@@ -123,8 +123,11 @@ cat >"$tmp_conf" <<'CONF'
   #data_storage_duration = "7d"
 CONF
 
+# set_in_section() writes its sed program through sed_script_file(), so
+# both are extracted; the helper is called in a command substitution and
+# its umask stays in that subshell.
 # shellcheck disable=SC1090
-eval "$(sed -n '/^set_in_section() {/,/^}/p' "$SCRIPT")"
+eval "$(sed -n '/^sed_script_file() {/,/^}/p; /^set_in_section() {/,/^}/p' "$SCRIPT")"
 CONFIG_FILE="$tmp_conf"
 set_in_section "monitoring" "data_storage_duration" "\"7d\""
 

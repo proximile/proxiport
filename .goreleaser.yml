@@ -195,8 +195,12 @@ nfpms:
       - src: ./proxiport.example.conf
         dst: /etc/proxiport/proxiport.example.conf
         type: config|noreplace
+        file_info:
+          mode: 0644
       - src: ./opt/systemd/proxiport.service
         dst: /lib/systemd/system/proxiport.service
+        file_info:
+          mode: 0644
       - src: ./LICENSE
         dst: /usr/share/doc/proxiport/LICENSE
       - src: ./LICENSE-MIT
@@ -245,8 +249,12 @@ nfpms:
       - src: ./proxiportd.example.conf
         dst: /etc/proxiport/proxiportd.example.conf
         type: config|noreplace
+        file_info:
+          mode: 0644
       - src: ./opt/systemd/proxiportd.service
         dst: /lib/systemd/system/proxiportd.service
+        file_info:
+          mode: 0644
       - src: ./opt/packaging/proxiport-setup.sh
         dst: /usr/bin/proxiport-setup
         file_info:

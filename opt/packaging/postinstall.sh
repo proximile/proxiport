@@ -289,12 +289,18 @@ seed_server_secrets() {
     _admin_pw=$(rand_b64 16)
     _client_pw=$(rand_b64 18)
 
-    sed -i \
-        -e "s|key_seed = \"<YOUR_SEED>\"|key_seed = \"${_seed}\"|" \
-        -e "s|jwt_secret = \"<YOUR_SECRET>\"|jwt_secret = \"${_jwt}\"|" \
-        -e "s|auth = \"clientAuth1:1234\"|auth = \"client1:${_client_pw}\"|" \
-        -e "s|auth = \"admin:foobaz\"|auth = \"admin:${_admin_pw}\"|" \
-        "$_conf"
+    # The substitutions go through a 0600 script file, not sed's argument
+    # list: /proc/<pid>/cmdline is world-readable, so a value on a command
+    # line is visible to every local account for as long as sed runs.
+    _sedscript=$(umask 077; mktemp "${_stage_lib:-/etc/proxiport}/.seed.XXXXXX") || return 1
+    printf '%s\n' \
+        "s|key_seed = \"<YOUR_SEED>\"|key_seed = \"${_seed}\"|" \
+        "s|jwt_secret = \"<YOUR_SECRET>\"|jwt_secret = \"${_jwt}\"|" \
+        "s|auth = \"clientAuth1:1234\"|auth = \"client1:${_client_pw}\"|" \
+        "s|auth = \"admin:foobaz\"|auth = \"admin:${_admin_pw}\"|" \
+        > "$_sedscript"
+    sed -i -f "$_sedscript" "$_conf"
+    rm -f "$_sedscript"
 
     write_secret_file /var/lib/proxiport/initial-admin-password "admin:${_admin_pw}"   "$_stage_lib"
     write_secret_file /var/lib/proxiport/initial-client-auth   "client1:${_client_pw}" "$_stage_lib"
@@ -322,11 +328,20 @@ fi
 # /var/lib/proxiport, a tree the daemon owns and could therefore rearrange
 # before the package manager, as root, unpacked the next release through it.
 # Repoint ONLY the shipped default; a doc_root the operator chose is theirs.
-if [ -x /usr/bin/proxiportd ] && [ -f /etc/proxiport/proxiportd.conf ]; then
-    sed -i -E '/^\[api\]/,/^\[/ s|^([[:space:]]*)doc_root[[:space:]]*=[[:space:]]*"/var/lib/proxiport/docroot"[[:space:]]*$|\1doc_root = "/usr/share/proxiport/docroot"|' \
+# And only when the shipped SPA is actually there: the agent package runs this
+# same script, and a host whose server came from a tarball has /usr/bin/proxiportd
+# but nothing under /usr/share/proxiport.
+if [ -x /usr/bin/proxiportd ] && [ -f /etc/proxiport/proxiportd.conf ] \
+   && [ -f /usr/share/proxiport/docroot/index.html ]; then
+    # Accept the default however it was quoted or spaced, with or without a
+    # trailing slash or comment; --follow-symlinks keeps a linked config a
+    # link instead of replacing it with a copy.
+    sed -i --follow-symlinks -E '/^[[:space:]]*\[[[:space:]]*api[[:space:]]*\]/,/^[[:space:]]*\[/ s|^([[:space:]]*)doc_root[[:space:]]*=[[:space:]]*["'"'"']/var/lib/proxiport/docroot/?["'"'"']([[:space:]]*(#.*)?)$|\1doc_root = "/usr/share/proxiport/docroot"\2|' \
         /etc/proxiport/proxiportd.conf
-    if [ -d /var/lib/proxiport/docroot ] && [ ! -L /var/lib/proxiport/docroot ]; then
-        echo "proxiport: the web UI is now served from /usr/share/proxiport/docroot; whatever is left under /var/lib/proxiport/docroot is no longer used and can be removed" >&2
+    if grep -qE '^[[:space:]]*(api\.)?doc_root[[:space:]]*=[[:space:]]*["'"'"']/var/lib/proxiport/docroot' /etc/proxiport/proxiportd.conf; then
+        warn "/etc/proxiport/proxiportd.conf still points doc_root at /var/lib/proxiport/docroot, which this package no longer fills; the web UI will not load until doc_root = \"/usr/share/proxiport/docroot\" is set in [api] and proxiportd is restarted"
+    elif [ -d /var/lib/proxiport/docroot ] && [ ! -L /var/lib/proxiport/docroot ]; then
+        echo "proxiport: the web UI is now served from /usr/share/proxiport/docroot; the package manager removes the files it had installed under /var/lib/proxiport/docroot and anything else left there is no longer used" >&2
     fi
 fi
 
@@ -380,7 +395,7 @@ if [ -x /usr/bin/proxiport ]; then
     # longer write them. Repoint ONLY the shipped defaults; a path the operator
     # chose is theirs and is reported instead of rewritten.
     if [ -f /etc/proxiport/proxiport.conf ]; then
-        sed -i \
+        sed -i --follow-symlinks \
             -e 's|^\([[:space:]]*\)log_file[[:space:]]*=[[:space:]]*"/var/log/proxiport/proxiport.log"|\1log_file = "/var/log/proxiport-agent/proxiport.log"|' \
             -e 's|^\([[:space:]]*\)data_dir[[:space:]]*=[[:space:]]*"/var/lib/proxiport"|\1data_dir = "/var/lib/proxiport-agent"|' \
             /etc/proxiport/proxiport.conf
@@ -483,7 +498,8 @@ if [ "$is_upgrade" = 1 ]; then
             if [ -x "/usr/bin/$svc" ]; then
                 # try-restart is a no-op for a unit that is not running, so an
                 # intentionally stopped service stays stopped across upgrades.
-                systemctl try-restart "$svc.service" >/dev/null 2>&1 || true
+                systemctl try-restart "$svc.service" >/dev/null 2>&1 \
+                    || warn "could not restart $svc.service; check: systemctl status $svc"
             fi
         done
     fi

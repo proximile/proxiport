@@ -10,7 +10,7 @@
 #
 # The wrapper script `deploy/docker/dev/run.sh` does both steps for you.
 
-FROM golang:1.22-bookworm
+FROM golang:1.26-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \

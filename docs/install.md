@@ -73,6 +73,12 @@ sudo install -m 0755 proxiportd /usr/bin/proxiportd
 sudo install -d /etc/proxiport
 sudo install -m 0644 proxiportd.example.conf /etc/proxiport/proxiportd.conf
 sudo install -m 0644 proxiportd.service /lib/systemd/system/proxiportd.service
+# The web UI, root-owned where only root can write; the config's
+# doc_root default already points here.
+sudo install -d -o root -g root -m 0755 /usr/share/proxiport
+sudo cp -r docroot /usr/share/proxiport/docroot
+sudo chown -R root:root /usr/share/proxiport/docroot
+sudo chmod -R u=rwX,go=rX /usr/share/proxiport/docroot
 
 sudo useradd --system --home /var/lib/proxiport --shell /usr/sbin/nologin proxiport || true
 getent group ssl-cert >/dev/null || sudo groupadd --system ssl-cert
@@ -407,7 +413,10 @@ Refresh the SPA. The new agent shows up in the inventory.
 
 Install the new package over the old one. The state in
 `/var/lib/proxiport` and your `/etc/proxiport/*.conf` are left alone;
-only the binaries, the unit files and the bundled SPA are replaced.
+only the binaries, the unit files and the bundled SPA are replaced. The
+one exception is the `doc_root` rewrite described under
+[Upgrading to v0.11.1 or later](#upgrading-to-v0111-or-later), and it only
+touches the shipped default value.
 
 === "Debian / Ubuntu"
 
@@ -471,7 +480,36 @@ proxiportd --version
 Downgrading is the same command with an older package. The client
 database schema is versioned and migrated forward on start, so a
 downgrade across a schema change is not supported — snapshot
-`/var/lib/proxiport` first if you intend to go back.
+`/var/lib/proxiport` first if you intend to go back. Going back below
+v0.11.1 also needs `doc_root` set back by hand (see the next section).
+
+## Upgrading to v0.11.1 or later
+
+v0.11.1 moves the bundled web UI out of the server account's data
+directory into a root-owned tree, so that a process running as the
+server account can no longer rearrange what the next package upgrade
+unpacks as root.
+
+- The SPA now lives at `/usr/share/proxiport/docroot` (root-owned,
+  read-only for the daemon). The old `/var/lib/proxiport/docroot` is
+  removed by the package manager; anything else left there is unused.
+- If `[api] doc_root` in `/etc/proxiport/proxiportd.conf` is still the
+  shipped default `"/var/lib/proxiport/docroot"`, the package rewrites
+  it to the new path. Any other value is left alone; if it still points
+  at the old path the upgrade prints a warning and the web UI stays dark
+  until you set `doc_root = "/usr/share/proxiport/docroot"` and restart
+  `proxiportd`.
+- Debian and Ubuntu print `dpkg: warning: unable to delete old directory
+  '/var/lib/proxiport': Directory not empty` once during this upgrade.
+  That is expected: the old package listed the data directory, the new
+  one does not, and the directory holds your state.
+- The upgrade restarts a running `proxiportd` at the end, as before. On
+  Debian and Ubuntu the old UI files are gone from the moment the package
+  is unpacked until that restart, so the web UI returns 404 for a few
+  seconds during the upgrade.
+- To downgrade to v0.11.0 or earlier afterwards, set `doc_root` back to
+  `"/var/lib/proxiport/docroot"` first; the older package installs the
+  UI there again but does not edit the configuration.
 
 ## Upgrading from a v0.1.2 install
 
