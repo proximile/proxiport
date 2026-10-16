@@ -14,7 +14,7 @@ import (
 	"github.com/proximile/proxiport/share/files"
 )
 
-// TestCreateFileReplacesRatherThanOverwritesInPlace is M12.
+// TestCreateFileReplacesRatherThanOverwritesInPlace guards the staged write.
 //
 // The server stages a file push at a path derived from a caller-chosen upload
 // id, and then computes the md5 the agent verifies against by re-reading that

@@ -43,7 +43,7 @@ func newAuditLogWithEntries(t *testing.T, at ...time.Time) *AuditLog {
 	return log
 }
 
-// TestAuditTimestampFiltersFindTheEntriesTheyName is L13.
+// TestAuditTimestampFiltersFindTheEntriesTheyName guards the timestamp filters.
 //
 // The audit log advertises timestamp[gt|lt|since|until] but passed the caller's
 // value into the statement untouched. Entries are stored with a space between

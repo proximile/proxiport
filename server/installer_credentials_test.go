@@ -57,7 +57,7 @@ func TestShredFileRemovesContent(t *testing.T) {
 	assert.NoFileExists(t, p)
 }
 
-// TestShredFileRemovesEvenWhenItCannotOverwrite is H11's shape. The packaged
+// TestShredFileRemovesEvenWhenItCannotOverwrite: the packaged
 // installer wrote these files 0640 root:proxiport while the daemon ran as
 // proxiport, so the O_WRONLY open returned EACCES -- and the old code returned
 // on that error before ever reaching the unlink. The cleartext admin password

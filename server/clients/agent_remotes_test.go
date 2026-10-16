@@ -101,7 +101,7 @@ func TestSanitizeAgentRemotesKeepsTheAgentsOwnProxySettings(t *testing.T) {
 	assert.Equal(t, "pikvm.lan", got.HostHeader, "host_header= must survive")
 }
 
-// TestGetTunnelsToReestablishSurvivesANullRemote is L4. The agent's Remotes are
+// TestGetTunnelsToReestablishSurvivesANullRemote: the agent's Remotes are
 // json.Unmarshal'ed straight into a []*models.Remote, so `"Remotes":[null]` is
 // a slice with a nil element. sanitizeAgentRemotes already skips nil entries
 // and is tested for it -- but it runs AFTER this function, which dereferenced

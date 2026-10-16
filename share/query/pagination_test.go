@@ -136,7 +136,7 @@ func TestNewPagination(t *testing.T) {
 	assert.Equal(t, pagination.ValidatedOffset, 20)
 }
 
-// TestGetStartEndNeverReturnsAnInvalidSliceRange is L5. ValidatePagination
+// TestGetStartEndNeverReturnsAnInvalidSliceRange: ValidatePagination
 // bounds page[offset] only from below, so an offset of MaxInt64 is accepted;
 // end was then computed as raw offset + limit, which wraps to a large negative
 // number and walks straight past the `end > totalCount` clamp. Every caller

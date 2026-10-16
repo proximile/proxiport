@@ -7,7 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIsStagedSeesAnyOwnersEntitlement is the other half of M12. The staging
+// TestIsStagedSeesAnyOwnersEntitlement guards the registry's half of the
+// staged-upload collision (share/files guards the write). The staging
 // filename comes from a caller-chosen upload id, so two operators can name the
 // same path. Truncating on write stops the splice, but a second push would
 // still destroy a payload the first operator's agents are mid-collection on --

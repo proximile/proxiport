@@ -144,7 +144,7 @@ func TestConfig_ParseAndValidate(t *testing.T) {
 	})
 }
 
-// TestFileProviderRefusesAKeyAnyoneElseCanRead is M21. The DEK is the one key
+// TestFileProviderRefusesAKeyAnyoneElseCanRead: the DEK is the one key
 // whose entire job is to make a read of the config and the databases useless,
 // and it was the only secret-bearing artifact in this project with no mode
 // enforcement anywhere -- while the example config's own recipe

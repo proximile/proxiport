@@ -38,9 +38,8 @@ func repoRoot(t *testing.T) string {
 // `auth = "clientAuth1:1234"` and `auth = "admin:foobaz"`, so once the
 // placeholder refusal landed the daemon exited before printing "API Listening"
 // and all four end-to-end suites failed. Nothing reported it -- the CI step
-// carried continue-on-error and the local gate skipped ./bdd/... -- so it sat
-// broken. A unit test catches it in seconds even if those gates are ever
-// disarmed again.
+// carried continue-on-error -- so it sat broken. A unit test catches it in
+// seconds even if that step is ever disarmed again.
 func TestCommittedConfigsCarryNoPlaceholderSecrets(t *testing.T) {
 	root := repoRoot(t)
 

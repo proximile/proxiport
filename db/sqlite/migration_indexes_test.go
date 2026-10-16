@@ -44,7 +44,7 @@ func everyShippedMigrationSet() []migrationSet {
 	}
 }
 
-// TestNoShippedIndexIsBuiltOverAConstant is the general form of M2.
+// TestNoShippedIndexIsBuiltOverAConstant generalises the audit-log index fix.
 //
 // SQLITE_DQS defaults to 3 in the amalgamation go-sqlite3 builds, so a
 // double-quoted token SQLite cannot resolve to a column is silently

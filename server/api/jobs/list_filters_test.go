@@ -61,7 +61,7 @@ func filterQueryKeys(supported map[string]bool) []string {
 	return keys
 }
 
-// TestEveryAdvertisedJobFilterAndSortIsUsable is M3. The job listing joins jobs
+// TestEveryAdvertisedJobFilterAndSortIsUsable: the job listing joins jobs
 // to multi_jobs, and jid, started_at and created_by exist in both tables, so
 // against the unfixed tree every one of those filters made SQLite refuse the
 // statement with "ambiguous column name" and the handler answered HTTP 500.
@@ -105,7 +105,7 @@ func TestEveryAdvertisedJobFilterAndSortIsUsable(t *testing.T) {
 		}
 	})
 
-	// L2: filter[*] used to expand to every key of the map verbatim, so the
+	// filter[*] used to expand to every key of the map verbatim, so the
 	// bracketed range keys went into the SQL as column names and SQLite read
 	// "started_at[gt]" as the identifier started_at followed by the
 	// bracket-quoted identifier [gt].

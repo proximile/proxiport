@@ -136,7 +136,7 @@ func TestEnvelope_EmptyRoundTrip(t *testing.T) {
 	}
 }
 
-// TestIsEncryptedRequiresAVersionedPrefix is half of M5. The sentinel used to
+// TestIsEncryptedRequiresAVersionedPrefix guards the sentinel. It used to
 // be the bare "enc:", which is four characters any command's stdout can
 // contain -- `grep -r 'enc:' /etc` is enough, and a hostile agent can send it
 // on purpose. A write path asking "is this already encrypted?" then answered

@@ -33,7 +33,7 @@ func withLocalZone(t *testing.T, name string, fn func(loc *time.Location)) {
 	fn(loc)
 }
 
-// TestTimestampFiltersAreNormalisedToUTC is M10. Measurements are stamped
+// TestTimestampFiltersAreNormalisedToUTC: measurements are stamped
 // time.Now().UTC() and stored as text with a +00:00 suffix, but the filter
 // conversion rendered the caller's value in the SERVER's local wall clock and
 // dropped the zone -- so on any non-UTC host the comparison was off by the
@@ -115,7 +115,7 @@ func TestProcessesLookupFindsTheMeasurementItPointsAt(t *testing.T) {
 	}
 }
 
-// TestRetentionThresholdIsUTC is L9. Measurements are stored UTC; the retention
+// TestRetentionThresholdIsUTC: measurements are stored UTC; the retention
 // threshold was built from time.Now() in the host's zone and compared as text,
 // so the cutoff moved by the host's UTC offset -- deleting hours of data early
 // west of UTC, keeping hours past the window east of it.

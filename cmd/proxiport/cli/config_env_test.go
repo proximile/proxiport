@@ -68,8 +68,8 @@ func TestEnvAuthIsHonoredServicePath(t *testing.T) {
 	}
 }
 
-// TestConfigAuthStillWorks is the control: the config-file credential path,
-// which the field report confirms works today, must keep working.
+// TestConfigAuthStillWorks is the control: the config-file credential path
+// must keep working.
 func TestConfigAuthStillWorks(t *testing.T) {
 	_ = os.Unsetenv("PROXIPORT_AUTH")
 	dir := t.TempDir()

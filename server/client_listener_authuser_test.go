@@ -49,10 +49,10 @@ func newAuthTestListener(t *testing.T, provider clientsauth.Provider, log *logge
 	}
 }
 
-// TestAuthUserBcryptCredentialAuthenticates is the direct end-to-end guard for
-// field report #1 ("API-created credentials can't authenticate"): a credential
-// stored as a bcrypt hash must authenticate an agent that presents the matching
-// plaintext. This is the scenario an API-created credential produces.
+// TestAuthUserBcryptCredentialAuthenticates is the direct end-to-end guard: a
+// credential stored as a bcrypt hash must authenticate an agent that presents
+// the matching plaintext. This is the scenario an API-created credential
+// produces.
 func TestAuthUserBcryptCredentialAuthenticates(t *testing.T) {
 	const id, pw = "agent-api", "s3cret-from-api" //nolint:gosec // test fixture, not a real credential
 	hashed, err := clientsauth.HashPassword(pw)
@@ -120,7 +120,7 @@ func newAuthTestListenerWithIPBan(t *testing.T, provider clientsauth.Provider, i
 	}
 }
 
-// TestAuthUserSameWrongCredentialDoesNotSelfBanIP is the field-report-#2 guard:
+// TestAuthUserSameWrongCredentialDoesNotSelfBanIP guards the reconnect loop:
 // an agent retrying the SAME wrong credential (its own reconnect loop) must not
 // ban its own IP, no matter how many times it retries.
 func TestAuthUserSameWrongCredentialDoesNotSelfBanIP(t *testing.T) {
@@ -153,7 +153,7 @@ func TestAuthUserDistinctWrongCredentialsBanIP(t *testing.T) {
 		"three distinct wrong credentials must ban the IP")
 }
 
-// TestAuthUserFailureIsLoggedAtInfo guards field report #3: the reason for a
+// TestAuthUserFailureIsLoggedAtInfo guards the log level: the reason for a
 // failed login must be visible at the default INFO log level (it used to log at
 // DEBUG, i.e. invisibly, which made an empty/wrong credential look like a
 // network fault). The reason is captured from a log file written at INFO level.
