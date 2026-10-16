@@ -240,7 +240,7 @@ A minimal export script:
 
 ```bash
 USER=admin
-TOKEN=e83d40e4-e237-43d6-bb99-35972ded631b
+TOKEN=Ab3xK9pq_e83d40e4-e237-43d6-bb99-35972ded631b   # a personal API token, prefix included
 URL=https://proxiport.example.com/api/v1/vault
 FOLDER=./vault-backup
 

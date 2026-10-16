@@ -103,7 +103,7 @@
         Sign in with
         <span class="font-mono text-indigo-100">demo</span> /
         <span class="font-mono text-indigo-100">demo</span>.
-        State resets on the half-hour; destructive actions are
+        State resets every hour; destructive actions are
         disabled.
       </div>
     {/if}

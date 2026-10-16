@@ -26,7 +26,6 @@ sudo journalctl -u proxiport -f
 | Server data | `/var/lib/proxiport/` |
 | Server SPA files | `/usr/share/proxiport/docroot/` (root-owned, read-only for the daemon) |
 | Server logs (default) | `/var/log/proxiport/proxiportd.log` (and journald) |
-| Server PID file | `/run/proxiportd.pid` |
 | Agent config | `/etc/proxiport/proxiport.conf` |
 | Agent log | journald (`-u proxiport`) |
 
@@ -287,11 +286,12 @@ manually.](screenshots/04-tunnel-create-form.png)
 
 The ACL is enforced at the server's listener, not at the agent —
 denied traffic never crosses the chisel session. `Only my current
-IP address` is the default preset and reads the request's
-`X-Forwarded-For`, falling back to the connection's remote address
-when that header is absent. If you front the server with a reverse
-proxy, configure the proxy to set `X-Forwarded-For`; with built-in
-TLS the connection IP is used directly.
+IP address` is the default preset and uses the address the API saw the
+request come from. Behind a reverse proxy that is the proxy's own
+address unless the proxy is listed in `[api] trusted_proxies` *and*
+sends `X-Forwarded-For` — both halves are needed, see
+[IP-address determination](ip-address-determination.md#forwarded-for-handling-on-the-server).
+With built-in TLS the connection IP is used directly.
 
 ![Active tunnel with a single-IP ACL applied.](screenshots/05-tunnel-acl-active.png)
 
@@ -345,11 +345,12 @@ genuinely want a fresh listener.
 
 ProxiPort can run ad-hoc commands or multi-line scripts against any
 connected agent and stream the output back. The agent has to opt in
-via `commands_allow` / `commands_deny` in its `proxiport.conf` —
-running everything by default is intentionally not the shape.
+via the `[remote-commands]` `allow` / `deny` lists in its
+`proxiport.conf` — running everything by default is intentionally not
+the shape.
 
 ![Allowlist block — the agent rejected the command because no
-matching `commands_allow` entry was in
+matching `allow` entry was in the agent's
 `proxiport.conf`.](screenshots/12-cmd-allowlist-block.png)
 
 When a command is allowed, the SPA streams stdout / stderr live

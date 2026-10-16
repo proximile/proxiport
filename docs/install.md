@@ -5,7 +5,7 @@
     [`https://demo.proxiport.net/`](https://demo.proxiport.net/) lets
     you sign in (`demo` / `demo`) and explore an Inventory of three
     pre-registered agents without installing anything. State resets
-    on the half-hour.
+    every hour.
 
 ProxiPort has two pieces: the **server** (`proxiportd`) and the **agent**
 (`proxiport`). One server reaches many agents; the agent dials the server
@@ -109,6 +109,12 @@ go install github.com/proximile/proxiport/cmd/proxiportd@latest
 The server needs CGO (`CGO_ENABLED=1`) for the embedded SQLite. The
 agent is pure Go.
 
+`go install` builds the server binary only. The web UI is a separate
+build — `npm install && npm run build` in `frontend/` writes the `build/`
+directory that the packages ship as `docroot` — so point `[api]
+doc_root` at a copy of it (or at the `docroot` directory from a release
+tarball), or the API will answer while the browser gets nothing.
+
 The version string is injected at release time via linker flags, so a
 plain `go build` / `go install` reports `0.0.0-src` for
 `proxiportd --version` (and `proxiport --version`). That is expected — to
@@ -130,8 +136,10 @@ sudo proxiport-setup --fqdn proxiport.example.com
 ```
 
 It mirrors the upstream openrport curl-bash installer: takes `--fqdn`,
-`--email`, `--api-port`, `--client-port`, `--port-range`, `--totp` /
-`--no-2fa`; opens UFW or firewalld rules; rewrites `proxiportd.conf` to
+`--email`, `--api-port`, `--client-port`, `--client-url`, `--port-range`,
+`--totp` / `--no-2fa`, `--skip-nat` (skip the public-IP check),
+`--assume-yes` and `--show-secrets` for unattended runs, and
+`--uninstall`; opens UFW or firewalld rules; rewrites `proxiportd.conf` to
 bind `:80` for agents and `:443` for the API; turns on built-in ACME if
 the hostname is publicly resolvable (or accepts `--cert-file` /
 `--key-file` for an existing PEM pair); creates a SQLite
@@ -324,10 +332,12 @@ your server needs outbound network access to `pairing_url` (the
 in the server config to disable the pairing button entirely.
 
 The agent ships in the same three package formats as the server, plus
-tarballs for a wider platform list: linux (amd64, arm64, i386, armv6,
-armv7, mips/mipsle/mips64/mips64le hard- and softfloat, s390x), macOS
-(amd64, arm64), Windows (amd64), and FreeBSD (amd64, arm64, armv6,
-armv7, i386). `.deb` and `.rpm` are published for every Linux variant.
+tarballs for a wider platform list: Linux (amd64, arm64, i386, armv6,
+armv7, riscv64, ppc64, ppc64le, loong64, s390x, and
+mips/mipsle/mips64/mips64le hard- and softfloat), macOS (amd64, arm64),
+Windows (amd64, as a zip), FreeBSD (amd64, arm64, armv6, armv7, i386),
+OpenBSD (amd64, arm64, i386) and NetBSD (amd64, arm64). `.deb` and
+`.rpm` are published for every Linux variant.
 
 #### Manual install — Debian / Ubuntu
 

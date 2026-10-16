@@ -22,7 +22,7 @@ guest has a read-only profile and a small set of admin-only
 endpoints (user management, agent-credential listing, request-IP
 echo) are walled off at the edge, so it's safe to poke at without
 exposing operator-side state. The whole DB and agent fleet reset
-on the half-hour.
+every hour.
 
 The demo is for evaluation only; do not rely on it. To run your
 own server, see [Install](install.md).

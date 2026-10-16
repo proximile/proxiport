@@ -1,7 +1,11 @@
 # Securing proxiportd with HTTPS
 
-`proxiportd` terminates TLS itself on both the API/SPA listener and
-the agent (chisel) listener. Three deployment shapes are supported:
+`proxiportd` terminates TLS itself on the API/SPA listener. The agent
+(chisel) listener speaks plain WebSocket: the SSH session inside it
+carries its own encryption and the agent checks the server's host key
+against its configured `fingerprint`, so TLS on that port is a reverse
+proxy's job, not the server's. Three
+deployment shapes are supported for the API:
 
 1. **Built-in ACME** — ProxiPort obtains and renews a Let's Encrypt
    certificate itself. One config line on a single-purpose host; no
@@ -185,8 +189,8 @@ certificate — ProxiPort does not need to know about the renewal.
 
 ## TLS minimum version
 
-Both `[api]` and `[server]` accept a `tls_min` setting. The default is
-TLS 1.3. To accept TLS 1.2 for legacy clients:
+`[api]` accepts a `tls_min` setting. The default is TLS 1.3. To accept
+TLS 1.2 for legacy clients:
 
 ```toml
 [api]
@@ -211,8 +215,8 @@ sudo systemctl restart proxiport
 sudo journalctl -u proxiport -n 50 --no-pager
 ```
 
-A healthy agent log shows `Connected (...) ssh-fingerprint OK` within
-a few seconds.
+A healthy agent log shows `Connected to <server> within <time>` a few
+seconds after start; the host-key check happens before that line.
 
 See also: [install](install.md), [operator runbook](operator-runbook.md),
 [tunnel hosting](tunnel-hosting.md) for the related Caddy + wildcard

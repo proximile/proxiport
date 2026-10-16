@@ -76,6 +76,7 @@ matches if any one tag is present.
 - `version`
 - `address`
 - `client_auth_id`
+- `connection_state` (`connected` or `disconnected`)
 
 For 2-dimensional labels (e.g. `country=France`), use
 [client attributes](client-attributes.md).

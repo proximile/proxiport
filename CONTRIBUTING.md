@@ -48,7 +48,8 @@ so we can sanity-check the direction before you spend time on a patch.
 
 1. Open an issue describing the change, unless it is trivial.
 2. Fork, branch, push, open a PR against `main`.
-3. Sign your commits (`git commit -s`) so the DCO trailer is present.
+3. A `Signed-off-by` trailer (`git commit -s`) is welcome but not
+   required; the pull request itself is the inbound = outbound agreement.
 4. Run `go vet ./...`, `go test ./...`, and the BDD harness locally
    before pushing. CI runs the same checks.
 

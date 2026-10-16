@@ -6,8 +6,8 @@ UI** served by the server for human admins. There is no required cloud
 component and no required third-party service.
 
 ```
-+---------+      WebSocket over TLS           +-----------+
-| agent   |       (typically 443)             | server    |
++---------+      WebSocket (SSH inside)       +-----------+
+| agent   |       (port 80 by default)        | server    |
 +---------+   <----------------------------   |           |
               chisel control channel          |           |
                                               |           |
@@ -24,11 +24,14 @@ component and no required third-party service.
                                               +-----------+
 ```
 
-`proxiportd` terminates TLS directly on both listeners — point it at
-a `cert_file` + `key_file` pair, or turn on the built-in ACME client
-for automatic Let's Encrypt certificates. An external reverse proxy
-(nginx, Caddy, Traefik) is an option, not a requirement. See
-[HTTPS](https.md) for the full deployment matrix.
+`proxiportd` terminates TLS on the API listener — point it at a
+`cert_file` + `key_file` pair, or turn on the built-in ACME client for
+automatic Let's Encrypt certificates. The agent listener is plain
+WebSocket carrying an SSH session with its own encryption and a host
+key the agent checks against its configured `fingerprint`; put a
+reverse proxy (nginx, Caddy, Traefik) in front of it if
+you want TLS on that port as well. See [HTTPS](https.md) for the full
+deployment matrix.
 
 ## Server
 
@@ -42,8 +45,8 @@ A single Go binary, `proxiportd`. Responsibilities:
   to one of the three TLS profiles in [HTTPS](https.md))
 - persist clients, users, tunnels, scripts, commands, schedules, and
   audit records to SQLite (default) or MySQL
-- enforce auth (HTTP-Basic for agents on the tunnel port; JWT for the
-  API; optional TOTP second factor)
+- enforce auth (SSH password authentication for agents inside the
+  tunnel-port WebSocket; JWT for the API; optional TOTP second factor)
 - multiplex tunnel sessions per connected agent
 
 The server is the only piece that holds state. Agents are otherwise
@@ -89,13 +92,13 @@ SSH-over-WebSocket transport, inherited from the upstream fork. Each
 chisel session is one TLS-or-not-TLS WebSocket carrying SSH framing,
 inside which tunnel sub-channels are multiplexed.
 
-For production deployments, serve both listeners over TLS. The
-simplest path is the server's built-in TLS — supply `cert_file` +
-`key_file` (or `enable_acme`) under both `[server]` and `[api]`,
-each on the port the agents and operators reach. If you already
-operate an nginx, Caddy, or Traefik front-end, you can park
-`proxiportd` on localhost and let the proxy terminate TLS instead;
-both shapes are described in [HTTPS](https.md).
+For production deployments, serve the API over TLS: supply `cert_file`
++ `key_file` (or `enable_acme`) under `[api]`. The agent listener has no
+TLS settings of its own — the SSH session inside the WebSocket is
+encrypted end to end and the agent checks the server's host key against
+its configured `fingerprint` — so it can stay plain, or sit behind the same nginx, Caddy, or Traefik
+front-end as the API if you want one TLS surface; both shapes are
+described in [HTTPS](https.md).
 
 ![Tunnel create form — pick the remote target on the agent, the
 public scheme, and the ACL gate. The server allocates the public
@@ -178,8 +181,10 @@ control plane uses. There is no separate Node runtime in production.
 
 Three layers:
 
-1. **HTTP-Basic** on the chisel agent port. Agents authenticate to the
-   server before the control channel comes up. Credentials are
+1. **SSH password authentication** on the chisel agent port. The agent
+   opens the WebSocket, checks the server's host key against its
+   configured `fingerprint`, then presents its credential as the SSH password
+   before the control channel comes up. Credentials are
    `[server] auth = "<client-auth-id>:<password>"` (or an `auth_file`
    / `auth_table` if you prefer).
 2. **JWT bearer** on the REST API. Login is HTTP-Basic to `/login`,
