@@ -6,7 +6,7 @@ installs that can be torn down and recreated cheaply.
 
 ## Prerequisites on the deploy operator's workstation
 
-- `go` 1.22+ on `PATH`
+- `go` 1.26+ on `PATH` (the version `go.mod` requires)
 - `node` 22+ and `npm`
 - `openssl`
 - `ssh` / `scp` and an SSH key authorised on the target

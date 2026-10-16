@@ -23,7 +23,12 @@ schema rebuild.
    sudo cp /etc/rport/rportd.conf /etc/proxiport/proxiportd.conf
    ```
    The option names are the same. Only the file path and the systemd
-   unit name change.
+   unit name change — but two values need a look. `[api] doc_root` must
+   point at ProxiPort's web UI (`/usr/share/proxiport/docroot` for a
+   package install; an upstream value such as `/var/lib/rport/docroot`
+   leaves the UI dark), and any `cert_file`, `key_file` or `auth_file`
+   path that still names `/etc/rport` or `/var/lib/rport` must follow the
+   files.
 5. **Point ProxiPort at the existing datastore.** Edit
    `/etc/proxiport/proxiportd.conf` so the `[server] data_dir`
    matches your old `/var/lib/rport` location, or move the
@@ -31,6 +36,9 @@ schema rebuild.
    ```sh
    sudo mv /var/lib/rport /var/lib/proxiport
    ```
+   Either way the directory must belong to the account `proxiportd` runs
+   as — `sudo chown -R proxiport:proxiport /var/lib/proxiport` — since
+   upstream ran as `rport`.
 6. **Start the service.**
    ```sh
    sudo systemctl enable --now proxiportd
@@ -64,7 +72,13 @@ client-auth credentials.
 3. **Move the config.**
    ```sh
    sudo cp /etc/rport/rport.conf /etc/proxiport/proxiport.conf
+   sudo chown root:proxiport-agent /etc/proxiport/proxiport.conf
+   sudo chmod 0640 /etc/proxiport/proxiport.conf
    ```
+   The ProxiPort agent runs as its own account, `proxiport-agent`, so
+   point `[client] data_dir` at a directory that account owns
+   (`/var/lib/proxiport-agent` in the packages) rather than at the old
+   `/var/lib/rport`.
 4. **Re-issue the host-key fingerprint if the server's host key
    changed.** If you reused the same `key_seed` in
    `proxiportd.conf`, the fingerprint is unchanged — keep

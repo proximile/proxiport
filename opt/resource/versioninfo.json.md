@@ -4,8 +4,9 @@ This file is used by [goversioninfo](https://github.com/josephspurrier/goversion
 Microsoft Windows File Properties/Version Info.
 
 `versioninfo.json` is a template. Values are inserted before compiling the Windows version of the proxiport client.
-See [msi-build.ps1](/.github/scripts/msi-build.ps1)
- 
+The release pipeline does not build an MSI today; the template is kept
+for whoever next cuts one.
+
 Example:
 ```shell
 cd ./cmd/proxiport

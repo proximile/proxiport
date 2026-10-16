@@ -1,8 +1,10 @@
 # Client authentication
 
 The "client" in this page is the **agent** — the `proxiport` binary
-running on a managed host. Each agent presents an HTTP basic
-credential to `proxiportd` when it opens its chisel control channel.
+running on a managed host. Each agent presents its credential as the
+SSH password inside the chisel control channel it opens to
+`proxiportd`, after checking the server's host key against its
+configured `fingerprint`.
 The server checks the credential against one of three stores: a single
 inline credential, a JSON file, or a database table.
 
@@ -67,11 +69,8 @@ credential and its bound agents are cleared together once you confirm.
 A bound agent cannot reconnect afterward; add a fresh credential to pair
 a replacement.
 
-On disk-only changes, send the daemon a SIGUSR1 to re-read the file:
-
-```bash
-sudo systemctl kill -s SIGUSR1 proxiportd
-```
+The file is read on every lookup, so an edit made on disk is live for
+the next agent that connects — no reload or signal is needed.
 
 If you would rather have an external tool own the file, set
 `auth_write = false` and the API will return HTTP 403 on every
@@ -314,9 +313,11 @@ no way to narrow this to a subset after the fact. Rotate all of them.
   encrypted so a copy of the config cannot be used to impersonate the
   server. See
   [encrypting the config secrets](operator-runbook.md#encrypting-the-config-secrets).
-- Serve `proxiportd`'s client-listener over TLS — either built-in
-  (`cert_file`/`key_file` or `enable_acme` under `[server]`) or
-  behind a reverse proxy. See [HTTPS](https.md).
+- The client listener carries SSH inside the WebSocket, so the
+  credential and everything after it are encrypted and the host key is
+  checked against the agent's `fingerprint`. To wrap that port in TLS as well, put it behind a reverse
+  proxy — there are no TLS settings under `[server]`. See
+  [HTTPS](https.md).
 - Watch for repeated failed-auth log lines and ban offending IPs at
   the firewall. The server has a built-in `client_login_wait` and
   `max_failed_login` / `ban_time` pair but it is per-IP at the HTTP

@@ -1,3 +1,5 @@
+<p align="center"><img src="proxiport.png" alt="ProxiPort" width="340"></p>
+
 # ProxiPort
 
 A self-hosted remote-management server: a REST API, an SSH-over-WebSocket
@@ -13,8 +15,8 @@ A public demo runs at
 [**`https://demo.proxiport.net/`**](https://demo.proxiport.net/).
 Sign in with `demo` / `demo` (the SPA login page shows the same
 banner). The demo guest has a read-only profile — destructive
-endpoints are walled off — and the whole state resets on the
-half-hour, so it's safe to poke at. Three pre-registered agents
+endpoints are walled off — and the whole state resets every
+hour, so it's safe to poke at. Three pre-registered agents
 appear in the Inventory.
 
 The demo is for evaluation only; do not depend on it. To run

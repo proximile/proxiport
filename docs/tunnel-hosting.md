@@ -398,19 +398,33 @@ different form.
 
 ### Restricted destinations
 
-By default the agent refuses to write into directories listed in
-`[file-reception] protected`:
+By default the agent refuses to write anywhere a pushed file could
+become code that runs as root. The built-in list covers whole subtrees
+(`/bin/**`, `/sbin/**`, `/usr/bin/**`, `/usr/local/bin/**`, `/lib*/**`,
+`/usr/lib*/**`, `/boot/**`, `/dev/**`, `/run/**`, `/proc/**`, `/sys/**`),
+everything that runs on a schedule or at boot (`/etc/cron*`,
+`/var/spool/cron/**`, `/etc/systemd/**`, `/etc/init.d/**`, the launchd
+directories on macOS), files sourced into every shell or process
+(`/etc/profile*`, `/etc/environment`, `/etc/ld.so.*`), and the account
+and authorization files (`/etc/passwd`, `/etc/shadow`, `/etc/sudoers*`,
+`/etc/pam.d/**`, `/etc/security/**`). On Windows it covers `C:\Windows`,
+`C:\ProgramData`, both `Program Files` trees and the per-user Startup
+folder. The full list is in the agent source (`client/upload_nix.go`,
+`client/upload_win.go`).
+
+`[file-reception] protected` *replaces* that list rather than adding to
+it, so an override must carry the built-in entries too:
 
 ```toml
 [file-reception]
   enabled = true
-  protected = ['/bin', '/sbin', '/boot', '/usr/bin', '/usr/sbin', '/dev', '/lib*', '/run']
-  # Windows defaults:
-  # protected = ['C:\Windows\', 'C:\ProgramData']
+  protected = ['/bin/**', '/sbin/**', '/usr/bin/**', '/usr/sbin/**', '/etc/systemd/**', '/srv/deploy/**']
 ```
 
 These are glob patterns matched against both the target directory and
-the target file path. To disable reception entirely, set `enabled = false`.
+the target file path; `**` matches across path separators, a bare
+directory name does not. To disable reception entirely, set
+`enabled = false`.
 
 ### Protected destinations
 
@@ -457,9 +471,13 @@ or write into a root-owned directory, add narrow sudoers rules:
 
 ```text
 # /etc/sudoers.d/proxiport-filereception
-proxiport ALL=NOPASSWD: /usr/bin/chown * /var/lib/proxiport/filepush/*_proxiport_filepush
-proxiport ALL=NOPASSWD: /usr/bin/mv     /var/lib/proxiport/filepush/*_proxiport_filepush *
+proxiport-agent ALL=NOPASSWD: /usr/bin/chown * /var/lib/proxiport-agent/filepush/*_proxiport_filepush
+proxiport-agent ALL=NOPASSWD: /usr/bin/mv     /var/lib/proxiport-agent/filepush/*_proxiport_filepush *
 ```
+
+The rules name the agent's own account (`proxiport-agent` since 0.10.0;
+`proxiport` is the server's) and the agent's data directory. A rule that
+still names `proxiport` grants the server, not the agent.
 
 Limit the wildcards as much as your operational shape allows.
 

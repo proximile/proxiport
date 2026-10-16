@@ -33,6 +33,7 @@ server's `doc_root` directory.
 
 ## Deployment
 
-See [`../docs/SPA.md`](../docs/SPA.md) for build, ship, and deploy
-steps including the `tar | scp | tar -x` pattern used against the
-eval host.
+`npm run build` writes the static site to `build/`; the release packages
+ship that directory as `/usr/share/proxiport/docroot` and the server
+serves it from `[api] doc_root`. See [install](../docs/install.md) for
+the package and tarball layouts.
