@@ -218,25 +218,27 @@ persistent storage.
   their next login. The user scans the SPA's QR with any RFC 6238
   TOTP app:
 
-  ![2FA enrollment — the SPA renders the QR client-side; the secret
-  never leaves the browser.](screenshots/37-2fa-setup-mockup.png)
+  ![First login after TOTP is switched on — the server issues the
+  secret, the SPA shows it as a QR (and as text for manual entry) and
+  asks for the first code.](screenshots/37-2fa-setup.png)
 
   Admins can require an existing user to re-enroll from the **Users**
   page:
 
-  ![Picking a user to (re-)enroll for TOTP.](screenshots/35-users-with-2fa-recipient.png)
+  ![Users — `Reset 2FA` clears an account's authenticator so its next
+  login enrolls again.](screenshots/35-users-with-2fa-recipient.png)
 
   Once enabled at the server, the Info page reflects the new
   posture:
 
-  ![Server info with `2FA enabled` and `TOTP enabled` flipped
-  on.](screenshots/34-server-info-2fa-on.png)
+  ![Server info with `2FA enabled: yes` and the delivery method set to
+  the TOTP authenticator app.](screenshots/34-server-info-2fa-on.png)
 
   Each user's profile shows their TOTP enrollment state and lets
   them reset it:
 
-  ![Profile page once 2FA is in
-  effect.](screenshots/36-profile-in-2fa-mode.png)
+  ![Profile page once 2FA is in effect — the enrolled authenticator can
+  be removed here.](screenshots/36-profile-in-2fa-mode.png)
 
 ## Capacity and limits
 
@@ -293,7 +295,7 @@ sends `X-Forwarded-For` — both halves are needed, see
 [IP-address determination](ip-address-determination.md#forwarded-for-handling-on-the-server).
 With built-in TLS the connection IP is used directly.
 
-![Active tunnel with a single-IP ACL applied.](screenshots/05-tunnel-acl-active.png)
+![Active tunnel with its ACL applied.](screenshots/05-tunnel-acl-active.png)
 
 Tunnels also accept inactivity / lifetime caps, after which the
 server closes the listener and notifies the agent.
@@ -356,7 +358,8 @@ matching `allow` entry was in the agent's
 When a command is allowed, the SPA streams stdout / stderr live
 and prints the exit code at the end.
 
-![Single-host `uname -a` run.](screenshots/13-cmd-run-uname-output.png)
+![Single-host `uname` run — the output streams back under the
+form.](screenshots/13-cmd-run-uname-output.png)
 
 Scripts are the same control surface with a multi-line editor and
 an interpreter selector (`/bin/bash`, `/usr/bin/python3`, …). The
