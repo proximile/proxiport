@@ -158,6 +158,43 @@ Note that gluetun's Shadowsocks listener is not a SOCKS5 proxy despite
 the name — it speaks the Shadowsocks protocol and this agent cannot use
 it. Use gluetun's SOCKS5 or HTTP proxy.
 
+## Installing with the pairing script
+
+The one-shot installer the pairing service renders (see
+[Install](install.md#agent)) can write the policy for you. Two switches
+build the chain, in the order given, and the installer follows the same
+chain for its own connection test and downloads:
+
+| Switch | Effect |
+| --- | --- |
+| `-o` | Reach the server through the tor daemon on the agent host, `socks5h://127.0.0.1:9050`. Shorthand for `-e socks5h://127.0.0.1:9050`. |
+| `-e <entry>` | Add one entry: a proxy URL (`socks5h://host:port`, `http://host:port`) or `direct`. Repeatable; `direct` must be last. |
+
+```sh
+# Tor, fail closed.
+curl --proxy socks5h://127.0.0.1:9050 https://pairing.proxiport.net/<code> -o proxiport-installer.sh
+sudo sh proxiport-installer.sh -o
+
+# A VPN sidecar's proxy, then Tor, then — visibly — the open internet.
+sudo sh proxiport-installer.sh -e socks5h://gluetun:1080 -o -e direct
+```
+
+Alongside `transports` the installer sets `require_fingerprint = true`
+and `updates_interval = 0`, comments out an `ip_api_url` it finds in an
+existing config, skips the geolocation lookup that would otherwise label
+the new client with a city, and waits up to 90 s for the first
+"Connected to" line before it judges the agent log, since a Tor circuit
+takes a moment. A server address that ends in `.onion` implies `-o`.
+
+In the web UI, the dialog that creates a client credential offers the
+same switches as toggles: connect through Tor, a proxy to try before
+Tor, and whether to allow the open internet as the last resort. With a
+proxy chosen, the line that fetches the installer gets `--proxy` as
+well, so the pairing request stays off the open internet too.
+
+The Windows installer has no equivalent yet; set `transports` in
+`proxiport.conf` by hand there.
+
 ## What this does and does not cover
 
 The chain covers **the agent's connection to the server.** It is not a

@@ -331,6 +331,10 @@ your server needs outbound network access to `pairing_url` (the
 `pairing.proxiport.net` default, or your own instance). Set `pairing_url = ""`
 in the server config to disable the pairing button entirely.
 
+To bring an agent up over Tor or a VPN from the start, the installer takes
+`-o` and `-e`; see [Installing with the pairing
+script](anonymous-transport.md#installing-with-the-pairing-script).
+
 The agent ships in the same three package formats as the server, plus
 tarballs for a wider platform list: Linux (amd64, arm64, i386, armv6,
 armv7, riscv64, ppc64, ppc64le, loong64, s390x, and
