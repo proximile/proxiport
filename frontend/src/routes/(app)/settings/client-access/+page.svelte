@@ -4,6 +4,7 @@
   import type { ClientAuthEntry } from '$lib/types';
   import Spinner from '$lib/components/Spinner.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { appendFlags, egressFlags, fetchProxy, proxyError, withFetchProxy } from '$lib/pairingFlags';
 
   let rows: ClientAuthEntry[] = $state([]);
   let loading = $state(true);
@@ -41,6 +42,15 @@
   let optS = $state(false); // -s: sudo rights for those commands
   let optR = $state(false); // -r: enable file reception
   let optB = $state(false); // -b: sudo rights for file reception
+
+  // Egress toggles, Linux installer only (the PowerShell installer has no
+  // equivalent yet). They become the agent's `transports` chain, in order: the
+  // proxy first, Tor second, the open internet last and only when asked for.
+  let optTor = $state(false);    // -o
+  let optProxy = $state('');     // -e <url>, tried before Tor (a VPN sidecar's proxy)
+  let optDirect = $state(false); // -e direct
+  let proxyErr = $derived(proxyError(optProxy));
+  let egressOn = $derived(optTor || (optProxy.trim() !== '' && !proxyErr));
 
   // delete confirmation
   let pendingDelete = $state<string | null>(null);
@@ -229,42 +239,18 @@
   let liveIdErr = $derived(newId ? validateId(newId) : '');
   let livePwdErr = $derived(newPassword ? validatePassword(newPassword) : '');
 
-  // Compose the installer-flag string from the checkboxes.
+  // Compose the installer-flag string from the checkboxes. The pairing
+  // service returns the un-flagged base form; flag selection is a
+  // client-side concern ($lib/pairingFlags does the splicing).
   let flagString = $derived(
     [optX && '-x', optS && '-s', optR && '-r', optB && '-b']
       .filter(Boolean)
       .join(' ')
   );
+  let egress = $derived({ tor: optTor, proxy: optProxy, direct: optDirect });
+  let linuxFlags = $derived([flagString, egressFlags(egress)].filter(Boolean).join(' '));
 
-  // Append flags to the second line of the pairing service's rendered
-  // installer one-liner (the "sudo sh proxiport-installer.sh" line for
-  // Linux, the "powershell -ExecutionPolicy ... .\proxiport-installer.ps1"
-  // line for Windows). The pairing service returns the un-flagged base
-  // form; flag selection is a client-side concern.
-  function appendFlags(base: string, flags: string): string {
-    if (!base || !flags) return base;
-    const lines = base.split('\n');
-    // Match the EXECUTION line, not the download line. The pairing
-    // service emits two lines:
-    //   curl <url> > proxiport-installer.sh
-    //   sudo sh proxiport-installer.sh
-    // and a similar pair for PowerShell. We want flags on the second
-    // line of each pair (`sudo sh ...` for linux, the
-    // `powershell -ExecutionPolicy ...` line for windows), not on
-    // the redirect target of the download line.
-    const idx = lines.findIndex((l) =>
-      /^\s*(sudo\s+sh|powershell)\b/.test(l) &&
-      /proxiport-installer\.(sh|ps1)/.test(l)
-    );
-    if (idx === -1) return base;
-    // Don't double-append: strip any prior trailing -<single-letter>
-    // tokens that came from a previous pass.
-    lines[idx] = lines[idx].replace(/(\s+-[xsrb])+\s*$/g, '');
-    lines[idx] = lines[idx].replace(/\s*$/, '') + ' ' + flags;
-    return lines.join('\n');
-  }
-
-  let linuxCommand = $derived(appendFlags(pairingLinux, flagString));
+  let linuxCommand = $derived(withFetchProxy(appendFlags(pairingLinux, linuxFlags), fetchProxy(egress)));
   let windowsCommand = $derived(appendFlags(pairingWindows, flagString));
 
   function fmtExpires(s: string): string {
@@ -486,6 +472,47 @@ fingerprint = "{fingerprint}"</code>
                 <code class="text-xs text-slate-500">(-b)</code>
               </span>
             </label>
+          </fieldset>
+
+          <fieldset class="space-y-2 text-sm card p-3">
+            <legend class="sr-only">Egress options</legend>
+            <div class="text-xs uppercase tracking-wide text-slate-400">
+              Egress <span class="normal-case tracking-normal">(Linux only)</span>
+            </div>
+            <label class="grid grid-cols-[auto_1fr] gap-2 items-start cursor-pointer">
+              <input type="checkbox" bind:checked={optTor} class="mt-0.5" />
+              <span>Connect through Tor on the agent host
+                <span class="text-xs text-slate-500">(needs a tor daemon listening on 127.0.0.1:9050 there)</span>
+                <code class="text-xs text-slate-500">(-o)</code></span>
+            </label>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1" for="egress-proxy">
+                Proxy to try before Tor, such as a VPN sidecar's
+                <code class="text-xs text-slate-500">(-e)</code>
+              </label>
+              <input id="egress-proxy" class="w-full font-mono text-xs" type="text" autocomplete="off"
+                     spellcheck="false" placeholder="socks5h://gluetun:1080" bind:value={optProxy} />
+              {#if proxyErr}
+                <p class="text-xs text-red-400 mt-1">{proxyErr}</p>
+              {/if}
+            </div>
+            <label class="grid grid-cols-[auto_1fr] gap-2 items-start cursor-pointer">
+              <input type="checkbox" bind:checked={optDirect} disabled={!egressOn} class="mt-0.5" />
+              <span class:opacity-50={!egressOn}>Fall back to the open internet if every proxy fails
+                <span class="text-xs text-slate-500">(the agent logs each such connection as an anonymity downgrade)</span>
+                <code class="text-xs text-slate-500">(-e direct)</code></span>
+            </label>
+            {#if egressOn}
+              <p class="text-xs text-slate-500">
+                The installer writes this chain as <code>transports</code>, pins the server fingerprint, turns off
+                package-manager update checks, and fetches its downloads through the same path.
+                {#if optDirect}
+                  With the fallback, a connection over the open internet is logged as an error, not hidden.
+                {:else}
+                  Without the fallback the agent stays disconnected rather than use the open internet.
+                {/if}
+              </p>
+            {/if}
           </fieldset>
 
           <div>
