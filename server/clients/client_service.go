@@ -343,18 +343,27 @@ func (s *ClientServiceProvider) StartClient(
 
 		oldTunnels := getTunnelsToReestablish(getRemotes(client.GetTunnels()), req.Remotes)
 
-		clientVersion, err := version.NewVersion(req.Version)
-		if err != nil {
-			return nil, fmt.Errorf("failed to determine client version: %v", err)
+		// The version only decides whether to ask the client about its
+		// tunnel_allowed policy before its stored tunnels are re-established.
+		// A build that reports something other than a semantic version (a
+		// source build stamped with a commit hash, say) was registered
+		// without any version check on its first connection, so refusing it
+		// here would lock exactly that client out from its first reconnect
+		// onward, for as long as its record exists. Treat an unparseable
+		// version as a current client instead: the check below already copes
+		// with a client that does not understand the request.
+		supportsTunnelAllowed := true
+		if clientVersion, verr := version.NewVersion(req.Version); verr != nil {
+			clog.Infof("client %s (%s) reports version %q, which is not a semantic version; treating it as a current client", client.GetID(), client.GetName(), req.Version)
+		} else if requiredVersion, _ := version.NewVersion("0.6.4"); clientVersion.LessThan(requiredVersion) {
+			supportsTunnelAllowed = false
+			clog.Infof("client %s (%s) version %s does not support 'tunnel_allowed' policies. Consider upgrading.", client.GetID(), client.GetName(), req.Version)
 		}
-		requiredVersion, _ := version.NewVersion("0.6.4")
-		if clientVersion.GreaterThanOrEqual(requiredVersion) {
+		if supportsTunnelAllowed {
 			oldTunnels, err = s.excludeNotAllowedTunnels(clog, oldTunnels, sshConn)
 			if err != nil {
 				return nil, fmt.Errorf("failed to filter tunnels: %v", err)
 			}
-		} else {
-			clog.Infof("client %s (%s) version %s does not support 'tunnel_allowed' policies. Consider upgrading.", client.GetID(), client.GetName(), client.GetVersion())
 		}
 
 		clog.Infof("tunnels to create %d: %v", len(req.Remotes), req.Remotes)

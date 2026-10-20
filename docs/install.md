@@ -118,12 +118,21 @@ tarball), or the API will answer while the browser gets nothing.
 The version string is injected at release time via linker flags, so a
 plain `go build` / `go install` reports `0.0.0-src` for
 `proxiportd --version` (and `proxiport --version`). That is expected — to
-stamp a real version into a source build, pass the ldflag yourself:
+stamp a real version into a source build, pass the ldflag yourself, with
+the version of the tag you checked out:
 
 ```sh
-go build -ldflags "-X github.com/proximile/proxiport/share.BuildVersion=0.6.0" \
+git checkout v0.11.1
+go build -ldflags "-X github.com/proximile/proxiport/share.BuildVersion=0.11.1" \
   ./cmd/proxiportd
 ```
+
+Stamp a **semantic version** (`x.y.z`, optionally with a `-suffix`), never
+a bare commit hash. An agent reports its version on every connection, and
+servers up to v0.11.1 refuse an agent whose version they cannot parse from
+its second connection onward — such an agent connects once and never
+reconnects. The agent logs an error at start when its build version would
+not parse.
 
 ### Quick setup with `proxiport-setup`
 
@@ -486,6 +495,19 @@ proxiportd --version
     it is truncated. Releases after v0.10.0 do this themselves every time
     the server starts, so upgrading straight to one of them needs no
     manual step.
+
+!!! warning "Upgrading an agent from v0.9.x or earlier"
+    v0.10.0 gave the agent its own account, `proxiport-agent`, and moved
+    its default `data_dir` from `/var/lib/proxiport` to
+    `/var/lib/proxiport-agent`. The packages create both. An agent that
+    was installed by hand, runs as some other account and has no
+    `data_dir` line of its own falls back to the new default after the
+    upgrade and refuses to start with
+    `failed to create data_dir "/var/lib/proxiport-agent": permission denied`.
+    Either set `data_dir` in `[client]` to the directory that account
+    already owns, or move the agent to the `proxiport-agent` account as
+    shown under
+    [Manual install — tarball](#manual-install-tarball-other-platforms).
 
 Downgrading is the same command with an older package. The client
 database schema is versioned and migrated forward on start, so a

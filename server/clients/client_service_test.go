@@ -31,6 +31,7 @@ import (
 	"github.com/proximile/proxiport/server/clientsauth"
 	"github.com/proximile/proxiport/server/ports"
 	chshare "github.com/proximile/proxiport/share"
+	"github.com/proximile/proxiport/share/comm"
 	"github.com/proximile/proxiport/share/models"
 	"github.com/proximile/proxiport/share/test"
 )
@@ -1150,4 +1151,59 @@ func TestShouldStartTunnelsWithSubdomains(t *testing.T) {
 			assert.Equal(t, "12345678", mockCaddyAPI.DeletedRouteID)
 		})
 	}
+}
+
+// TestStartClientReconnectWithUnparseableVersion covers a client whose build
+// reports a version that is not a semantic version (a source build stamped
+// with a commit hash). Its first connection registers it without any version
+// check, so a reconnect must not be the first place that refuses it: it used to
+// fail with "failed to determine client version" on every reconnect until the
+// client's record was purged, and the stored tunnels never came back. Such a
+// client is treated as current, so the server still asks it whether each
+// stored tunnel is allowed before re-establishing it.
+func TestStartClientReconnectWithUnparseableVersion(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	pinned := probe.Addr().(*net.TCPAddr).Port
+	require.NoError(t, probe.Close())
+
+	pinnedRemote, err := models.NewRemote(fmt.Sprintf("%d:127.0.0.1:22", pinned))
+	require.NoError(t, err)
+
+	// An empty repository: the first connection takes the new-client path.
+	cs := NewClientService(
+		&clienttunnel.InternalTunnelProxyConfig{},
+		ports.NewPortDistributor(mapset.NewSetFromSlice([]interface{}{pinned})),
+		NewClientRepository(nil, &hour, testLog),
+		testLog,
+		nil,
+	)
+
+	const hashVersion = "b8f2c1d"
+
+	connMock1 := test.NewConnMock()
+	connMock1.ReturnRemoteAddr = &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 2345}
+	c1, err := cs.StartClient(
+		context.Background(), "test-client-auth", "hand-built-client", connMock1, false,
+		&chshare.ConnectionRequest{Version: hashVersion, Remotes: []*models.Remote{pinnedRemote}}, testLog)
+	require.NoError(t, err)
+	require.Len(t, c1.GetTunnels(), 1)
+	c1.SetDisconnectedNow()
+
+	// Reconnect without remotes, so the stored tunnel is the one to re-establish
+	// and the server has to ask the client whether it is still allowed.
+	connMock2 := test.NewConnMock()
+	connMock2.ReturnRemoteAddr = &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 2346}
+	connMock2.ReturnOk = true
+	connMock2.ReturnResponsePayload = []byte(`{"IsAllowed": true}`)
+	c2, err := cs.StartClient(
+		context.Background(), "test-client-auth", "hand-built-client", connMock2, false,
+		&chshare.ConnectionRequest{Version: hashVersion}, testLog)
+	require.NoError(t, err)
+	require.Len(t, c2.GetTunnels(), 1)
+	assert.Equal(t, strconv.Itoa(pinned), c2.GetTunnels()[0].LocalPort)
+
+	reqName, _, _ := connMock2.InputSendRequest()
+	assert.Equal(t, comm.RequestTypeCheckTunnelAllowed, reqName,
+		"a client of unknown version must still be asked about its tunnel_allowed policy")
 }

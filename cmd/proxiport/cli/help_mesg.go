@@ -127,7 +127,7 @@ var ClientHelp = `
     Defaults: false
 
     --data-dir, Temporary directory to store temp client data.
-    Defaults: /var/lib/proxiport (unix) or C:\Program Files\proxiport (windows)
+    Defaults: /var/lib/proxiport-agent (unix) or C:\Program Files\proxiport (windows)
 
     --remote-commands-send-back-limit, Limit the maximum length of the command or script output that is sent back.
     Applies to the stdout and stderr separately. If exceeded the specified number of bytes are sent.
