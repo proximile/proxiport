@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/gorilla/websocket"
+	"github.com/hashicorp/go-version"
 	"github.com/jpillora/backoff"
 	"github.com/shirou/gopsutil/v3/host"
 	"golang.org/x/crypto/ssh"
@@ -163,6 +164,15 @@ func NewClient(config *ClientConfigHolder, filesAPI files.FileAPI) (*Client, err
 		logger.Errorf("no client credential configured — set 'auth' in the [client] config, pass --auth, or set the PROXIPORT_AUTH environment variable (format \"client_id:password\"); the agent will fail server authentication until one is provided")
 	} else {
 		logger.Infof("Client credential loaded for client id %q", config.Client.AuthUser)
+	}
+
+	// The server records the version a client reports, and older servers
+	// refuse a client whose version they cannot parse from its second
+	// connection on. A source build stamped with something other than a
+	// semantic version (a commit hash, say) therefore connected once and
+	// never reconnected. Say so at start, where the build flag is easy to fix.
+	if _, verr := version.NewVersion(chshare.BuildVersion); verr != nil {
+		logger.Errorf("this build reports version %q, which is not a semantic version; older servers refuse such a client on every reconnect after the first — rebuild with -ldflags \"-X github.com/proximile/proxiport/share.BuildVersion=<x.y.z>\"", chshare.BuildVersion)
 	}
 
 	logger.Infof("NewFetcher client instance with sessionID %s", sessionID)
