@@ -86,8 +86,10 @@ func TestHandleUploadRequest(t *testing.T) {
 				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp.txt")
 				fs.On("Exist", expectedTempFilePath).Return(false, nil)
 
-				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), files.DefaultMode).Return(true, nil)
-				fs.On("CreateDirIfNotExists", "/destination", files.DefaultMode).Return(true, nil)
+				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), files.UploadStagingDirMode).Return(true, nil)
+				fs.On("Exist", "/destination").Return(false, nil)
+				fs.On("Exist", "/").Return(true, nil)
+				fs.On("CreateDirIfNotExists", "/destination", destinationDirMode).Return(true, nil)
 
 				fileExpectation := func(f io.ReadCloser) bool {
 					actualFileContent, err := io.ReadAll(f)
@@ -146,8 +148,8 @@ func TestHandleUploadRequest(t *testing.T) {
 				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp2.txt")
 				fs.On("Exist", expectedTempFilePath).Return(false, nil)
 
-				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), os.FileMode(0700)).Return(true, nil)
-				fs.On("CreateDirIfNotExists", "/destination", os.FileMode(0700)).Return(true, nil)
+				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), files.UploadStagingDirMode).Return(true, nil)
+				fs.On("Exist", "/destination").Return(true, nil)
 
 				fileMock := &test.ReadWriteCloserMock{}
 				fileMock.Reader = strings.NewReader("some content")
@@ -156,7 +158,7 @@ func TestHandleUploadRequest(t *testing.T) {
 				fs.On("Open", expectedTempFilePath).Return(fileMock, nil)
 
 				fs.On("CreateFile", expectedTempFilePath, mock.Anything).Return(int64(12), nil)
-				fs.On("Remove", filepath.Join("/destination", "file2.txt")).Return(nil)
+				fs.On("GetFileMode", filepath.Join("/destination", "file2.txt")).Return(os.FileMode(0644), nil)
 				fs.On("Rename", expectedTempFilePath, filepath.Join("/destination", "file2.txt")).Return(nil)
 				fs.On("ChangeOwner", filepath.Join("data", "filepush", "file_temp2.txt"), "admin", "group").Return(nil)
 				fs.On("ChangeMode", filepath.Join("data", "filepush", "file_temp2.txt"), os.FileMode(0700)).Return(nil)
@@ -224,7 +226,7 @@ func TestHandleUploadRequest(t *testing.T) {
 				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp.txt")
 				fs.On("Exist", expectedTempFilePath).Return(false, nil)
 
-				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), files.DefaultMode).Return(true, nil)
+				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), files.UploadStagingDirMode).Return(true, nil)
 
 				fileMock := &test.ReadWriteCloserMock{}
 				fileMock.Reader = strings.NewReader("some content")
@@ -257,8 +259,8 @@ func TestHandleUploadRequest(t *testing.T) {
 				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp7.txt")
 				fs.On("Exist", expectedTempFilePath).Return(false, nil)
 
-				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), os.FileMode(0744)).Return(true, nil)
-				fs.On("CreateDirIfNotExists", "/destination", os.FileMode(0744)).Return(true, nil)
+				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), files.UploadStagingDirMode).Return(true, nil)
+				fs.On("Exist", "/destination").Return(true, nil)
 
 				fs.On("CreateFile", expectedTempFilePath, mock.Anything).Return(int64(12), nil)
 
@@ -277,7 +279,6 @@ func TestHandleUploadRequest(t *testing.T) {
 
 				fs.On("GetFileOwnerAndGroup", filepath.Join("/destination", "file7.txt")).Return(defaultUID, defaultGID, nil)
 
-				fs.On("Remove", filepath.Join("/destination", "file7.txt")).Return(nil)
 				fs.On("Rename", expectedTempFilePath, filepath.Join("/destination", "file7.txt")).Return(nil)
 				fs.On("ChangeOwner", filepath.Join("data", "filepush", "file_temp7.txt"), "admin", "group").Return(nil)
 				fs.On("ChangeMode", filepath.Join("data", "filepush", "file_temp7.txt"), os.FileMode(0744)).Return(nil)
@@ -323,8 +324,8 @@ func TestHandleUploadRequest(t *testing.T) {
 				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp8.txt")
 				fs.On("Exist", expectedTempFilePath).Return(false, nil)
 
-				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), os.FileMode(0744)).Return(true, nil)
-				fs.On("CreateDirIfNotExists", "/destination", os.FileMode(0744)).Return(true, nil)
+				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), files.UploadStagingDirMode).Return(true, nil)
+				fs.On("Exist", "/destination").Return(true, nil)
 
 				fs.On("CreateFile", expectedTempFilePath, mock.Anything).Return(int64(12), nil)
 				fs.On("ChangeMode", expectedTempFilePath, os.FileMode(0744)).Return(nil)
@@ -362,6 +363,78 @@ func TestHandleUploadRequest(t *testing.T) {
 				Message: "file successfully copied to destination " + filepath.Join("/destination", "file8.txt"),
 				Status:  "success",
 			},
+		},
+		{
+			name: "chown failure fails the push and removes the staged file",
+			wantUploadedFile: &models.UploadedFile{
+				ID:                   "97e97cdd-135a-4620-ab50-d44025b8fe79",
+				SourceFilePath:       filepath.Join("source", "file_temp9.txt"),
+				DestinationPath:      filepath.Join("/destination", "file9.txt"),
+				DestinationFileOwner: "nobody",
+				DestinationFileGroup: "nogroup",
+				Md5Checksum:          test.Md5Hash("some content"),
+			},
+			fsCallback: func(fs *test.FileAPIMock) {
+				fs.On("Exist", filepath.Join("/destination", "file9.txt")).Return(false, nil)
+
+				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp9.txt")
+				fs.On("Exist", expectedTempFilePath).Return(false, nil)
+				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), files.UploadStagingDirMode).Return(true, nil)
+				fs.On("CreateFile", expectedTempFilePath, mock.Anything).Return(int64(12), nil)
+
+				fileMock := &test.ReadWriteCloserMock{}
+				fileMock.Reader = strings.NewReader("some content")
+				fileMock.On("Close").Return(nil)
+				fs.On("Open", expectedTempFilePath).Return(fileMock, nil)
+
+				fs.On("ChangeOwner", expectedTempFilePath, "nobody", "nogroup").Return(fmt.Errorf("operation not permitted"))
+				fs.On("Remove", expectedTempFilePath).Return(nil)
+			},
+			sysUserLookupCallback: func(sysUsrLookup *test.SysUserProviderMock) {
+				sysUsrLookup.On("GetCurrentUserAndGroup").Return(&user.User{Username: "some"}, &user.Group{Name: "gr"}, nil)
+			},
+			fileProviderCallback: buildDefaultFileProviderMock(filepath.Join("source", "file_temp9.txt"), "some content"),
+			optionsCallback:      defaultOptionsCallback,
+			wantError: fmt.Sprintf(
+				"chown of %s to nobody:nogroup failed: operation not permitted",
+				filepath.Join("/destination", "file9.txt"),
+			),
+		},
+		{
+			name: "failed move removes the staged file and the directories it created",
+			wantUploadedFile: &models.UploadedFile{
+				ID:              "97e97cdd-135a-4620-ab50-d44025b8fe80",
+				SourceFilePath:  filepath.Join("source", "file_temp10.txt"),
+				DestinationPath: filepath.Join("/destination", "sub", "file10.txt"),
+				Md5Checksum:     test.Md5Hash("some content"),
+			},
+			fsCallback: func(fs *test.FileAPIMock) {
+				destination := filepath.Join("/destination", "sub", "file10.txt")
+				fs.On("Exist", destination).Return(false, nil)
+
+				expectedTempFilePath := filepath.Join("data", files.DefaultUploadTempFolder, "file_temp10.txt")
+				fs.On("Exist", expectedTempFilePath).Return(false, nil)
+				fs.On("CreateDirIfNotExists", filepath.Join("data", files.DefaultUploadTempFolder), files.UploadStagingDirMode).Return(true, nil)
+				fs.On("CreateFile", expectedTempFilePath, mock.Anything).Return(int64(12), nil)
+
+				fileMock := &test.ReadWriteCloserMock{}
+				fileMock.Reader = strings.NewReader("some content")
+				fileMock.On("Close").Return(nil)
+				fs.On("Open", expectedTempFilePath).Return(fileMock, nil)
+
+				fs.On("Exist", filepath.Join("/destination", "sub")).Return(false, nil)
+				fs.On("Exist", "/destination").Return(false, nil)
+				fs.On("Exist", "/").Return(true, nil)
+				fs.On("CreateDirIfNotExists", filepath.Join("/destination", "sub"), destinationDirMode).Return(true, nil)
+
+				fs.On("Rename", expectedTempFilePath, destination).Return(fmt.Errorf("read-only file system"))
+				fs.On("Remove", filepath.Join("/destination", "sub")).Return(nil).Once()
+				fs.On("Remove", "/destination").Return(nil).Once()
+				fs.On("Remove", expectedTempFilePath).Return(nil).Once()
+			},
+			fileProviderCallback: buildDefaultFileProviderMock(filepath.Join("source", "file_temp10.txt"), "some content"),
+			optionsCallback:      defaultOptionsCallback,
+			wantError:            "read-only file system",
 		},
 		{
 			name:             "uploads disabled",

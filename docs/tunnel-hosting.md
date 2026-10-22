@@ -367,8 +367,8 @@ Useful form fields:
 | `dest` (required) | Absolute destination path on the agent. Relative paths are rejected — see below. |
 | `force` | Overwrite if the file already exists. |
 | `sync` | Compare MD5; overwrite only if changed. Apply mode/owner if requested. |
-| `mode` | Unix mode bits, e.g. `0644`. Default `0764`. |
-| `user`, `group` | Unix owner / group. Requires sudo on the agent for non-default owners. |
+| `mode` | Unix mode bits, e.g. `0644`. Without it the agent creates the file with `0764` less its umask (`0744` under the usual `022`). Directories the agent has to create for the destination get `0755`. |
+| `user`, `group` | Unix owner / group, by name or numeric id. An agent running as root sets them directly; any other agent needs passwordless `sudo` for `chown`. If the mode or owner cannot be applied, the push fails and the destination is left as it was. |
 
 ### File-size limit
 

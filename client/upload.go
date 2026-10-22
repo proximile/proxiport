@@ -23,6 +23,10 @@ import (
 	"github.com/proximile/proxiport/share/models"
 )
 
+// destinationDirMode is the mode of directories the agent creates to hold a
+// pushed file.
+const destinationDirMode = os.FileMode(0o755)
+
 type SourceFileProvider interface {
 	Open(path string) (io.ReadCloser, error)
 }
@@ -140,12 +144,12 @@ func (um *UploadManager) HandleUploadRequest(reqPayload []byte) (*models.UploadR
 		return nil, err
 	}
 	if fileShouldBeSynched {
-		um.Logger.Debugf("file %s should be synched", uploadedFile.DestinationPath)
+		um.Debugf("file %s should be synched", uploadedFile.DestinationPath)
 		return um.handleWritingFile(uploadedFile)
 	}
 
 	msg := fmt.Sprintf("file %s already exists, should not be synched or overwritten with force", uploadedFile.DestinationPath)
-	um.Logger.Infof(msg)
+	um.Infof(msg)
 	return &models.UploadResponse{
 		UploadResponseShort: models.UploadResponseShort{
 			ID:       uploadedFile.ID,
@@ -218,37 +222,51 @@ func (um *UploadManager) fileShouldBeSynched(uploadedFile *models.UploadedFile) 
 	return false, nil
 }
 
-func (um *UploadManager) handleWritingFile(uploadedFile *models.UploadedFile) (resp *models.UploadResponse, err error) {
+func (um *UploadManager) handleWritingFile(uploadedFile *models.UploadedFile) (*models.UploadResponse, error) {
 	copiedBytes, tempFilePath, err := um.copyFileToTempLocation(
 		uploadedFile.SourceFilePath,
-		uploadedFile.DestinationFileMode,
 		uploadedFile.Md5Checksum,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	msgParts := []string{}
+	// From here on the staged payload is removed unless it reaches the
+	// destination, so a failed push leaves nothing behind in the upload dir.
+	moved := false
+	defer func() {
+		if !moved {
+			um.removeStagedFile(tempFilePath)
+		}
+	}()
 
+	// A mode or owner that cannot be applied fails the push rather than
+	// writing the file with the wrong permissions and reporting success.
 	err = um.chmodFile(tempFilePath, uploadedFile.DestinationFileMode)
 	if err != nil {
-		msgParts = append(msgParts, fmt.Sprintf("chmod failed: %v", err))
+		return nil, fmt.Errorf("chmod of %s failed: %w", uploadedFile.DestinationPath, err)
 	}
 
 	err = um.chownFile(tempFilePath, uploadedFile.DestinationFileOwner, uploadedFile.DestinationFileGroup)
 	if err != nil {
-		msgParts = append(msgParts, fmt.Sprintf("chown of %s failed: %v", tempFilePath, err))
+		return nil, fmt.Errorf(
+			"chown of %s to %s:%s failed: %w",
+			uploadedFile.DestinationPath,
+			uploadedFile.DestinationFileOwner,
+			uploadedFile.DestinationFileGroup,
+			err,
+		)
 	}
 
 	err = um.moveFileToDestination(tempFilePath, uploadedFile)
 	if err != nil {
 		return nil, err
 	}
-	um.Logger.Debugf("copied remote file %s to the temp path %s", uploadedFile.SourceFilePath, tempFilePath)
-	msgParts = append(msgParts, "file successfully copied to destination "+uploadedFile.DestinationPath)
+	moved = true
+	um.Debugf("copied remote file %s to the temp path %s", uploadedFile.SourceFilePath, tempFilePath)
 
-	message := strings.Join(msgParts, ".")
-	um.Logger.Debugf(message)
+	message := "file successfully copied to destination " + uploadedFile.DestinationPath
+	um.Debugf(message)
 
 	return &models.UploadResponse{
 		UploadResponseShort: models.UploadResponseShort{
@@ -261,6 +279,13 @@ func (um *UploadManager) handleWritingFile(uploadedFile *models.UploadedFile) (r
 	}, nil
 }
 
+func (um *UploadManager) removeStagedFile(tempFilePath string) {
+	err := um.FilesAPI.Remove(tempFilePath)
+	if err != nil && !os.IsNotExist(err) {
+		um.Errorf("failed to remove %s: %v", tempFilePath, err)
+	}
+}
+
 func (um *UploadManager) chownFile(filePath, owner, group string) (err error) {
 	if owner == "" && group == "" {
 		return nil
@@ -271,7 +296,7 @@ func (um *UploadManager) chownFile(filePath, owner, group string) (err error) {
 	}
 
 	if um.ownerOrGroupMatchesCurrentUser(owner, group, curUser, curGroup) {
-		um.Logger.Debugf(
+		um.Debugf(
 			"given user %s and/or group %s match current user %s and/or group %s therefore no chown is needed",
 			owner,
 			group,
@@ -286,7 +311,7 @@ func (um *UploadManager) chownFile(filePath, owner, group string) (err error) {
 		return err
 	}
 
-	um.Logger.Debugf(
+	um.Debugf(
 		"chowned file %s, %s:%s",
 		filePath,
 		owner,
@@ -327,7 +352,7 @@ func (um *UploadManager) chmodFile(path string, mode os.FileMode) (err error) {
 		return err
 	}
 
-	um.Logger.Debugf(
+	um.Debugf(
 		"chmoded file %s: %v",
 		path,
 		mode,
@@ -337,20 +362,34 @@ func (um *UploadManager) chmodFile(path string, mode os.FileMode) (err error) {
 }
 
 func (um *UploadManager) moveFileToDestination(tempFilePath string, uploadedFile *models.UploadedFile) (err error) {
-	err = um.prepareDestinationDir(uploadedFile.DestinationPath, uploadedFile.DestinationFileMode)
+	createdDirs, err := um.prepareDestinationDir(uploadedFile.DestinationPath)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			um.removeCreatedDirs(createdDirs)
+		}
+	}()
 
 	destinationFileExists, err := um.FilesAPI.Exist(uploadedFile.DestinationPath)
 	if err != nil {
 		return err
 	}
 	if destinationFileExists {
-		um.Logger.Debugf("destination file %s already exists, will delete it", uploadedFile.DestinationPath)
-		err = um.FilesAPI.Remove(uploadedFile.DestinationPath)
+		var destinationMode os.FileMode
+		destinationMode, err = um.FilesAPI.GetFileMode(uploadedFile.DestinationPath)
 		if err != nil {
 			return err
+		}
+		// A regular file is replaced by the rename itself, so it is never
+		// deleted first: a move that fails leaves the old file in place.
+		if !destinationMode.IsRegular() {
+			um.Debugf("destination %s already exists, will delete it", uploadedFile.DestinationPath)
+			err = um.FilesAPI.Remove(uploadedFile.DestinationPath)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -362,41 +401,70 @@ func (um *UploadManager) moveFileToDestination(tempFilePath string, uploadedFile
 	return nil
 }
 
-func (um *UploadManager) prepareDestinationDir(destinationPath string, mode os.FileMode) error {
+// prepareDestinationDir creates the destination's directory if it is missing
+// and returns the directories it created, deepest first, so a push that fails
+// afterwards can remove them again. Directories get destinationDirMode, never
+// the pushed file's mode: a 0644 directory cannot be entered by anyone but root.
+func (um *UploadManager) prepareDestinationDir(destinationPath string) (createdDirs []string, err error) {
 	destinationDir := filepath.Dir(destinationPath)
 
-	if mode == 0 {
-		mode = files.DefaultMode
+	for dir := destinationDir; ; {
+		exists, existErr := um.FilesAPI.Exist(dir)
+		if existErr != nil {
+			return nil, existErr
+		}
+		if exists {
+			break
+		}
+		createdDirs = append(createdDirs, dir)
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
 
-	destinationDirWasCreated, err := um.FilesAPI.CreateDirIfNotExists(destinationDir, mode)
+	if len(createdDirs) == 0 {
+		return nil, nil
+	}
+
+	_, err = um.FilesAPI.CreateDirIfNotExists(destinationDir, destinationDirMode)
 	if err != nil {
-		return err
+		// MkdirAll may have got part of the way.
+		um.removeCreatedDirs(createdDirs)
+		return nil, err
 	}
-	if destinationDirWasCreated {
-		um.Logger.Debugf("created destination file dir %s for the uploaded file", destinationDir)
-	}
+	um.Debugf("created destination file dir %s for the uploaded file", destinationDir)
 
-	return nil
+	return createdDirs, nil
 }
 
-func (um *UploadManager) copyFileToTempLocation(remoteFilePath string, targetFileMode os.FileMode, expectedMd5Checksum []byte) (
+// removeCreatedDirs removes directories a failed push created, deepest first.
+// Remove refuses a directory that is not empty, so nothing else is lost.
+func (um *UploadManager) removeCreatedDirs(createdDirs []string) {
+	for _, dir := range createdDirs {
+		err := um.FilesAPI.Remove(dir)
+		if err != nil && !os.IsNotExist(err) {
+			um.Errorf("failed to remove directory %s: %v", dir, err)
+			return
+		}
+	}
+}
+
+func (um *UploadManager) copyFileToTempLocation(remoteFilePath string, expectedMd5Checksum []byte) (
 	bytesCopied int64,
 	tempFilePath string,
 	err error,
 ) {
 	tempFileName := filepath.Base(remoteFilePath)
 
-	if targetFileMode == 0 {
-		targetFileMode = files.DefaultMode
-	}
-
-	tempDirWasCreated, err := um.FilesAPI.CreateDirIfNotExists(um.OptionsProvider.GetUploadDir(), targetFileMode)
+	tempDirWasCreated, err := um.FilesAPI.CreateDirIfNotExists(um.OptionsProvider.GetUploadDir(), files.UploadStagingDirMode)
 	if err != nil {
 		return 0, "", err
 	}
 	if tempDirWasCreated {
-		um.Logger.Debugf("created temp dir %s for uploaded files", um.OptionsProvider.GetUploadDir())
+		um.Debugf("created temp dir %s for uploaded files", um.OptionsProvider.GetUploadDir())
 	}
 
 	tempFilePath = filepath.Join(um.OptionsProvider.GetUploadDir(), tempFileName)
@@ -407,7 +475,7 @@ func (um *UploadManager) copyFileToTempLocation(remoteFilePath string, targetFil
 	}
 
 	if tempFileExists {
-		um.Logger.Debugf("temp file %s already exists, will delete it", tempFilePath)
+		um.Debugf("temp file %s already exists, will delete it", tempFilePath)
 		err = um.FilesAPI.Remove(tempFilePath)
 		if err != nil {
 			return 0, tempFilePath, err
@@ -420,11 +488,18 @@ func (um *UploadManager) copyFileToTempLocation(remoteFilePath string, targetFil
 	}
 	defer func() { _ = remoteFile.Close() }()
 
+	// A partly written or unverified payload is not left in the upload dir.
+	defer func() {
+		if err != nil {
+			um.removeStagedFile(tempFilePath)
+		}
+	}()
+
 	copiedBytes, err := um.FilesAPI.CreateFile(tempFilePath, remoteFile)
 	if err != nil {
 		return 0, tempFilePath, err
 	}
-	um.Logger.Debugf("copied %d bytes from server path %s to temp path %s", copiedBytes, remoteFilePath, tempFilePath)
+	um.Debugf("copied %d bytes from server path %s to temp path %s", copiedBytes, remoteFilePath, tempFilePath)
 
 	hashSumMatch, err := files.Md5HashMatch(expectedMd5Checksum, tempFilePath, um.FilesAPI)
 	if err != nil {
@@ -432,11 +507,6 @@ func (um *UploadManager) copyFileToTempLocation(remoteFilePath string, targetFil
 	}
 
 	if !hashSumMatch {
-		err := um.FilesAPI.Remove(tempFilePath)
-		if err != nil {
-			um.Logger.Errorf("failed to remove %s: %v", tempFilePath, err)
-		}
-
 		return 0,
 			tempFilePath,
 			fmt.Errorf(
