@@ -101,7 +101,11 @@ func TestRotationTickerRotates(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	rotation, err := newRotationProvider(nil, 150*time.Millisecond, 0, dir, dso, nil)
+	// A real logger: the loop logs any failed rotation, and with a 150 ms
+	// ticker one can fail while the test is closing the provider. Logging
+	// through a nil logger panics and takes the whole package down.
+	l := logger.NewLogger("test", logger.LogOutput{File: io.Discard}, logger.LogLevelError)
+	rotation, err := newRotationProvider(l, 150*time.Millisecond, 0, dir, dso, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rotation.Close() })
 
