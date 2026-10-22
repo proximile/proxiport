@@ -152,9 +152,10 @@ func (al *APIListener) handlePostCommand(w http.ResponseWriter, req *http.Reques
 	execCmdInput.ClientID = cid
 	execCmdInput.IsScript = false
 
-	resp := al.handleExecuteCommand(req.Context(), w, execCmdInput)
+	resp, refused := al.handleExecuteCommand(req.Context(), w, execCmdInput)
 
-	if resp != nil {
+	switch {
+	case resp != nil:
 		al.auditLog.Entry(auditlog.ApplicationClientCommand, auditlog.ActionExecuteStart).
 			WithHTTPRequest(req).
 			WithClientID(cid).
@@ -162,7 +163,22 @@ func (al *APIListener) handlePostCommand(w http.ResponseWriter, req *http.Reques
 			WithResponse(resp).
 			WithID(resp.JID).
 			Save()
+	case refused != nil:
+		// Record the attempt even though the client refused it, as the
+		// multi-client path does.
+		al.auditLog.Entry(auditlog.ApplicationClientCommand, auditlog.ActionExecuteStart).
+			WithHTTPRequest(req).
+			WithClientID(cid).
+			WithRequest(execCmdInput).
+			WithResponse(refusedJobResponse{Error: refused.Error()}).
+			Save()
 	}
+}
+
+// refusedJobResponse is the audit-log response of a command the client
+// refused to start.
+type refusedJobResponse struct {
+	Error string `json:"error"`
 }
 
 // handleGetCommands handles GET /clients/{client_id}/commands
@@ -363,14 +379,18 @@ func (al *APIListener) handlePostMultiClientCommand(w http.ResponseWriter, req *
 	al.Debugf("Multi-client Job[id=%q] created to execute remote command on clients %s, groups %s, tags %s: %q.", multiJob.JID, reqBody.ClientIDs, reqBody.GroupIDs, reqBody.GetClientTags(), reqBody.Command)
 }
 
-func (al *APIListener) handleExecuteCommand(ctx context.Context, w http.ResponseWriter, executeInput *api.ExecuteInput) *newJobResponse {
+// handleExecuteCommand starts a single-client job and writes the response. It
+// returns the new job on success. When the client itself refuses to run the
+// command (for example because its command policy forbids it), it returns that
+// refusal instead, so the caller can still record the attempt.
+func (al *APIListener) handleExecuteCommand(ctx context.Context, w http.ResponseWriter, executeInput *api.ExecuteInput) (*newJobResponse, error) {
 	if executeInput.Command == "" {
 		al.jsonErrorResponseWithTitle(w, http.StatusBadRequest, "Command cannot be empty.")
-		return nil
+		return nil, nil
 	}
 	if err := validation.ValidateInterpreter(executeInput.Interpreter, executeInput.IsScript); err != nil {
 		al.jsonErrorResponseWithError(w, http.StatusBadRequest, "Invalid interpreter.", err)
-		return nil
+		return nil, nil
 	}
 
 	if executeInput.TimeoutSec <= 0 {
@@ -380,16 +400,16 @@ func (al *APIListener) handleExecuteCommand(ctx context.Context, w http.Response
 	client, err := al.clientService.GetActiveByID(executeInput.ClientID)
 	if err != nil {
 		al.jsonErrorResponseWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to find an active client with id=%q.", executeInput.ClientID), err)
-		return nil
+		return nil, nil
 	}
 	if client == nil {
 		al.jsonErrorResponseWithTitle(w, http.StatusNotFound, fmt.Sprintf("Active client with id=%q not found.", executeInput.ClientID))
-		return nil
+		return nil, nil
 	}
 
 	if client.IsPaused() {
 		al.jsonErrorResponseWithTitle(w, http.StatusNotFound, fmt.Sprintf("failed to execute command/script for client with id %s due to client being paused (reason = %s)", client.GetID(), client.GetPausedReason()))
-		return nil
+		return nil, nil
 	}
 
 	// send the command to the client
@@ -398,7 +418,7 @@ func (al *APIListener) handleExecuteCommand(ctx context.Context, w http.Response
 	jid, err := generateNewJobID()
 	if err != nil {
 		al.jsonError(w, err)
-		return nil
+		return nil, nil
 	}
 	curJob := models.Job{
 		JID:         jid,
@@ -420,10 +440,10 @@ func (al *APIListener) handleExecuteCommand(ctx context.Context, w http.Response
 	if err != nil {
 		if _, ok := err.(*comm.ClientError); ok {
 			al.jsonErrorResponseWithTitle(w, http.StatusConflict, err.Error())
-		} else {
-			al.jsonErrorResponseWithError(w, http.StatusInternalServerError, "Failed to execute remote command.", err)
+			return nil, err
 		}
-		return nil
+		al.jsonErrorResponseWithError(w, http.StatusInternalServerError, "Failed to execute remote command.", err)
+		return nil, nil
 	}
 
 	// set fields received in response
@@ -442,7 +462,7 @@ func (al *APIListener) handleExecuteCommand(ctx context.Context, w http.Response
 
 	if err := al.jobProvider.CreateJob(&curJob); err != nil {
 		al.jsonErrorResponseWithError(w, http.StatusInternalServerError, "Failed to persist a new job.", err)
-		return nil
+		return nil, nil
 	}
 
 	resp := &newJobResponse{
@@ -453,7 +473,7 @@ func (al *APIListener) handleExecuteCommand(ctx context.Context, w http.Response
 
 	al.Debugf("Job[id=%q] created to execute remote command on client with id=%q: %q.", curJob.JID, executeInput.ClientID, executeInput.Command)
 
-	return resp
+	return resp, nil
 }
 
 // handleCommandsWS handles GET /ws/commands

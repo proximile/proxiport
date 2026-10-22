@@ -1,9 +1,14 @@
 package schedule
 
 import (
+	stderrors "errors"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/proximile/proxiport/server/api/errors"
 )
 
 func TestValidate(t *testing.T) {
@@ -47,6 +52,21 @@ func TestValidate(t *testing.T) {
 				},
 			},
 			ExpectedError: "command cannot be empty",
+		},
+		{
+			Name: "negative timeout",
+			Schedule: &Schedule{
+				Base: Base{
+					Type:     TypeCommand,
+					Schedule: "* * * * *",
+				},
+				Details: Details{
+					ClientIDs:  []string{"id-1"},
+					Command:    "/bin/true",
+					TimeoutSec: -5,
+				},
+			},
+			ExpectedError: "timeout_sec must not be negative",
 		},
 		{
 			Name: "ok command",
@@ -116,6 +136,11 @@ func TestValidate(t *testing.T) {
 				assert.NoError(t, err)
 			} else {
 				assert.Equal(t, tc.ExpectedError, err.Error())
+				// The handler maps the error to its status only when it is
+				// an errors.APIError value.
+				var apiErr errors.APIError
+				require.True(t, stderrors.As(err, &apiErr))
+				assert.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
 			}
 		})
 	}

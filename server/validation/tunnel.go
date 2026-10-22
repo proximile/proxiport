@@ -44,7 +44,10 @@ func ResolveIdleTunnelTimeoutValue(idleTimeoutMinutesStr string, skipIdleTimeout
 
 	if idleTimeoutMin > idleTimeoutMinutes || idleTimeoutMinutes > idleTimeoutMax {
 		return 0, errors2.APIError{
-			Message:    fmt.Sprintf("idle timeoout param should be in range [%d,%d]", idleTimeoutMin, idleTimeoutMax),
+			Message: fmt.Sprintf(
+				"idle timeout should be between %d and %d minutes (%s)",
+				int(idleTimeoutMin/time.Minute), int(idleTimeoutMax/time.Minute), humanDays(idleTimeoutMax),
+			),
 			HTTPStatus: http.StatusBadRequest,
 		}
 	}
@@ -83,10 +86,23 @@ func ResolveTunnelAutoCloseValue(durationStr string) (time.Duration, error) {
 
 	if dur > tunnelAutoCloseMax {
 		return 0, errors2.APIError{
-			Message:    fmt.Sprintf("tunnel auto-close value should not be more than %s", tunnelAutoCloseMax),
+			Message: fmt.Sprintf(
+				"tunnel auto-close value should not be more than %s (%d hours)",
+				humanDays(tunnelAutoCloseMax), int(tunnelAutoCloseMax/time.Hour),
+			),
 			HTTPStatus: http.StatusBadRequest,
 		}
 	}
 
 	return dur, nil
+}
+
+// humanDays renders a whole number of days, e.g. "7 days", for messages that
+// are shown to people as-is.
+func humanDays(d time.Duration) string {
+	days := int(d / (24 * time.Hour))
+	if days == 1 {
+		return "1 day"
+	}
+	return fmt.Sprintf("%d days", days)
 }

@@ -55,8 +55,6 @@ func (al *APIListener) handleScriptCreate(w http.ResponseWriter, req *http.Reque
 		WithID(storedValue.ID).
 		Save()
 
-	w.WriteHeader(http.StatusCreated)
-
 	al.writeJSONResponse(w, http.StatusCreated, api.NewSuccessPayload(storedValue))
 }
 
