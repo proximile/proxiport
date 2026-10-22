@@ -78,17 +78,27 @@ func (al *APIListener) wrapWithAuthMiddleware(isBearerOnly bool) mux.MiddlewareF
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authorized, username, err := al.lookupUser(r, isBearerOnly)
 			if err != nil {
-				al.Logf(logger.LogLevelError, err.Error())
-				if errors.Is(err, ErrTooManyRequests) {
+				switch {
+				case errors.Is(err, ErrTooManyRequests):
+					al.Logf(logger.LogLevelError, err.Error())
 					al.jsonErrorResponse(w, http.StatusTooManyRequests, err)
-					return
+				case errors.Is(err, ErrInvalidScopeOfThatToken):
+					// The credential is valid but its scope does not cover
+					// this route: a refusal, not a server fault.
+					al.Debugf("%v", err)
+					al.jsonErrorResponse(w, http.StatusForbidden, err)
+				case errors.Is(err, ErrThatPasswordHasExpired):
+					al.Debugf("%v", err)
+					al.jsonErrorResponse(w, http.StatusUnauthorized, err)
+				default:
+					al.Logf(logger.LogLevelError, err.Error())
+					al.jsonErrorResponse(w, http.StatusInternalServerError, err)
 				}
-				al.jsonErrorResponse(w, http.StatusInternalServerError, err)
 				return
 			}
 
-			if !al.handleBannedIPs(r, authorized) {
-				return
+			if !authorized {
+				al.recordFailedAuth(r, isBearerOnly)
 			}
 
 			if !authorized || username == "" {

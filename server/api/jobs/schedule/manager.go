@@ -213,7 +213,7 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 
 func (m *Manager) validate(s *Schedule) error {
 	if s.Type != TypeCommand && s.Type != TypeScript {
-		return &errors.APIError{
+		return errors.APIError{
 			Message:    "Invalid type.",
 			Err:        fmt.Errorf("type must be 'command' or 'script'"),
 			HTTPStatus: http.StatusBadRequest,
@@ -222,42 +222,50 @@ func (m *Manager) validate(s *Schedule) error {
 
 	err := m.cron.Validate(s.Schedule)
 	if err != nil {
-		return &errors.APIError{
+		return errors.APIError{
 			Message:    "Invalid schedule.",
 			Err:        err,
 			HTTPStatus: http.StatusBadRequest,
 		}
 	}
 
-	err = validation.ValidateInterpreter(s.Details.Interpreter, s.Type == TypeScript)
+	err = validation.ValidateInterpreter(s.Interpreter, s.Type == TypeScript)
 	if err != nil {
-		return &errors.APIError{
+		return errors.APIError{
 			Message:    "Invalid interpreter.",
 			Err:        err,
 			HTTPStatus: http.StatusBadRequest,
 		}
 	}
 
+	if s.TimeoutSec < 0 {
+		return errors.APIError{
+			Message:    "Invalid timeout.",
+			Err:        fmt.Errorf("timeout_sec must not be negative"),
+			HTTPStatus: http.StatusBadRequest,
+		}
+	}
+
 	switch s.Type {
 	case TypeCommand:
-		if s.Details.Command == "" {
-			return &errors.APIError{
+		if s.Command == "" {
+			return errors.APIError{
 				Message:    "Empty command.",
 				Err:        fmt.Errorf("command cannot be empty"),
 				HTTPStatus: http.StatusBadRequest,
 			}
 		}
 	case TypeScript:
-		if s.Details.Script == "" {
-			return &errors.APIError{
+		if s.Script == "" {
+			return errors.APIError{
 				Message:    "Empty script.",
 				Err:        fmt.Errorf("script cannot be empty"),
 				HTTPStatus: http.StatusBadRequest,
 			}
 		}
-		_, err := base64.StdEncoding.DecodeString(s.Details.Script)
+		_, err := base64.StdEncoding.DecodeString(s.Script)
 		if err != nil {
-			return &errors.APIError{
+			return errors.APIError{
 				Message:    "Invalid script.",
 				Err:        err,
 				HTTPStatus: http.StatusBadRequest,
@@ -283,8 +291,8 @@ func (m *Manager) run(ctx context.Context, id string) {
 		return
 	}
 
-	if !schedule.Details.Overlaps {
-		timeoutSec := schedule.Details.TimeoutSec
+	if !schedule.Overlaps {
+		timeoutSec := schedule.TimeoutSec
 		if timeoutSec <= 0 {
 			timeoutSec = m.runRemoteCmdTimeoutSec
 		}
@@ -304,17 +312,17 @@ func (m *Manager) run(ctx context.Context, id string) {
 	_, err = m.jobRunner.StartMultiClientJob(ctx, &jobs.MultiJobRequest{
 		ScheduleID:          &schedule.ID,
 		Username:            schedule.CreatedBy,
-		ClientIDs:           schedule.Details.ClientIDs,
-		ClientTags:          schedule.Details.ClientTags,
-		GroupIDs:            schedule.Details.GroupIDs,
-		Command:             schedule.Details.Command,
-		Script:              schedule.Details.Script,
-		Cwd:                 schedule.Details.Cwd,
-		IsSudo:              schedule.Details.IsSudo,
-		Interpreter:         schedule.Details.Interpreter,
-		TimeoutSec:          schedule.Details.TimeoutSec,
-		ExecuteConcurrently: schedule.Details.ExecuteConcurrently,
-		AbortOnError:        schedule.Details.AbortOnError,
+		ClientIDs:           schedule.ClientIDs,
+		ClientTags:          schedule.ClientTags,
+		GroupIDs:            schedule.GroupIDs,
+		Command:             schedule.Command,
+		Script:              schedule.Script,
+		Cwd:                 schedule.Cwd,
+		IsSudo:              schedule.IsSudo,
+		Interpreter:         schedule.Interpreter,
+		TimeoutSec:          schedule.TimeoutSec,
+		ExecuteConcurrently: schedule.ExecuteConcurrently,
+		AbortOnError:        schedule.AbortOnError,
 		IsScript:            schedule.Type == TypeScript,
 	})
 	if err != nil {

@@ -18,6 +18,15 @@ func TestValidate(t *testing.T) {
 			expectedError: "name is required, script is required",
 		},
 		{
+			name: "negative_timeout",
+			input: &InputScript{
+				Name:      "some name",
+				Script:    "val1",
+				TimoutSec: -5,
+			},
+			expectedError: "timeout_sec must not be negative",
+		},
+		{
 			name: "all_ok0",
 			input: &InputScript{
 				Name:   "some name",

@@ -46,15 +46,23 @@ func (al *APIListener) handleExecuteScript(w http.ResponseWriter, req *http.Requ
 	execCmdInput.ClientID = cid
 	execCmdInput.IsScript = true
 
-	resp := al.handleExecuteCommand(req.Context(), w, execCmdInput)
+	resp, refused := al.handleExecuteCommand(req.Context(), w, execCmdInput)
 
-	if resp != nil {
+	switch {
+	case resp != nil:
 		al.auditLog.Entry(auditlog.ApplicationClientScript, auditlog.ActionExecuteStart).
 			WithHTTPRequest(req).
 			WithClientID(cid).
 			WithRequest(execCmdInput).
 			WithResponse(resp).
 			WithID(resp.JID).
+			Save()
+	case refused != nil:
+		al.auditLog.Entry(auditlog.ApplicationClientScript, auditlog.ActionExecuteStart).
+			WithHTTPRequest(req).
+			WithClientID(cid).
+			WithRequest(execCmdInput).
+			WithResponse(refusedJobResponse{Error: refused.Error()}).
 			Save()
 	}
 }

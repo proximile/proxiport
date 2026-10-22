@@ -220,6 +220,62 @@ describe('apiErrorText', () => {
   });
 });
 
+describe('a stored session that is no longer valid', () => {
+  // The shell, the top bar and the page each load data in parallel. With a
+  // dead session every one of those requests used to fail at the server, and
+  // each failure counted toward the address's failed-login limit.
+  it('sends one request, not one per caller, before the session is known', async () => {
+    tokenStore.set('jwt-dead-parallel');
+    fetchMock.mockResolvedValue(jsonResponse({ errors: [{ title: 'unauthorized' }] }, 401));
+
+    const results = await Promise.allSettled([
+      apiGet('/vault-admin'),
+      apiGet('/me'),
+      apiGet('/clients')
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    for (const r of results) {
+      expect(r.status).toBe('rejected');
+      expect(((r as PromiseRejectedResult).reason as ApiException).status).toBe(401);
+    }
+    expect(get(tokenStore)).toBeNull();
+  });
+
+  it('lets the waiting requests through once the session is accepted', async () => {
+    tokenStore.set('jwt-live-parallel');
+    fetchMock.mockResolvedValue(jsonResponse({ data: { ok: true } }));
+
+    const results = await Promise.all([apiGet('/vault-admin'), apiGet('/me'), apiGet('/clients')]);
+
+    expect(results).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect((init.headers as Record<string, string>).Authorization).toBe(
+        'Bearer jwt-live-parallel'
+      );
+    }
+  });
+
+  it('does not hold requests back after the session has been accepted', async () => {
+    tokenStore.set('jwt-live-later');
+    fetchMock.mockResolvedValue(jsonResponse({ data: [] }));
+    await apiGet('/me');
+
+    let resolveFirst!: (r: Response) => void;
+    fetchMock.mockReset();
+    fetchMock
+      .mockImplementationOnce(() => new Promise<Response>((r) => (resolveFirst = r)))
+      .mockResolvedValue(jsonResponse({ data: [] }));
+
+    const slow = apiGet('/clients');
+    await apiGet('/tunnels');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    resolveFirst(jsonResponse({ data: [] }));
+    await slow;
+  });
+});
+
 describe('login', () => {
   it('uses basic auth and asks for a long session', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ data: { token: 'jwt-new' } }));

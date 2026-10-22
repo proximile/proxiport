@@ -54,18 +54,27 @@ func Rewrite404(h http.Handler, rewritePath string) http.HandlerFunc {
 }
 
 // Rewrite404ForVueJs Implement VueJS HTML5 history mode by rewriting specific URLs to /
+//
+// A path that is neither a static file nor one of the SPA's history paths gets
+// a plain 404 written here. Running the file server a second time for it would
+// let its error path drop a Content-Encoding header that a compressing
+// middleware further out has already set, leaving a compressed body that the
+// browser shows as garbage.
 func Rewrite404ForVueJs(h http.Handler, vueHistoryPaths []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		newW := &NotFoundRewriteResponseWriter{ResponseWriter: w}
 		h.ServeHTTP(newW, r)
-		if newW.status == http.StatusNotFound {
-			for _, v := range vueHistoryPaths {
-				if strings.HasPrefix(r.URL.Path, "/"+v) {
-					r.URL.Path = "/"
-				}
-			}
-			h.ServeHTTP(w, r)
+		if newW.status != http.StatusNotFound {
+			return
 		}
+		for _, v := range vueHistoryPaths {
+			if strings.HasPrefix(r.URL.Path, "/"+v) {
+				r.URL.Path = "/"
+				h.ServeHTTP(w, r)
+				return
+			}
+		}
+		http.NotFound(w, r)
 	}
 }
 

@@ -382,7 +382,7 @@ func (al *APIListener) uploadRequestFromRequest(req *http.Request) (ur *UploadRe
 	// in-memory threshold, not the cap.
 	err = req.ParseMultipartForm(uploadBufSize) //nolint:gosec // G120: bounded by middleware.MaxBytes on the route
 	if err != nil {
-		return nil, &errors2.APIError{
+		return nil, errors2.APIError{
 			Err:        err,
 			HTTPStatus: http.StatusBadRequest,
 		}
@@ -393,7 +393,7 @@ func (al *APIListener) uploadRequestFromRequest(req *http.Request) (ur *UploadRe
 
 	clientTags, err := getClientTagsFromReqForm(req)
 	if err != nil {
-		return nil, &errors2.APIError{
+		return nil, errors2.APIError{
 			Err:        err,
 			HTTPStatus: http.StatusBadRequest,
 		}
@@ -411,7 +411,7 @@ func (al *APIListener) uploadRequestFromRequest(req *http.Request) (ur *UploadRe
 
 	err = ur.FromMultipartRequest(req)
 	if err != nil {
-		return nil, &errors2.APIError{
+		return nil, errors2.APIError{
 			Err:        err,
 			HTTPStatus: http.StatusBadRequest,
 		}
@@ -419,7 +419,7 @@ func (al *APIListener) uploadRequestFromRequest(req *http.Request) (ur *UploadRe
 
 	ur.File, ur.FileHeader, err = req.FormFile("upload")
 	if err != nil {
-		return nil, &errors2.APIError{
+		return nil, errors2.APIError{
 			Err:        err,
 			HTTPStatus: http.StatusBadRequest,
 		}

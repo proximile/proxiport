@@ -104,15 +104,61 @@ async function raise(res: Response, path = ''): Promise<never> {
     { title: (await plainTextError(res)) || res.statusText || `HTTP ${res.status}` }
   ];
   if (endsSession(res.status, path)) {
+    verifiedToken = null;
     tokenStore.set(null);
   }
   throw new ApiException(res.status, errors);
 }
 
+/**
+ * The token the server has accepted at least once. Until a token is accepted,
+ * authenticated requests go out one at a time: the shell, the top bar and the
+ * page each load their own data in parallel, so a stored session that has
+ * expired or been revoked used to send several requests that all failed, each
+ * one counted against the address's failed-login limit. Now the first request
+ * finds out whether the session is alive and the others wait for it; if it is
+ * dead they fail locally without reaching the server.
+ */
+let verifiedToken: string | null = null;
+let probe: { token: string; done: Promise<void> } | null = null;
+
+async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  for (;;) {
+    const token = ensureToken();
+    const request = {
+      ...init,
+      headers: { ...(init.headers as Record<string, string> | undefined), ...authHeader(token) }
+    };
+    if (token === verifiedToken) {
+      return fetch(`/api/v1${path}`, request);
+    }
+    if (probe && probe.token === token) {
+      await probe.done;
+      continue;
+    }
+
+    let release!: () => void;
+    const current = { token, done: new Promise<void>((r) => (release = r)) };
+    probe = current;
+    try {
+      const res = await fetch(`/api/v1${path}`, request);
+      if (res.status !== 401) {
+        verifiedToken = token;
+      } else if (endsSession(res.status, path)) {
+        // Clear it before the waiting requests resume, so they stop here.
+        tokenStore.set(null);
+      }
+      return res;
+    } finally {
+      if (probe === current) probe = null;
+      release();
+    }
+  }
+}
+
 /** GET /api/v1/<path> with bearer auth. Returns parsed `data` field, or full body if no envelope. */
 export async function apiGet<T = any>(path: string): Promise<T> {
-  ensureToken();
-  const res = await fetch(`/api/v1${path}`, { headers: { ...authHeader() } });
+  const res = await authedFetch(path);
   if (!res.ok) await raise(res, path);
   const body = await parseJson(res);
   return (body && 'data' in body ? body.data : body) as T;
@@ -162,10 +208,9 @@ export async function apiGetPage<T>(path: string): Promise<{ rows: T[]; count: n
 }
 
 export async function apiPost<T = any>(path: string, payload?: unknown): Promise<T> {
-  ensureToken();
-  const res = await fetch(`/api/v1${path}`, {
+  const res = await authedFetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    headers: { 'Content-Type': 'application/json' },
     body: payload === undefined ? undefined : JSON.stringify(payload)
   });
   if (!res.ok) await raise(res, path);
@@ -174,10 +219,9 @@ export async function apiPost<T = any>(path: string, payload?: unknown): Promise
 }
 
 export async function apiPut<T = any>(path: string, payload?: unknown): Promise<T> {
-  ensureToken();
-  const res = await fetch(`/api/v1${path}`, {
+  const res = await authedFetch(path, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    headers: { 'Content-Type': 'application/json' },
     body: payload === undefined ? undefined : JSON.stringify(payload)
   });
   if (!res.ok) await raise(res, path);
@@ -186,13 +230,9 @@ export async function apiPut<T = any>(path: string, payload?: unknown): Promise<
 }
 
 export async function apiDelete(path: string, payload?: unknown): Promise<void> {
-  ensureToken();
-  const res = await fetch(`/api/v1${path}`, {
+  const res = await authedFetch(path, {
     method: 'DELETE',
-    headers: {
-      ...authHeader(),
-      ...(payload === undefined ? {} : { 'Content-Type': 'application/json' })
-    },
+    headers: payload === undefined ? {} : { 'Content-Type': 'application/json' },
     // Some deletes are security-relevant enough to require a step-up (removing
     // the second factor, for one), so DELETE can carry a body.
     body: payload === undefined ? undefined : JSON.stringify(payload)
@@ -202,10 +242,9 @@ export async function apiDelete(path: string, payload?: unknown): Promise<void> 
 
 /** POST a multipart form (used by the per-client Files push form). */
 export async function apiPostForm<T = any>(path: string, form: FormData): Promise<T> {
-  ensureToken();
-  const res = await fetch(`/api/v1${path}`, {
+  // Content-Type is left to the browser, which adds the multipart boundary.
+  const res = await authedFetch(path, {
     method: 'POST',
-    headers: { ...authHeader() }, // do NOT set Content-Type, browser handles boundary
     body: form
   });
   if (!res.ok) await raise(res, path);

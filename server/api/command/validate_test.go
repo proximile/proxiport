@@ -29,6 +29,14 @@ func TestValidate(t *testing.T) {
 			},
 			expectedError: "cmd is required",
 		}, {
+			name: "negative timeout",
+			input: &InputCommand{
+				Name:      "some name",
+				Cmd:       "val1",
+				TimoutSec: -5,
+			},
+			expectedError: "timeout_sec must not be negative",
+		}, {
 			name: "all ok",
 			input: &InputCommand{
 				Name: "some name",

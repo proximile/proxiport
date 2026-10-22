@@ -3,6 +3,7 @@ package chserver
 import (
 	"net/http"
 
+	"github.com/proximile/proxiport/server/bearer"
 	chshare "github.com/proximile/proxiport/share"
 )
 
@@ -38,4 +39,29 @@ func (al *APIListener) recordAuthSuccess(r *http.Request) {
 	if al.bannedIPs != nil {
 		al.bannedIPs.AddSuccessAttempt(chshare.RemoteIP(r))
 	}
+}
+
+// recordFailedAuth counts a rejected API request toward the per-IP ban.
+//
+// A rejected bearer token is counted once per distinct token rather than once
+// per request. A browser holding an expired or revoked session fires several
+// requests in parallel before it notices the session is gone, and counting each
+// of them let one stale session ban its own address after a few page loads.
+// A caller cycling through different tokens is still counted for every one,
+// and failed basic-auth passwords and anonymous requests count every time.
+func (al *APIListener) recordFailedAuth(r *http.Request, isBearerOnly bool) {
+	if al.bannedIPs == nil {
+		return
+	}
+	if !isBearerOnly {
+		if _, _, basicAuthProvided := r.BasicAuth(); basicAuthProvided {
+			al.bannedIPs.AddBadAttempt(chshare.RemoteIP(r))
+			return
+		}
+	}
+	if token, ok := bearer.GetBearerToken(r); ok {
+		al.bannedIPs.AddDistinctBadAttempt(chshare.RemoteIP(r), credentialFingerprint("bearer", []byte(token)))
+		return
+	}
+	al.bannedIPs.AddBadAttempt(chshare.RemoteIP(r))
 }

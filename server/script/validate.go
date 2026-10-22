@@ -21,6 +21,12 @@ func Validate(iv *InputScript) error {
 			HTTPStatus: http.StatusBadRequest,
 		})
 	}
+	if iv.TimoutSec < 0 {
+		errs = append(errs, errors2.APIError{
+			Message:    "timeout_sec must not be negative",
+			HTTPStatus: http.StatusBadRequest,
+		})
+	}
 
 	if len(errs) == 0 {
 		return nil
