@@ -1,33 +1,48 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiGet, apiPost, apiPut, apiDelete } from '$lib/api';
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
+  import { apiGetPage, apiPost, apiPut, apiDelete } from '$lib/api';
+  import { parseList, timeoutError } from '$lib/schedules';
   import Spinner from '$lib/components/Spinner.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
 
   type Kind = 'commands' | 'scripts';
+  const PAGE_SIZE = 100;
 
   let tab: Kind = $state('commands');
   let commands: any[] = $state([]);
   let scripts: any[] = $state([]);
+  let totals: Record<Kind, number | null> = $state({ commands: null, scripts: null });
   let loading = $state(true);
   let error = $state('');
 
   // Edit/create form state. `editing` is null when the form is closed.
   let editing: { kind: Kind; id?: string } | null = $state(null);
   let form = $state<Record<string, any>>({});
+  // The form as it was opened, to tell whether there is anything to lose.
+  let initial = $state('');
   let saving = $state(false);
+
+  const dirty = $derived(!!editing && JSON.stringify(form) !== initial);
 
   async function load() {
     loading = true;
     error = '';
     // allSettled never rejects, so failures are read off each result.
     const [c, s] = await Promise.allSettled([
-      apiGet<any[]>('/library/commands?page[limit]=100'),
-      apiGet<any[]>('/library/scripts?page[limit]=100')
+      apiGetPage<any>(`/library/commands?page[limit]=${PAGE_SIZE}`),
+      apiGetPage<any>(`/library/scripts?page[limit]=${PAGE_SIZE}`)
     ]);
-    if (c.status === 'fulfilled') commands = c.value ?? [];
-    if (s.status === 'fulfilled') scripts = s.value ?? [];
+    if (c.status === 'fulfilled') {
+      commands = c.value.rows;
+      totals.commands = c.value.count;
+    }
+    if (s.status === 'fulfilled') {
+      scripts = s.value.rows;
+      totals.scripts = s.value.count;
+    }
     const failures = [c, s].filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
     if (failures.length) {
       error = failures.map((f) => (f.reason instanceof Error ? f.reason.message : String(f.reason))).join('; ');
@@ -35,19 +50,44 @@
     loading = false;
   }
 
-  onMount(load);
+  onMount(() => {
+    if ($page.url.searchParams.get('tab') === 'scripts') tab = 'scripts';
+    load();
+  });
+
+  function discardOk(): boolean {
+    return !dirty || confirm('Discard unsaved changes?');
+  }
+
+  function openForm(next: { kind: Kind; id?: string }, values: Record<string, any>) {
+    editing = next;
+    form = values;
+    initial = JSON.stringify(values);
+    error = '';
+  }
+
+  function switchTab(t: Kind) {
+    if (t === tab) return;
+    if (!discardOk()) return;
+    editing = null;
+    tab = t;
+    goto(t === 'commands' ? '?' : `?tab=${t}`, { replaceState: true, keepFocus: true, noScroll: true });
+  }
 
   function startCreate(kind: Kind) {
-    editing = { kind };
-    form =
+    if (!discardOk()) return;
+    openForm(
+      { kind },
       kind === 'commands'
         ? { name: '', cmd: '', tags: '', timeout_sec: 60 }
-        : { name: '', script: '', interpreter: '/bin/bash', cwd: '', is_sudo: false, tags: '' };
+        : { name: '', script: '', interpreter: '/bin/bash', cwd: '', is_sudo: false, tags: '', timeout_sec: 60 }
+    );
   }
 
   function startEdit(kind: Kind, item: any) {
-    editing = { kind, id: item.id };
-    form =
+    if (!discardOk()) return;
+    openForm(
+      { kind, id: item.id },
       kind === 'commands'
         ? { name: item.name ?? '', cmd: item.cmd ?? '', tags: (item.tags ?? []).join(', '), timeout_sec: item.timeout_sec ?? 60 }
         : {
@@ -56,23 +96,22 @@
             interpreter: item.interpreter ?? '/bin/bash',
             cwd: item.cwd ?? '',
             is_sudo: !!item.is_sudo,
-            tags: (item.tags ?? []).join(', ')
-          };
+            tags: (item.tags ?? []).join(', '),
+            timeout_sec: item.timeout_sec ?? 60
+          }
+    );
   }
 
   function cancel() {
     editing = null;
-  }
-
-  function parseTags(s: string): string[] {
-    return s.split(',').map((t) => t.trim()).filter(Boolean);
+    error = '';
   }
 
   function formValid(): string {
     if (!form.name?.trim()) return 'A name is required.';
     if (editing?.kind === 'commands' && !form.cmd?.trim()) return 'The command is required.';
     if (editing?.kind === 'scripts' && !form.script?.trim()) return 'The script body is required.';
-    return '';
+    return timeoutError(form.timeout_sec);
   }
 
   async function save() {
@@ -89,8 +128,8 @@
         const body = {
           name: form.name.trim(),
           cmd: form.cmd,
-          tags: parseTags(form.tags),
-          timeout_sec: Number(form.timeout_sec) || 60
+          tags: parseList(form.tags),
+          timeout_sec: Number(form.timeout_sec)
         };
         if (editing.id) await apiPut(`/library/commands/${editing.id}`, body);
         else await apiPost('/library/commands', body);
@@ -101,7 +140,8 @@
           interpreter: form.interpreter?.trim() || undefined,
           cwd: form.cwd?.trim() || undefined,
           is_sudo: !!form.is_sudo,
-          tags: parseTags(form.tags)
+          tags: parseList(form.tags),
+          timeout_sec: Number(form.timeout_sec)
         };
         if (editing.id) await apiPut(`/library/scripts/${editing.id}`, body);
         else await apiPost('/library/scripts', body);
@@ -125,6 +165,18 @@
       error = err instanceof Error ? err.message : String(err);
     }
   }
+
+  function uniqueTags(tags: string[] | null | undefined): string[] {
+    return [...new Set(tags ?? [])];
+  }
+
+  function firstLine(s: string | undefined): { text: string; more: number } {
+    const lines = (s ?? '').split('\n');
+    return { text: lines[0], more: lines.length - 1 };
+  }
+
+  const shown = $derived(tab === 'commands' ? commands.length : scripts.length);
+  const totalForTab = $derived(totals[tab]);
 </script>
 
 <div class="p-6 space-y-4">
@@ -141,7 +193,7 @@
         class:text-indigo-300={tab === t}
         class:border-transparent={tab !== t}
         class:text-slate-400={tab !== t}
-        onclick={() => (tab = t)}
+        onclick={() => switchTab(t)}
       >
         {t === 'commands' ? `Saved commands (${commands.length})` : `Saved scripts (${scripts.length})`}
       </button>
@@ -165,10 +217,6 @@
           <span class="block text-slate-400 mb-1">Command</span>
           <textarea bind:value={form.cmd} rows="4" class="font-mono text-xs" placeholder="systemctl restart nginx"></textarea>
         </label>
-        <label class="block text-xs max-w-[12rem]">
-          <span class="block text-slate-400 mb-1">Timeout (sec)</span>
-          <input type="number" min="1" bind:value={form.timeout_sec} class="font-mono" />
-        </label>
       {:else}
         <label class="block text-xs">
           <span class="block text-slate-400 mb-1">Script</span>
@@ -189,6 +237,11 @@
           </label>
         </div>
       {/if}
+
+      <label class="block text-xs max-w-[12rem]">
+        <span class="block text-slate-400 mb-1">Timeout (sec)</span>
+        <input type="number" min="1" step="1" bind:value={form.timeout_sec} class="font-mono" />
+      </label>
 
       <label class="block text-xs">
         <span class="block text-slate-400 mb-1">Tags (comma-separated)</span>
@@ -215,10 +268,13 @@
           <thead><tr><th>Name</th><th>Command</th><th>Tags</th><th class="text-right">Actions</th></tr></thead>
           <tbody>
             {#each commands as c}
+              {@const cmd = firstLine(c.cmd)}
               <tr>
                 <td class="font-medium">{c.name ?? '—'}</td>
-                <td class="font-mono text-xs truncate max-w-md">{c.cmd ?? '—'}</td>
-                <td>{#each c.tags ?? [] as t}<span class="pill pill-info">{t}</span>{/each}</td>
+                <td class="font-mono text-xs truncate max-w-md" title={c.cmd ?? ''}>
+                  {cmd.text || '—'}{#if cmd.more}<span class="ml-1 text-slate-500 font-sans">(+{cmd.more} more {cmd.more === 1 ? 'line' : 'lines'})</span>{/if}
+                </td>
+                <td>{#each uniqueTags(c.tags) as t}<span class="pill pill-info">{t}</span>{/each}</td>
                 <td class="text-right whitespace-nowrap">
                   <button class="btn btn-ghost btn-sm" onclick={() => startEdit('commands', c)}>Edit</button>
                   <button class="btn btn-ghost btn-sm text-rose-300" onclick={() => remove('commands', c)}>Delete</button>
@@ -238,8 +294,8 @@
             {#each scripts as s}
               <tr>
                 <td class="font-medium">{s.name ?? '—'}</td>
-                <td class="font-mono text-xs">{s.interpreter ?? '—'}</td>
-                <td>{#each s.tags ?? [] as t}<span class="pill pill-info">{t}</span>{/each}</td>
+                <td class="font-mono text-xs">{s.interpreter?.trim() || '—'}</td>
+                <td>{#each uniqueTags(s.tags) as t}<span class="pill pill-info">{t}</span>{/each}</td>
                 <td class="text-right whitespace-nowrap">
                   <button class="btn btn-ghost btn-sm" onclick={() => startEdit('scripts', s)}>Edit</button>
                   <button class="btn btn-ghost btn-sm text-rose-300" onclick={() => remove('scripts', s)}>Delete</button>
@@ -249,6 +305,11 @@
           </tbody>
         </table>
       {/if}
+    {/if}
+    {#if !loading && totalForTab !== null && totalForTab > shown}
+      <div class="px-4 py-2 border-t border-pp-border text-xs text-slate-400">
+        Showing the first {shown} of {totalForTab}.
+      </div>
     {/if}
   </div>
 </div>

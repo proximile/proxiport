@@ -147,6 +147,20 @@ export function asList<T>(v: unknown): T[] {
   return [];
 }
 
+/**
+ * GET a list endpoint and keep its total. `count` is the server's meta.count
+ * (the number of matching rows before paging), or null when it sent none.
+ */
+export async function apiGetPage<T>(path: string): Promise<{ rows: T[]; count: number | null }> {
+  ensureToken();
+  const res = await fetch(`/api/v1${path}`, { headers: { ...authHeader() } });
+  if (!res.ok) await raise(res, path);
+  const body = await parseJson(res);
+  const inner = body && typeof body === 'object' && 'data' in body ? body.data : body;
+  const meta = body?.meta ?? inner?.meta;
+  return { rows: asList<T>(inner), count: typeof meta?.count === 'number' ? meta.count : null };
+}
+
 export async function apiPost<T = any>(path: string, payload?: unknown): Promise<T> {
   ensureToken();
   const res = await fetch(`/api/v1${path}`, {
@@ -220,6 +234,36 @@ export async function login(username: string, password: string): Promise<LoginRe
   const res = await fetch(`/api/v1/login?token-lifetime=${SESSION_LIFETIME_SECONDS}`, {
     method: 'GET',
     headers: { Authorization: `Basic ${basic}` }
+  });
+  if (!res.ok) await raise(res);
+  const body = await parseJson(res);
+  return body.data as LoginResponse;
+}
+
+/**
+ * The server refuses a login whose password an administrator has marked for
+ * change with this 401 title; the same credentials may then set a new one.
+ */
+export const PASSWORD_EXPIRED_TITLE = 'password has expired, please change your password';
+
+export function isPasswordExpired(err: unknown): boolean {
+  return err instanceof ApiException && err.status === 401 && err.errors[0]?.title === PASSWORD_EXPIRED_TITLE;
+}
+
+/**
+ * Log in while replacing the password. POST /login takes the current
+ * credentials plus `new_password`; the reply is the same as a normal login's
+ * (with a second factor configured, the change is applied once it verifies).
+ */
+export async function loginWithNewPassword(
+  username: string,
+  password: string,
+  newPassword: string
+): Promise<LoginResponse> {
+  const res = await fetch(`/api/v1/login?token-lifetime=${SESSION_LIFETIME_SECONDS}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, new_password: newPassword })
   });
   if (!res.ok) await raise(res);
   const body = await parseJson(res);

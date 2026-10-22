@@ -91,6 +91,7 @@ export type ClientGroup = {
   description?: string;
   params?: Record<string, unknown>;
   num_clients?: number;
+  client_ids?: string[];
   allowed_user_groups?: string[];
 };
 
@@ -125,16 +126,26 @@ export type Job = {
   finished_at?: string;
 };
 
+export type ScheduleExecution = {
+  started_at?: string | null;
+  client_count?: number | null;
+  success_count?: number | null;
+  /** Set only for a run on a single client. */
+  status?: string | null;
+  summary?: string | null;
+};
+
 export type Schedule = {
   id?: string;
   name?: string;
   type?: string;
   schedule?: string;
-  client_ids?: string[];
-  group_ids?: string[];
-  details?: Record<string, unknown>;
+  client_ids?: string[] | null;
+  group_ids?: string[] | null;
+  tags?: { tags?: string[]; operator?: string } | null;
   created_at?: string;
   created_by?: string;
+  last_execution?: ScheduleExecution | null;
 };
 
 export type ApiToken = {
@@ -143,7 +154,6 @@ export type ApiToken = {
   scope?: string;
   expires_at?: string;
   created_at?: string;
-  last_used_at?: string;
 };
 
 export type ServerStatus = {
