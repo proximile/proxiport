@@ -60,10 +60,10 @@ Path: `{data_dir}/state.json`, defaulting to
 
 ```json
 {
-  "last_update":    "2026-05-17T10:37:25.643839+00:00",
-  "last_update_ts": 1747475845,
+  "last_update":    "2026-05-17T10:37:25.643839Z",
+  "last_update_ts": 1779014245,
   "last_state":     "connected",
-  "last_message":   "ping to proxiport server proxiport.example.com:443 succeeded within 14.682823ms"
+  "last_message":   "ping to 203.0.113.7:443 succeeded within 14.682823ms"
 }
 ```
 
@@ -79,55 +79,74 @@ the agent is alive.
 - `reconnecting` — the agent is dialling the server and has not yet
   succeeded.
 
-`last_message` is a free-text description of the most recent event —
-useful for logs, not stable enough to parse.
+`last_message` is a free-text description of the most recent event,
+such as `Connected to <ip:port> within <duration>`,
+`ping to <ip:port> succeeded within <rtt>` or
+`Retrying in <duration>...` — useful for logs, not stable enough to
+parse.
 
-The file is updated on three events:
+The file is written on four events:
 
-1. A connection attempt succeeded.
-2. A connection attempt failed (re-attempt interval governed by
-   `max_retry_interval`).
-3. A keepalive ping was sent (interval governed by `keep_alive`).
+1. The agent starts (`last_state: initialized`).
+2. A connection attempt succeeded (`connected`).
+3. A connection attempt failed and a retry is scheduled
+   (`reconnecting`). The agent then waits before retrying. The wait
+   grows exponentially from about 5 seconds to a fixed ceiling of 10
+   minutes, with jitter. If the server timed out, the wait resets to a
+   few seconds. `max_retry_interval` is accepted in the config but
+   currently has no effect on this wait. Once `max_retry_count` is
+   exhausted, the agent gives up without writing the file again.
+4. A keepalive ping succeeded (`connected`; interval governed by
+   `keep_alive`). A failed or timed-out keepalive ping does not update
+   the file. The agent closes the connection, and the next update is
+   the `reconnecting` entry written when the reconnect attempt is
+   scheduled.
 
 ## Implementing a watchdog
 
 ### Linux: the systemd watchdog (recommended)
 
 systemd has a built-in watchdog. Add `WatchdogSec=N` to the agent's
-unit file, and systemd creates a Unix socket that the agent will
-push heartbeats to automatically — no extra script needed.
+unit, and systemd creates a Unix socket that the agent will push
+heartbeats to automatically — no extra script needed. Add it with a
+drop-in rather than by copying a whole unit:
 
-```ini
-# /etc/systemd/system/proxiport.service
-[Unit]
-Description=ProxiPort agent
-ConditionFileIsExecutable=/usr/local/bin/proxiport
-
-[Service]
-ExecStart=/usr/local/bin/proxiport -c /etc/proxiport/proxiport.conf
-LimitNOFILE=1048576
-# The agent's own account. `proxiport` is the SERVER's; the two are
-# deliberately separate, because the agent executes operator-supplied
-# commands as its own uid.
-User=proxiport-agent
-Restart=always
-RestartSec=120
-WatchdogSec=200
-
-[Install]
-WantedBy=multi-user.target
-
-[Unit]
-StartLimitIntervalSec=5
-StartLimitBurst=10
+```sh
+sudo systemctl edit proxiport
 ```
 
-`WatchdogSec` must be slightly longer than the worst case of
-`max_retry_interval` and `keep_alive`. A common combination:
+```ini
+[Service]
+WatchdogSec=960
+```
 
-- `keep_alive = '3m'`
-- `max_retry_interval = '3m'`
-- `WatchdogSec = 200` (≈3:20)
+```sh
+sudo systemctl restart proxiport
+```
+
+A drop-in keeps the installed unit's `ExecStart` and the rest of its
+settings. The binary is `/usr/bin/proxiport` for deb/rpm and tarball
+installs, and `/usr/local/bin/proxiport` for pairing-script installs,
+so don't copy a whole unit with a hard-coded path from another host.
+
+`WatchdogSec` must be longer than the longest gap the agent can leave
+between two heartbeats:
+
+- While connected, the agent sends a heartbeat after each successful
+  keepalive ping. One cycle can take `keep_alive` + up to 5 s of
+  jitter + up to three `keep_alive_timeout` waits (default 30 s each)
+  plus about 6 s of retry back-off. With `keep_alive = '3m'` that is
+  about 4m40s.
+- While reconnecting, the agent sends a heartbeat before each back-off
+  wait. The wait grows to a fixed ceiling of 10 minutes;
+  `max_retry_interval` does not cap it. The next connection attempt
+  can then take up to 5 minutes to time out (or
+  `transport_dial_timeout` when a transport chain is set).
+
+A `WatchdogSec` shorter than these gaps turns a normal reconnect
+back-off into a kill-and-restart cycle during any prolonged outage.
+With `keep_alive = '3m'`, `WatchdogSec = 960` (16 minutes) rides out
+both.
 
 When the agent detects the systemd notify socket (the
 `NOTIFY_SOCKET` environment variable), it logs a confirmation at
@@ -137,7 +156,7 @@ debug level:
 Using NOTIFY_SOCKET /run/systemd/notify for systemd watchdog integration
 ```
 
-If 200 seconds pass with no notification, systemd kills the agent and
+If 960 seconds pass with no notification, systemd kills the agent and
 respawns it through `Restart=always`. The state.json file is still
 written even when the systemd socket is in use, so you can read it
 to debug what the agent thought was happening.
@@ -149,7 +168,7 @@ scheduled task that runs every minute is the usual shape:
 
 ```powershell
 $stateFile = 'C:\Program Files\proxiport\data\state.json'
-$threshholdSec = 600
+$threshholdSec = 960
 
 $now = [int][double]::Parse((Get-Date -UFormat %s))
 $lastUpdate = (Get-Content $stateFile | ConvertFrom-Json).last_update_ts
@@ -164,8 +183,8 @@ if ($diff -gt $threshholdSec) {
 ```
 
 Save as `check-proxiport.ps1`, register as a scheduled task that
-runs every minute under `SYSTEM`. Adjust `$threshholdSec` to a
-small multiple of your `keep_alive` value.
+runs every minute under `SYSTEM`. Keep `$threshholdSec` above the
+longest heartbeat gap described for `WatchdogSec` above.
 
 ### Custom supervisor
 
@@ -178,7 +197,7 @@ A minimal shell variant:
 
 ```bash
 #!/bin/sh
-threshold=600
+threshold=960
 now=$(date +%s)
 last=$(jq -r .last_update_ts /var/lib/proxiport-agent/state.json)
 if [ $((now - last)) -gt "$threshold" ]; then
@@ -199,10 +218,15 @@ Schedule from cron, run as root.
 
    The timestamp should advance on the `keep_alive` cadence.
 
-2. Block the agent's egress to simulate a network failure. The file
-   should switch to `last_state: "reconnecting"` within
-   `max_retry_interval`. The supervisor should not restart the agent
-   yet — the agent is correctly trying.
+2. Block the agent's egress to simulate a network failure. The agent
+   notices at the next keepalive: after `keep_alive` (plus a little
+   jitter), a ping times out after `keep_alive_timeout`, and is
+   retried up to three times. The agent then drops the connection, and
+   `state.json` switches to `last_state: "reconnecting"`. After that, a
+   `reconnecting` heartbeat is written on each reconnect attempt,
+   spaced by the agent's built-in back-off (5 seconds, growing to at
+   most 10 minutes). The supervisor should not restart the agent yet —
+   the agent is correctly trying.
 
 3. Push the agent into a wedged state. Easiest reproduction is
    `kill -STOP $(pidof proxiport)` to freeze the process. The
@@ -213,7 +237,9 @@ Schedule from cron, run as root.
 ## Hardening checklist
 
 - Pick a `WatchdogSec` (or threshold) that is **larger** than the
-  worst case of `max_retry_interval + keep_alive`. Too tight, and
+  longest heartbeat gap: the 10-minute reconnect back-off ceiling plus
+  one connection attempt, and the keepalive cycle while connected (see
+  [above](#linux-the-systemd-watchdog-recommended)). Too tight, and
   systemd will restart the agent during normal reconnects.
 - Leave `Restart=always` and `RestartSec` set on the unit. Without
   them, systemd's kill won't be followed by a respawn.

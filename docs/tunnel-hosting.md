@@ -37,8 +37,11 @@ through most strict egress filters.
 
 ### Architecture
 
-`proxiportd` launches and supervises a [Caddy](https://caddyserver.com/)
-process. Caddy listens on the configured port (typically 443),
+`proxiportd` launches a [Caddy](https://caddyserver.com/) process as a
+child and stops it on shutdown. It does not restart Caddy itself: if
+Caddy exits with an error, `proxiportd` exits too, and the packaged
+systemd unit (`Restart=always`) restarts `proxiportd`, which launches
+Caddy again. Caddy listens on the configured port (typically 443),
 terminates TLS, and routes the random subdomain to the right
 tunnel's internal port. All Caddy configuration is generated and
 pushed by `proxiportd` over a Unix socket — no manual `Caddyfile`.
@@ -82,14 +85,14 @@ pushed by `proxiportd` over a Unix socket — no manual `Caddyfile`.
    sudo find /etc/letsencrypt/{archive,live} -type f -exec chmod o+r  {} \;
    ```
 
-   You can also let the [built-in ACME](https.md#built-in-acme)
-   manage the wildcard:
-
-   ```toml
-   [server]
-     tunnel_host = "tunnels.proxiport.example.com"
-     tunnel_enable_acme = true
-   ```
+   Caddy always serves the wildcard certificate from the `cert_file` /
+   `key_file` paths under `[caddy-integration]`. `proxiportd` checks at
+   startup that both files exist and load. The
+   [built-in ACME](https.md#built-in-acme) cannot issue a wildcard, so
+   get one with a DNS-01 client as shown above and set up renewal for
+   it. (`[server] tunnel_enable_acme` is a separate option. It gets a
+   certificate for the single `tunnel_host` name, used by the tunnel
+   proxy on the random tunnel ports, not by Caddy.)
 
 ### Server configuration
 
@@ -142,16 +145,18 @@ the wildcard goes to a tunnel.
 
 ### Using it
 
-When creating a tunnel from the SPA's per-client **Tunnels** tab, tick
-one of:
+When creating a tunnel from the SPA's per-client **Tunnels** tab,
+choose an **HTTP** or **HTTPS** service (directly, or as the target of
+a forwarding tunnel). Then tick *Terminate TLS on the server using the
+server's certificate*. This sends `http_proxy=true` with the create
+request. With `[caddy-integration]` enabled, the server allocates a
+random subdomain under `subdomain_prefix` and returns the resulting URL
+in the tunnel's `tunnel_url` field.
 
-- *Enable HTTP reverse proxy* (for HTTP/HTTPS targets);
-- *Enable NoVNC (VNC via browser)*;
-- *Enable RDP via browser*.
-
-Any of those triggers subdomain allocation. The tunnel record now
-carries a `tunnel_url` field, and the SPA's "access tunnel" button
-points there instead of the random-port URL.
+For now, the SPA's Active tunnels table shows only the random-port
+address (`<server>:<port>`, with a **Copy** button). To get the
+subdomain URL, read `tunnel_url` from the create response or from the
+client's tunnel list in the API (`GET /api/v1/clients/{id}`).
 
 To inspect the live Caddy routes:
 
@@ -282,8 +287,20 @@ Point ProxiPort at the extracted directory:
   tunnel_proxy_key_file  = "/var/lib/proxiport/server.key"
 ```
 
-Restart `proxiportd`. The tunnel-create form now exposes the
-"Enable NoVNC" option for tunnels targeting a VNC port.
+Restart `proxiportd`. You create a noVNC tunnel through the REST API.
+The web UI's tunnel form has no noVNC option, and it shows the
+TLS-proxy checkbox only for HTTP and HTTPS tunnels. Ask for the VNC
+scheme with the internal proxy enabled:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" \
+  "https://proxiport.example.com/api/v1/clients/<client-id>/tunnels?remote=127.0.0.1:5900&scheme=vnc&http_proxy=true&acl=203.0.113.7"
+```
+
+The response gives the tunnel's proxy URL. Open it in a browser to get
+the noVNC console. If `novnc_root` is unset, the noVNC app files are
+answered with 404, so the console does not load, and the server logs
+`novnc_root is not configured`.
 
 ## RDP proxy via guacd
 
@@ -306,10 +323,29 @@ docker run -d --name guacd --net=host --restart unless-stopped \
 ```
 
 `--net=host` is required so `guacd` can reach the tunnel listener on
-`127.0.0.1`. Once running, tunnels created with "Enable RDP via
-browser" expose a URL like
+`127.0.0.1`.
+
+`proxiportd` test-connects to `guacd_address` when it starts and
+refuses to start (`try guacd connection: ...`) if nothing is listening
+there. Start guacd first, then (re)start `proxiportd`, and if both
+start at boot, make sure guacd comes up before `proxiportd`.
+
+Once `guacd` is running, an RDP tunnel created with the tunnel proxy
+enabled (`scheme=rdp&http_proxy=true`) exposes a URL like
 `https://proxiport.example.com:<port>/` that loads the Guacamole
-client in the browser.
+client in the browser. The web UI's tunnel form does not offer this
+option yet (its TLS-termination checkbox appears only for HTTP and
+HTTPS services), so create the tunnel through the API:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" \
+  "https://proxiport.example.com/api/v1/clients/<client-id>/tunnels?scheme=rdp&remote=3389&http_proxy=true&acl=203.0.113.7"
+```
+
+The server rejects `http_proxy=true` ("creation of tunnel proxy not
+enabled") unless the tunnel proxy is enabled, either with
+`tunnel_proxy_cert_file` and `tunnel_proxy_key_file` or with
+`tunnel_enable_acme`.
 
 You can pass through Guacamole session parameters as query strings:
 
@@ -317,8 +353,9 @@ You can pass through Guacamole session parameters as query strings:
 /?username=Administrator&width=1280&height=800&security=nla&keyboard=en-us-qwerty
 ```
 
-For security reasons the password cannot be injected — the operator
-types it into the Guacamole login form. Available `keyboard` values
+The landing page does not accept a `password` query parameter; the
+operator types the password into the login form, which posts it to
+`/createToken`. Available `keyboard` values
 are the standard Guacamole layout codes (e.g. `en-us-qwerty`,
 `de-de-qwertz`, `fr-fr-azerty`).
 
@@ -333,10 +370,12 @@ carries tunnel traffic.
 1. The operator uploads the file to the server via the multipart
    `POST /api/v1/files` endpoint, specifying target client IDs or
    group IDs, the destination path, and optional mode/owner/group.
-2. The server saves the file to `{data_dir}/filepush/<uuid>`.
+2. The server saves the file to
+   `{data_dir}/filepush/<uuid>_proxiport_filepush`.
 3. Each addressed agent opens an SFTP-over-SSH session inside its
    existing chisel channel, downloads the file to its own
-   `{data_dir}/filepush/<uuid>`, verifies the MD5, applies any
+   `{data_dir}/filepush/<uuid>_proxiport_filepush` (same file name as
+   on the server), verifies the MD5, applies any
    chmod/chown, and moves the file to the destination.
 4. The server tracks per-agent success/failure and surfaces it on the
    API and on a WebSocket subscriber stream.
@@ -363,7 +402,9 @@ Useful form fields:
 | Field | Notes |
 | --- | --- |
 | `upload` (required) | The file body. |
-| `client_id` / `group_id` | Repeatable. At least one of either is required. |
+| `client_id` / `group_id` | Repeatable. Picks the target agents directly or by group. Give these or `tags`, not both. |
+| `tags` | Optional alternative to `client_id`/`group_id`: one JSON value such as `{"tags":["linux","web"],"operator":"AND"}`. It cannot be combined with them, and the tag list must not be empty. |
+| `id` | Optional upload ID. A UUID is generated when it is omitted. It names the staged `<id>_proxiport_filepush` file and is reported as `uuid`. |
 | `dest` (required) | Absolute destination path on the agent. Relative paths are rejected — see below. |
 | `force` | Overwrite if the file already exists. |
 | `sync` | Compare MD5; overwrite only if changed. Apply mode/owner if requested. |
@@ -396,24 +437,47 @@ A Windows path that is rooted but has no drive (`\Windows\...`) is also refused:
 it resolves against whichever drive is current, which is the same surprise in a
 different form.
 
-### Restricted destinations
+### Protected destinations
 
-By default the agent refuses to write anywhere a pushed file could
-become code that runs as root. The built-in list covers whole subtrees
-(`/bin/**`, `/sbin/**`, `/usr/bin/**`, `/usr/local/bin/**`, `/lib*/**`,
-`/usr/lib*/**`, `/boot/**`, `/dev/**`, `/run/**`, `/proc/**`, `/sys/**`),
-everything that runs on a schedule or at boot (`/etc/cron*`,
-`/var/spool/cron/**`, `/etc/systemd/**`, `/etc/init.d/**`, the launchd
-directories on macOS), files sourced into every shell or process
-(`/etc/profile*`, `/etc/environment`, `/etc/ld.so.*`), and the account
-and authorization files (`/etc/passwd`, `/etc/shadow`, `/etc/sudoers*`,
-`/etc/pam.d/**`, `/etc/security/**`). On Windows it covers `C:\Windows`,
-`C:\ProgramData`, both `Program Files` trees and the per-user Startup
-folder. The full list is in the agent source (`client/upload_nix.go`,
-`client/upload_win.go`).
+`[file-reception] protected` is the agent's own refusal list, enforced on the
+agent because it is the agent's filesystem at stake. By default the agent
+refuses to write anywhere a pushed file could become code that runs as root:
 
-`[file-reception] protected` *replaces* that list rather than adding to
-it, so an override must carry the built-in entries too:
+- executable search paths and pseudo-filesystems (`/bin/**`, `/sbin/**`,
+  `/usr/bin/**`, `/usr/sbin/**`, `/usr/local/bin/**`, `/usr/local/sbin/**`,
+  `/lib*/**`, `/usr/lib*/**`, `/boot/**`, `/dev/**`, `/run/**`, `/proc/**`,
+  `/sys/**`)
+- anything that runs on a schedule (`/etc/crontab`, `/etc/cron.d/**`,
+  `/etc/cron.{hourly,daily,weekly,monthly}/**`, `/var/spool/cron/**`)
+- anything that runs at boot or defines a service (the systemd unit
+  directories, `/etc/init.d/**`, `/etc/init/**`, `/etc/rc.local`,
+  `/etc/rc*.d/**`, and on macOS the launchd directories and
+  `/etc/periodic/**`)
+- shell and loader initialisation (`/etc/profile`, `/etc/profile.d/**`,
+  `/etc/bash.bashrc`, `/etc/bashrc`, `/etc/environment`, `/etc/ld.so.*`)
+- accounts and authorization (`/etc/passwd`, `/etc/shadow`, `/etc/group`,
+  `/etc/gshadow`, `/etc/sudoers`, `/etc/sudoers.d/**`, `/etc/pam.d/**`,
+  `/etc/security/**`, `/etc/ssh/**`)
+- SSH keys — `/root/**`, `/home/*/.ssh/**`, `/Users/*/.ssh/**` — since an
+  `authorized_keys` file is a login
+- package-manager hook directories (apt, yum, dnf, apk, pacman), which run as
+  root on the next update, and network and DHCP hook directories
+- the agent's own configuration (`/etc/proxiport/**`)
+
+On Windows it covers `C:\Windows`, `C:\ProgramData`, both `Program Files`
+trees and the per-user Startup folder. The full list is in the agent source
+(`client/upload_nix.go`, `client/upload_win.go`).
+
+A pattern ending in `/**` protects that directory and everything below it. Any
+other pattern is a shell-style glob that matches a single path element, tested
+against both the target file path and its directory, so `/etc/systemd/*`
+covers `/etc/systemd/system` but not
+`/etc/systemd/system/foo.service.d/override.conf` — use the `/**` form for a
+directory tree. A `**` anywhere else in a pattern does not cross path
+separators.
+
+Setting `protected` *replaces* the default rather than adding to it, so an
+override must carry the built-in entries you still want:
 
 ```toml
 [file-reception]
@@ -421,35 +485,9 @@ it, so an override must carry the built-in entries too:
   protected = ['/bin/**', '/sbin/**', '/usr/bin/**', '/usr/sbin/**', '/etc/systemd/**', '/srv/deploy/**']
 ```
 
-These are glob patterns matched against both the target directory and
-the target file path; `**` matches across path separators, a bare
-directory name does not. To disable reception entirely, set
-`enabled = false`.
-
-### Protected destinations
-
-`[file-reception] protected` is the agent's own refusal list, enforced on the
-agent because it is the agent's filesystem at stake. The default covers the
-routes a written file turns into code execution — anything that runs on a
-schedule, at boot, or as part of a login:
-
-- cron (`/etc/cron.d`, `/etc/cron.*`, `/var/spool/cron`) and systemd unit
-  directories
-- shell and loader initialisation (`/etc/profile`, `/etc/profile.d`,
-  `/etc/environment`, `/etc/ld.so.*`)
-- accounts and authorization (`/etc/passwd`, `/etc/shadow`, `/etc/sudoers`,
-  `/etc/sudoers.d`, `/etc/pam.d`, `/etc/ssh`)
-- SSH keys — `/root`, `/home/*/.ssh` — since an `authorized_keys` file is a
-  login
-- package-manager hook directories, which run as root on the next update
-- executable search paths, pseudo-filesystems, and the agent's own
-  configuration
-
-A pattern ending in `/**` protects that directory and everything below it. Any
-other pattern is a shell-style glob that matches a single path element, so
-`/etc/systemd/*` covers `/etc/systemd/system` but not
-`/etc/systemd/system/foo.service.d/override.conf` — use the `/**` form for a
-directory tree.
+To disable reception entirely, set `enabled = false`. The server refuses an
+obviously dangerous destination too, before transferring the file, but that
+check is a convenience — the agent's list is the enforcement.
 
 !!! warning "File reception crosses the command permission boundary"
 
@@ -458,11 +496,6 @@ directory tree.
     the host without needing the `commands` or `scripts` permission. Treat the
     `uploads` permission as equivalent to command execution unless you have
     narrowed `protected` to an allowed directory of your own.
-
-Setting `protected` replaces the default rather than adding to it, so include
-the defaults you still want. The server refuses an obviously dangerous
-destination too, before transferring the file, but that check is a convenience
-— the agent's list is the enforcement.
 
 ### Privileged writes
 
@@ -481,10 +514,24 @@ still names `proxiport` grants the server, not the agent.
 
 Limit the wildcards as much as your operational shape allows.
 
+A failed `chown` or `chmod` does not fail the push. If the sudoers rule
+is missing or does not match, the agent still moves the file into
+place, owned by the agent's own account with the agent's mode, and
+reports `status: "success"`. The failure appears only as a
+`chown of ... failed` or `chmod failed` note in the result's `message`
+(on `WS /ws/uploads` and in the audit log). Only a failed copy or move
+fails the push. When ownership matters, check `message`, not only
+`status`.
+
 ### Live progress
 
-`WS /ws/uploads` streams per-file results as they happen. Subscribers
-get JSON frames like:
+`WS /ws/uploads` streams per-file results as they happen. The socket
+does not accept a Bearer token. First call `GET /api/v1/ws-ticket` with
+your normal Bearer token, then open
+`/api/v1/ws/uploads?ticket=<data.ticket>` within 30 seconds. Each
+ticket works only once. Clients that can set request headers can use
+HTTP basic auth on the upgrade instead. Otherwise the upgrade is
+answered `401 ticket required`. Subscribers get JSON frames like:
 
 ```json
 {
@@ -492,10 +539,14 @@ get JSON frames like:
   "uuid": "482ae29e-d372-4d21-8cb4-58d75482b7e1",
   "filepath": "/etc/hosts.allow",
   "size": 17118,
-  "message": "file successfully copied to destination",
+  "message": "file successfully copied to destination /etc/hosts.allow",
   "status": "success"
 }
 ```
+
+If setting the mode or owner fails but the file is still placed, a
+`chmod failed: ...` or `chown of ... failed: ...` note comes first in
+the message, joined with a period.
 
 The test UI at `/api/v1/test/uploads/ui` (enable with
 `enable_ws_test_endpoints = true` under `[api]`) is the easiest way
@@ -510,10 +561,16 @@ and surfaces on the **Audit** page.
   `sudo setcap 'cap_net_bind_service=+ep' $(which caddy)` after every
   Caddy upgrade. The capability is on the binary and is lost when the
   binary is replaced.
-- **Tunnel URL returns a Caddy 404.** The subdomain has not been
-  registered with Caddy yet — either the tunnel hasn't finished
-  creating, or `proxiportd` and Caddy lost sync. Check
-  `journalctl -u proxiportd -n 100 --no-pager` for ACME errors.
+- **Tunnel URL returns a Caddy 404.** Caddy has no route for that
+  subdomain. Either the tunnel was not created as a proxied tunnel
+  (`http_proxy=true`, so it has no `tunnel_url`), or Caddy lost its
+  routes, for example after a restart. List the live routes with the
+  admin-socket `curl` shown above, and check
+  `journalctl -u proxiportd -n 100 --no-pager` for
+  `failed to create downstream caddy proxy` or other caddy errors.
+  Caddy serves the static wildcard certificate from
+  `[caddy-integration] cert_file`/`key_file`; no ACME runs for tunnel
+  subdomains.
 - **NoVNC loads but the canvas is blank.** The agent could not reach
   the VNC port on the target host. The tunnel itself is fine; the
   agent-side TCP connect is failing.

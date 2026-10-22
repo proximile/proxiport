@@ -38,9 +38,12 @@ one inventory tools and ACLs usually want.
 
 ## Enabling the discovery
 
-Off by default, for privacy. The discovery makes one outbound HTTPS
-call per refresh interval to a server you do not control. Decide
-whether that is acceptable for your deployment before turning it on.
+Off by default, for privacy. Each refresh interval the discovery
+makes up to two outbound requests to a server you do not control: one
+over IPv4, then one over IPv6. They use whatever scheme `ip_api_url`
+names; a plain `http://` URL is accepted and sends the request
+unencrypted. Decide whether that is acceptable for your deployment
+before turning it on.
 
 !!! warning "This call does not use the agent's proxy"
 
@@ -58,7 +61,7 @@ under `[client]`:
 
 ```toml
 [client]
-  ip_api_url   = "https://ifconfig.me/ip"
+  ip_api_url   = "https://api64.ipify.org?format=json"
   ip_refresh_min = 30
 ```
 
@@ -68,27 +71,35 @@ outbound calls.
 
 ## Supported IP-discovery APIs
 
-The agent expects either of two response shapes:
+The agent accepts only one response shape: a JSON object with an `ip`
+string field:
 
-1. A plain-text body containing the IP and nothing else (`ifconfig.me`,
-   `api.ipify.org`).
-2. A JSON object that includes an `ip` field:
+```json
+{"ip": "203.0.113.42"}
+```
 
-   ```json
-   {"ip": "203.0.113.42"}
-   ```
+Any extra fields are ignored. A plain-text body holding just the
+address is rejected: the lookup fails, the agent logs
+`Failed to determine IP addresses`, and no addresses are reported.
+Services that return plain text by default (such as
+`https://ifconfig.me/ip`, or `api.ipify.org` without `?format=json`)
+must be used in their JSON form, for example
+`https://api64.ipify.org?format=json`. Other examples:
+`https://api.my-ip.io/ip.json`, `https://api.myip.com`,
+`https://api.seeip.org/jsonip`.
 
-   Any extra fields are ignored. Examples in this shape include
-   `https://api.my-ip.io/ip.json`, `https://api.myip.com`, and
-   `https://api.seeip.org/jsonip`.
-
-Verify the URL works over both IPv4 and IPv6 before deploying it.
-ProxiPort makes one IPv4 call and one IPv6 call per refresh — if the
-endpoint only responds to one family, the other column stays empty:
+Verify the URL works over both IPv4 and IPv6 before deploying it. On
+each refresh ProxiPort makes one IPv4 call and then one IPv6 call, and
+both must succeed. If either call fails (the endpoint does not answer
+over that family, or the host has no connectivity for it), the agent
+logs `Failed to determine IP addresses` and reports nothing for that
+refresh, not even the address that worked. A host with no IPv6
+connectivity therefore never reports an external IP. Both commands
+below must print a JSON object with an `ip` field:
 
 ```bash
-curl -4 -s https://ifconfig.me/ip; echo
-curl -6 -s https://ifconfig.me/ip; echo
+curl -4 -s 'https://api64.ipify.org?format=json'; echo
+curl -6 -s 'https://api64.ipify.org?format=json'; echo
 ```
 
 ProxiPort does not operate a first-party IP-discovery service.
@@ -121,16 +132,31 @@ boundary.
 `GET /api/v1/clients` returns both kinds of address on each client
 record:
 
-- `address` — the transport-level IP, including the port the server
-  saw the connection from.
-- `ipv4` and `ipv6` — arrays containing any of the agent's own
-  reported external addresses (when discovery is enabled), plus the
-  addresses the agent enumerated from its local interfaces.
+- `address` — the transport-level IP the server saw the connection
+  come from (host only; the port is not stored).
+- `ipv4` and `ipv6` — arrays of the addresses the agent found on its
+  own (non-loopback) network interfaces, as sent when it connects.
+  Discovered external addresses never appear here.
+- `ext_ip_addresses` — the result of external-IP discovery, for
+  example
+  `{"ipv4": "203.0.113.7", "ipv6": "2001:db8::7", "error": "", "updated_at": "..."}`.
+  Here `ipv4` and `ipv6` are single strings, not arrays. The value is
+  `null` when discovery is disabled or has not reported yet. A failed
+  lookup is logged on the agent and not sent, so the value keeps the
+  last successful result. To choose it with the
+  `fields` query option, use the name `ip_addresses`.
 
-The SPA shows the discovered IPs on the per-client detail page. The
-"Only my current IP address" preset on the tunnel-create form reads
-the **request's** `X-Forwarded-For` (i.e. the operator's IP, not the
-agent's), so it is unaffected by the agent's discovery setting.
+The SPA's per-client detail page shows the transport address and the
+interface addresses in its Network card. It does not show the
+discovered external addresses yet; read them from the API
+(`ext_ip_addresses`).
+
+The "Only my current IP address" preset on the tunnel-create form uses
+the address the server saw the **request** come from (`GET /me/ip`).
+That is the operator's IP, not the agent's, so the agent's discovery
+setting does not affect it. Behind a reverse proxy this address comes
+from `X-Forwarded-For` only when the proxy is listed in
+`[api] trusted_proxies` (see below). Otherwise it is the socket peer.
 
 ## Forwarded-for handling on the server
 
@@ -201,4 +227,4 @@ should be your address, not the proxy's.
 See also: [client attributes](client-attributes.md) for tagging agents
 by location/role/datacenter, and
 [operator runbook — tunnels](operator-runbook.md#tunnels) for the
-single-IP ACL preset that reads `X-Forwarded-For`.
+single-IP ACL preset that uses the operator's request address.
