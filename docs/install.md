@@ -13,8 +13,8 @@ over an outbound WebSocket, so it works behind NAT without inbound
 firewall rules.
 
 This page covers a single-server install on Linux and a single Linux
-agent. macOS and Windows agents follow the same shape with the
-platform-native service manager.
+agent. For Windows and macOS agents, see
+[Manual install — Windows and macOS](#manual-install-windows-and-macos).
 
 ## Server
 
@@ -25,8 +25,9 @@ platform-native service manager.
   step below walks through the three TLS setups (built-in ACME, manual
   cert, reverse proxy) — all of them need a hostname.
 - Ports 80 and 443 reachable from the network you want agents to
-  connect from (80 for the agent listener and ACME HTTP-01 challenges,
-  443 for the TLS API).
+  connect from (80 for the agent listener, 443 for the TLS API).
+  Built-in ACME validates over TLS-ALPN-01 on the API's port 443, so
+  with that setup 443 must be reachable from the internet.
 - SQLite is the default datastore; MySQL is also supported.
 
 ### Install
@@ -71,16 +72,21 @@ tar xzf "proxiportd_${VER#v}_linux_x86_64.tar.gz"
 
 sudo install -m 0755 proxiportd /usr/bin/proxiportd
 sudo install -d /etc/proxiport
-sudo install -m 0644 proxiportd.example.conf /etc/proxiport/proxiportd.conf
+sudo install -m 0640 proxiportd.example.conf /etc/proxiport/proxiportd.conf
 sudo install -m 0644 proxiportd.service /lib/systemd/system/proxiportd.service
-# The web UI, root-owned where only root can write; the config's
-# doc_root default already points here.
+# The web UI, root-owned where only root can write.
 sudo install -d -o root -g root -m 0755 /usr/share/proxiport
 sudo cp -r docroot /usr/share/proxiport/docroot
 sudo chown -R root:root /usr/share/proxiport/docroot
 sudo chmod -R u=rwX,go=rX /usr/share/proxiport/docroot
+# The example config ships doc_root commented out; enable it so the
+# server serves the web UI.
+sudo sed -i -E '/^\[api\]/,/^\[/ s|^[[:space:]]*#?[[:space:]]*doc_root[[:space:]]*=.*|  doc_root = "/usr/share/proxiport/docroot"|' \
+    /etc/proxiport/proxiportd.conf
 
 sudo useradd --system --home /var/lib/proxiport --shell /usr/sbin/nologin proxiport || true
+# The config will hold key_seed, jwt_secret and both auth pairs.
+sudo chown root:proxiport /etc/proxiport/proxiportd.conf
 getent group ssl-cert >/dev/null || sudo groupadd --system ssl-cert
 sudo install -d -o proxiport -g proxiport -m 0750 /var/lib/proxiport
 sudo install -d -o proxiport -g proxiport -m 0750 /var/log/proxiport
@@ -94,8 +100,24 @@ the service if the group is missing. `setcap` ships in `libcap2-bin`
 (Debian/Ubuntu) or `libcap` (RHEL-family) if your base install lacks
 it.
 
-Tarball installs do not auto-generate secrets or seed the config; the
-**Configure** step below covers what to set by hand.
+Tarball installs do not generate secrets. `/etc/proxiport/proxiportd.conf`
+is the example config, and `proxiportd` refuses to start while any of
+these four settings still holds its published example value. Replace
+each one before you enable the service:
+
+- `[server] key_seed` (`"<YOUR_SEED>"`): the output of
+  `openssl rand -hex 32`. Keep it fixed afterwards: it derives the
+  server's SSH host key, which agents pin.
+- `[server] auth` (`"clientAuth1:1234"`): the first agent's
+  `<client-auth-id>:<password>`, with a strong random password. The
+  agent's `auth` setting uses the same pair.
+- `[api] auth` (`"admin:foobaz"`): the admin login, `admin:<a strong password>`.
+- `[api] jwt_secret` (`"<YOUR_SECRET>"`): a random string, for example
+  `openssl rand -base64 24`.
+
+Since no `initial-admin-password` or `initial-client-auth` file is
+written, the credentials to use under **Log in** and **Configure the
+agent** are the ones you set here.
 
 #### Building from source
 
@@ -162,12 +184,17 @@ exactly what the script automates.
 
 ### What just happened
 
-The `.deb` / `.rpm` post-install ran four steps the operator otherwise
+The `.deb` / `.rpm` post-install ran the steps the operator otherwise
 has to do manually:
 
-- generated a random ECDSA `key_seed`, JWT signing secret, admin
-  password, and first agent credential — all written into
-  `/etc/proxiport/proxiportd.conf` in place of the example placeholders;
+- copied `proxiportd.example.conf` to `/etc/proxiport/proxiportd.conf`
+  (mode `0640 root:proxiport`, left alone if it already exists), then
+  generated a random ECDSA `key_seed`, JWT signing secret, admin
+  password, and first agent credential and wrote them in place of the
+  example placeholders;
+- enabled `[api] doc_root = "/usr/share/proxiport/docroot"` in that
+  seeded config, so the bundled web UI is served as soon as
+  `proxiportd` starts;
 - recorded the admin and client-auth credentials in two files under
   `/var/lib/proxiport/`:
 
@@ -189,6 +216,8 @@ has to do manually:
 
 - granted `CAP_NET_BIND_SERVICE` on `/usr/bin/proxiportd` so the
   unprivileged `proxiport` user can bind ports 80 and 443;
+- created the `ssl-cert` system group if it was missing (the unit
+  lists it in `SupplementaryGroups`);
 - created `/var/lib/proxiport` (state) and `/var/log/proxiport` (logs)
   with `proxiport` ownership.
 
@@ -216,8 +245,11 @@ accordingly. Full walk-through with worked examples is in
 === "Built-in ACME (easiest)"
 
     Single-purpose host with a public DNS A record pointing at it and
-    port 80 reachable from the internet for Let's Encrypt's HTTP-01
-    challenge. `proxiportd` obtains and renews the certificate itself.
+    port 443 reachable from the internet, so Let's Encrypt can complete
+    its TLS-ALPN-01 challenge against the API listener. `proxiportd`
+    obtains and renews the certificate itself. If the API cannot be on
+    443, see [HTTPS](https.md#built-in-acme) for the HTTP-01 alternative
+    (`[server] acme_http_port`).
 
     ```toml
     [api]
@@ -250,9 +282,9 @@ accordingly. Full walk-through with worked examples is in
 ### Open the firewall
 
 Wherever your server runs there is probably one host-level firewall and
-one cloud-level firewall. Both need port 80 (for the agent listener and
-ACME HTTP-01) and 443 (for the TLS API), unless you went with the
-reverse-proxy option.
+one cloud-level firewall. Both need port 80 (for the agent listener)
+and 443 (for the TLS API, which also carries built-in ACME's
+validation), unless you went with the reverse-proxy option.
 
 === "UFW (Ubuntu)"
 
@@ -291,14 +323,24 @@ use, a `base_url` whose hostname does not resolve, or `cert_file` /
 
 ### Log in
 
-Read the random admin password generated at install time:
+On a package install, read the random admin password generated at
+install time (a tarball install uses the `[api] auth` password you set
+yourself):
 
 ```sh
 sudo cat /var/lib/proxiport/initial-admin-password
 ```
 
-Open `https://<your-host>/` in a browser and sign in. Rotate the
-password from the Profile screen once you're in.
+Open `https://<your-host>/` in a browser and sign in, then change the
+admin password. How depends on how the server was set up. If you ran
+`proxiport-setup`, the admins live in a user database: go to
+**Settings → Users**, edit `admin` and set a new password. With the
+seeded package config there is a single `[api] auth = "admin:..."`
+pair, which can't be changed from the web UI: edit that line in
+`/etc/proxiport/proxiportd.conf` and run
+`sudo systemctl restart proxiportd`. To manage passwords from the
+Users page instead, switch to `auth_file` or `auth_user_table` (see
+[API authentication](api-authentication.md#user-stores)).
 
 ![ProxiPort login screen.](screenshots/00-login-screen.png)
 
@@ -312,7 +354,8 @@ Connect-URL list live — both are needed when configuring agents.
 
 ### Requirements
 
-- Linux / macOS / Windows.
+- Linux, macOS, Windows, FreeBSD, OpenBSD or NetBSD (see the platform
+  list under Install below).
 - Outbound TCP from the agent host to the server's `[server]`
   listener — port 80 in the seeded default. Agents never accept
   inbound connections, so no firewall changes are needed on their
@@ -323,14 +366,16 @@ Connect-URL list live — both are needed when configuring agents.
 The fastest way to bring up a new agent is the **pairing service** at
 [`pairing.proxiport.net`](https://pairing.proxiport.net/): the operator
 posts the agent's credentials, the service mints a one-shot pairing
-code, the agent host runs
+code, the agent host downloads and runs the installer
 
 ```sh
-curl https://pairing.proxiport.net/<code> | sudo sh
+curl https://pairing.proxiport.net/<code> > proxiport-installer.sh
+sudo sh proxiport-installer.sh
 ```
 
 and the installer drops a working binary plus `proxiport.conf` into
-place. Source for the pairing service: <https://github.com/proximile/proxiport-pairing>.
+place. Installer switches go on the second line, for example
+`sudo sh proxiport-installer.sh -o`. Source for the pairing service: <https://github.com/proximile/proxiport-pairing>.
 
 When you generate a pairing code from the web UI, the server brokers the
 request: the browser posts to `POST /api/v1/pairing` on your own server
@@ -338,7 +383,10 @@ request: the browser posts to `POST /api/v1/pairing` on your own server
 service. This means pairing works from any deployment's own hostname, and
 your server needs outbound network access to `pairing_url` (the
 `pairing.proxiport.net` default, or your own instance). Set `pairing_url = ""`
-in the server config to disable the pairing button entirely.
+in the `[server]` section to turn pairing off. The **Add credential**
+dialog on **Settings → Client Access** then closes once the credential
+is created and skips the pairing step, and the server answers
+`POST /api/v1/pairing` with `409 ERR_CODE_PAIRING_DISABLED`.
 
 To bring an agent up over Tor or a VPN from the start, the installer takes
 `-o` and `-e`; see [Installing with the pairing
@@ -395,6 +443,34 @@ sudo chmod 0640 /etc/proxiport/proxiport.conf
 sudo systemctl daemon-reload
 ```
 
+#### Manual install — Windows and macOS
+
+The agent registers itself with the platform's service manager (the
+Service Control Manager on Windows, launchd on macOS) through its
+built-in `--service` subcommand. `--service` accepts `install`,
+`uninstall`, `start` and `stop`; alongside it, only `--config` and
+`--service-user` are honoured.
+
+On Windows, download `proxiport_<ver>_windows_x86_64.zip` from the
+release page, unzip it to `C:\Program Files\proxiport\`, and create
+`proxiport.conf` next to the binary from `proxiport.example.conf`. Fill
+in the three fields described under
+[Configure the agent](#configure-the-agent), and under `[logging]`
+swap the Linux `log_file` line for the commented
+`C:\Program Files\proxiport\proxiport.log` one (the agent does not
+start if it cannot open its log file). Then, in an elevated PowerShell:
+
+```powershell
+& "C:\Program Files\proxiport\proxiport.exe" --service install --config "C:\Program Files\proxiport\proxiport.conf"
+& "C:\Program Files\proxiport\proxiport.exe" --service start
+```
+
+On macOS, unpack `proxiport_<ver>_darwin_<arch>.tar.gz`, install the
+binary and a config the same way, and run
+`sudo proxiport --service install --config <path-to-proxiport.conf>`
+followed by `sudo proxiport --service start`. Point `[client] data_dir`
+and `[logging] log_file` at directories that exist on that platform.
+
 ### Configure the agent
 
 Edit `/etc/proxiport/proxiport.conf` and set three fields:
@@ -411,8 +487,11 @@ Edit `/etc/proxiport/proxiport.conf` and set three fields:
 - **`auth`** — pull the first credential off the server with
   `sudo cat /var/lib/proxiport/initial-client-auth`, or any later
   credential you've created. Both halves of `<id>:<password>` go in.
-- **`fingerprint`** — the proxiportd host-key fingerprint, printed in
-  the server's log on first boot and shown on the SPA's **Info** page.
+- **`fingerprint`** — the proxiportd host-key fingerprint. The server
+  logs it every time it starts (look for the line
+  `Fingerprint (SHA-256, pin this):`), and the SPA's **Info** page shows
+  it too. It stays the same across restarts as long as `key_seed` does
+  not change.
   Without it, the agent will accept whatever public key the server
   presents — fine for testing, never for production. Prefer the
   **SHA-256** value (starts with `SHA256:`): the agent matches it in
@@ -430,16 +509,26 @@ the server. It reconnects automatically.
 
 Refresh the SPA. The new agent shows up in the inventory.
 
-![Inventory with the first agent online.](screenshots/01-inventory-dashboard.png)
+![The Inventory page with connected agents; your new agent appears as a row here.](screenshots/01-inventory-dashboard.png)
 
 ## Upgrading
 
-Install the new package over the old one. The state in
-`/var/lib/proxiport` and your `/etc/proxiport/*.conf` are left alone;
-only the binaries, the unit files and the bundled SPA are replaced. The
-one exception is the `doc_root` rewrite described under
-[Upgrading to v0.11.1 or later](#upgrading-to-v0111-or-later), and it only
-touches the shipped default value.
+Install the new package over the old one. The binaries, the unit files
+and the bundled SPA are replaced. Your databases and the other server
+state in `/var/lib/proxiport` are not moved, and your settings are
+kept. The package changes only these things, and only where they still
+need it:
+
+- `[api] doc_root` in `proxiportd.conf`, if it is still the shipped
+  default (see [Upgrading to v0.11.1 or later](#upgrading-to-v0111-or-later)).
+- The two installer credential files under `/var/lib/proxiport`, if
+  still present, are handed to `proxiport:proxiport` with mode `0600`.
+- When the agent package is installed, `/etc/proxiport/proxiport.conf`
+  is set to `root:proxiport-agent` `0640`, and its old default
+  `log_file = "/var/log/proxiport/proxiport.log"` and
+  `data_dir = "/var/lib/proxiport"` lines are repointed to
+  `/var/log/proxiport-agent` and `/var/lib/proxiport-agent`; the
+  agent's `state.json` and log file move with them.
 
 === "Debian / Ubuntu"
 
@@ -506,14 +595,18 @@ proxiportd --version
     `/var/lib/proxiport-agent`. The packages create both. An agent that
     was installed by hand, runs as some other account and has no
     `data_dir` line of its own falls back to the new default after the
-    upgrade and refuses to start with
-    `failed to create data_dir "/var/lib/proxiport-agent": permission denied`.
+    upgrade and refuses to start with an error containing
+    `failed to create data_dir "/var/lib/proxiport-agent"` and
+    `permission denied`.
     Either set `data_dir` in `[client]` to the directory that account
     already owns, or move the agent to the `proxiport-agent` account as
     shown under
     [Manual install — tarball](#manual-install-tarball-other-platforms).
 
-Downgrading is the same command with an older package. The client
+Downgrading uses the same commands with the older package:
+`sudo dpkg -i` with the older `.deb`, or `sudo rpm -Uvh --oldpackage`
+with the older `.rpm` (plain `rpm -Uvh` refuses to replace a newer
+version). The client
 database schema is versioned and migrated forward on start, so a
 downgrade across a schema change is not supported — snapshot
 `/var/lib/proxiport` first if you intend to go back. Going back below
@@ -599,5 +692,8 @@ ProxiPort runs any pending migrations on first start.
   over TLS in production (built-in `cert_file`/`enable_acme` on the
   server, or an external reverse proxy — see [HTTPS](https.md)).
 - **Datastore** — SQLite by default, MySQL supported.
-- **REST API surface** — the same endpoints, the same response shapes.
-  See the API reference.
+- **REST API surface** — the same `/api/v1/*` routes and
+  request/response conventions, with the deliberate exceptions listed
+  in [What changed from openrport](changes-from-openrport.md). A few
+  endpoints are new (for example `POST /api/v1/pairing`). The OpenAPI
+  spec is in the repository under `api-doc/`.

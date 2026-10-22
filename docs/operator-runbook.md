@@ -10,13 +10,19 @@ for the first-run setup.
 # Server
 sudo systemctl status proxiportd
 sudo systemctl restart proxiportd
-sudo journalctl -u proxiportd -f
+sudo tail -f /var/log/proxiport/proxiportd.log
+sudo journalctl -u proxiportd -n 50   # startup failures
 
 # Agent
 sudo systemctl status proxiport
 sudo systemctl restart proxiport
-sudo journalctl -u proxiport -f
+sudo tail -f /var/log/proxiport-agent/proxiport.log
 ```
+
+Both programs log to the file set by `[logging] log_file`, and only to
+stdout (and so to the journal) when `log_file` is left empty. With the
+shipped configs the journal shows service start/stop and errors printed
+before the log file is open.
 
 ## Paths
 
@@ -25,9 +31,15 @@ sudo journalctl -u proxiport -f
 | Server config | `/etc/proxiport/proxiportd.conf` |
 | Server data | `/var/lib/proxiport/` |
 | Server SPA files | `/usr/share/proxiport/docroot/` (root-owned, read-only for the daemon) |
-| Server logs (default) | `/var/log/proxiport/proxiportd.log` (and journald) |
+| Server logs (default) | `/var/log/proxiport/proxiportd.log` (`[logging] log_file`; journald only if it is left empty) |
 | Agent config | `/etc/proxiport/proxiport.conf` |
-| Agent log | journald (`-u proxiport`) |
+| Agent binary (`.deb` / `.rpm` package or tarball) | `/usr/bin/proxiport`, unit at `/lib/systemd/system/proxiport.service` |
+| Agent binary (pairing installer) | `/usr/local/bin/proxiport`, unit written by `proxiport --service install` |
+| Agent data | `/var/lib/proxiport-agent/` (`[client] data_dir`) |
+| Agent log (default) | `/var/log/proxiport-agent/proxiport.log` (`[logging] log_file`; journald only if it is left empty) |
+
+Use the binary path that matches how the agent was installed when you
+write sudoers rules, watchdog units or command allow-lists.
 
 ## Backups
 
@@ -37,9 +49,12 @@ The server keeps everything that matters in two places:
   this writing: `clients.db`, `monitoring.db`, `library.db`,
   `auditlog.db`, `api_sessions.db`, `api_token.db`,
   `client_groups.db`, `jobs.db`, `notifications.db`, and the vault
-  store at `vault.sqlite.db`. Each is created on demand the first
-  time the corresponding feature is touched, so an early-life
-  install may not have all of them on disk. Back the directory up
+  store at `vault.sqlite.db`. All of them except the vault store are
+  created, with their schema, the first time the server starts
+  (`auditlog.db` only while the audit log is enabled);
+  `vault.sqlite.db` appears once the vault is initialised. When the
+  audit log rotates it also leaves `auditlog.<timestamp>.db` files in
+  the same directory, so include those too. Back the directory up
   with a stop-the-world snapshot or with the SQLite `.backup`
   command for hot backups.
 - **`/etc/proxiport/proxiportd.conf`** — the config with the
@@ -47,23 +62,32 @@ The server keeps everything that matters in two places:
   a secret in its own right, or encrypt those settings — see
   [encrypting the config secrets](#encrypting-the-config-secrets).
 - **The at-rest DEK key file** (if `[key_provider] type = "file"`
-  is configured) — losing it makes the encrypted `totp_secret`
-  column, the entire vault, and any encrypted config setting
-  unreadable. Back it up **out-of-band**, not only inside the
+  is configured) — losing it makes all of this unreadable: the
+  encrypted `totp_secret` column, the entire vault, any encrypted
+  config setting, stored command and script output in `jobs.db`, and
+  the process and mountpoint data in `monitoring.db` (see
+  [What else the key provider encrypts](#what-else-the-key-provider-encrypts)).
+  Back it up **out-of-band**, not only inside the
   `data_dir` tarball, and ideally keep it off the disk that holds
   the databases.
 
 User auth lives either in a JSON file (`[api] auth_file = "..."`)
-or in a table inside the main database (`[api] auth_user_table =
-"users"` plus a configured `[database]` connection), so back those
-up alongside the SQLite files as appropriate.
+or in user and group tables (`[api] auth_user_table` /
+`auth_group_table`) in the separate `[database]` connection — a
+MySQL/MariaDB database or the stand-alone SQLite file named by
+`[database] db_name`, not one of the per-feature files above. Back up
+whichever one you use alongside the SQLite files.
 
 Tarball both directories for the simplest backup. Restore by
 stopping the service, replacing the directories, and starting again.
 
-If you use MySQL instead of SQLite (`[database] db_type = "mysql"`
-in proxiportd.conf), back up the database with your usual MySQL
-tooling.
+The `[database]` section (`db_type = "mysql"` or `"sqlite"`) holds
+only the optional API-user (`auth_user_table`) and client-auth
+(`auth_table`) tables. It does not replace the SQLite files in
+`data_dir`, which still need the backup described above. If you
+configured it, back that database up too: with your usual MySQL tooling
+for MySQL/MariaDB, or by copying the SQLite file it points to, which
+may live outside `data_dir`.
 
 The **vault** is a special case. It is encrypted at rest with a
 passphrase that is never written to disk (and, when a `[key_provider]`
@@ -77,7 +101,7 @@ must also present the **same DEK**, or the vault fails closed.
 ![Vault locked — the empty state every operator sees after a server
 restart, regardless of what is stored inside.](screenshots/16-vault-locked-empty-state.png)
 
-![Per-client documentation page rendering the same locked-vault
+![The Documentation page rendering the same locked-vault
 banner — documents that live inside the vault stay opaque until the
 passphrase is supplied.](screenshots/30-documentation-vault-locked.png)
 
@@ -198,11 +222,14 @@ persistent storage.
   table named in `[server] auth_table`. Push the new credentials
   to each agent and restart it.
 
-  When `auth_file` mode is in use, the credentials are also
-  manageable from the SPA at **Client Access**:
+  When the credentials come from `auth_file` or `auth_table` (and
+  `[server] auth_write` has not been set to `false`), they can also be
+  managed from the SPA at **Client Access**. The single
+  `[server] auth` credential is read-only there:
 
-  ![Client Access page — create, edit, and delete client-auth IDs
-  used by agents to register.](screenshots/20-client-access-creds.png)
+  ![Client Access page — create and delete the client-auth IDs agents
+  use to register. A credential cannot be edited; to change one, delete
+  it and create it again.](screenshots/20-client-access-creds.png)
 
 - **API tokens.** For programmatic API consumers, mint scoped API
   tokens at **API Tokens** rather than reusing a human's
@@ -213,8 +240,17 @@ persistent storage.
   shown once on creation; copy it
   immediately.](screenshots/22-api-tokens-create.png)
 
-- **TOTP second factor.** Set `[api] totp_enabled = true` in
-  `proxiportd.conf`, restart, and each user is prompted to enroll on
+  Send a token as HTTP basic auth — your username, with the token as
+  the password (`curl -u <username>:<token> …`) — not as a Bearer
+  header; see [API authentication](api-authentication.md#personal-api-token).
+
+- **TOTP second factor.** TOTP needs a user store the server can
+  write the enrolled secret to: a JSON `auth_file` or the database
+  user table, each with a `totp_secret` field (see
+  [API authentication](api-authentication.md#two-factor-authentication)).
+  It does not work with the single static `[api] auth = "user:password"`
+  credential. With such a store in place, set `[api] totp_enabled = true`
+  in `proxiportd.conf`, restart, and each user is prompted to enroll on
   their next login. The user scans the SPA's QR with any RFC 6238
   TOTP app:
 
@@ -235,16 +271,22 @@ persistent storage.
   the TOTP authenticator app.](screenshots/34-server-info-2fa-on.png)
 
   Each user's profile shows their TOTP enrollment state and lets
-  them reset it:
+  them remove their authenticator. Removing it asks for the account
+  password; a user who cannot supply it needs an admin to use
+  `Reset 2FA` on the **Users** page instead:
 
   ![Profile page once 2FA is in effect — the enrolled authenticator can
   be removed here.](screenshots/36-profile-in-2fa-mode.png)
 
 ## Capacity and limits
 
-- **Connected agents per server.** SQLite handles a few hundred
-  agents comfortably on modest hardware. For more, switch to
-  MySQL.
+- **Connected agents per server.** The agent inventory (`clients.db`)
+  and the other operational databases (jobs, monitoring, audit log)
+  are always SQLite files under `[server] data_dir`. SQLite handles a
+  few hundred agents comfortably on modest hardware; to support more,
+  give the server faster storage and more CPU. The `[database]` section
+  (`db_type = "mysql"`) moves only the API-user and client-auth tables
+  to MySQL/MariaDB, not the agent store.
 - **Tunnel ports.** `[server] used_ports` controls the pool of
   ports the server may allocate for tunnels. Default `20000-30000`.
   Expand if you run out.
@@ -346,28 +388,47 @@ genuinely want a fresh listener.
 ## Commands and scripts
 
 ProxiPort can run ad-hoc commands or multi-line scripts against any
-connected agent and stream the output back. The agent has to opt in
-via the `[remote-commands]` `allow` / `deny` lists in its
-`proxiport.conf` — running everything by default is intentionally not
-the shape.
+connected agent and show the output once each run finishes. What an
+agent will run is decided by the `[remote-commands]` block in its
+`proxiport.conf`. With the stock config, remote commands are enabled
+(`enabled = true`) but filtered: only commands given by absolute path
+under `/usr/bin`, `/usr/local/bin` or `C:\Windows\System32` pass the
+default `allow` list, and the default `deny` list rejects shell
+metacharacters. Set `enabled = false` to turn command execution off
+entirely. Agents installed through the pairing service have remote
+commands disabled unless the installer was run with `-x`, which
+enables them with an unrestricted allow list.
 
-![Allowlist block — the agent rejected the command because no
-matching `allow` entry was in the agent's
-`proxiport.conf`.](screenshots/12-cmd-allowlist-block.png)
+![Allowlist block — `uname -a` was sent without its full path, so it
+matches no `allow` pattern (the default list only accepts paths like
+`/usr/bin/...`) and the agent refused it. `/usr/bin/uname -a`
+runs.](screenshots/12-cmd-allowlist-block.png)
 
-When a command is allowed, the SPA streams stdout / stderr live
-and prints the exit code at the end.
+When a command is allowed, the SPA polls the job and, once it
+finishes, prints stdout / stderr under the form followed by a
+`--- status=successful ---` (or `failed` / `cancelled`) line. If the
+command fails, its error (for example `exit status 127`) also appears
+in the Error column of the Recent commands table.
 
-![Single-host `uname` run — the output streams back under the
-form.](screenshots/13-cmd-run-uname-output.png)
+![Single-host `uname` run — the output is shown under the form once
+the job finishes.](screenshots/13-cmd-run-uname-output.png)
 
-Scripts are the same control surface with a multi-line editor and
-an interpreter selector (`/bin/bash`, `/usr/bin/python3`, …). The
-agent writes the body to a tempfile, executes, and reaps the
-process.
+Scripts are the same control surface with a multi-line editor and a
+free-text Interpreter field, which starts out as `/bin/bash`; enter
+any interpreter path (for example `/usr/bin/python3`) or an
+interpreter alias defined in the agent's config. The agent writes the
+body to a tempfile, executes, and reaps the process.
 
-![Script run — bash heredoc style, with timeout and
-`Run as sudo` toggles, streamed output below.](screenshots/14-script-run-with-output.png)
+Script execution is off by default on the agent and is separate from
+the command allow list. Set `enabled = true` under `[remote-scripts]`
+in the agent's `proxiport.conf` and restart the agent; until then
+every script run is rejected. Scripts also need remote commands to be
+enabled. An agent installed with the pairing installer's `-x` switch
+already has scripts enabled. See [Scripts](scripts.md#enabling-script-execution-on-the-agent).
+
+![Script run — a short bash script with interpreter, working-directory
+and timeout fields and a `Run as sudo` checkbox; the output appears
+below once the job completes.](screenshots/14-script-run-with-output.png)
 
 For repeated patterns, save commands and scripts into the
 **Library**:
@@ -376,36 +437,47 @@ For repeated patterns, save commands and scripts into the
 
 ![Saved-scripts library.](screenshots/29-library-saved-scripts.png)
 
-A library entry can be run against multiple agents at once from
-the **Commands** page — useful for one-shot fleet
-work.
+The Library stores command and script bodies for reuse; it has no run
+action of its own. To run a command against several agents at once —
+useful for one-shot fleet work — use the **Commands** page: tick the
+target agents and type the command, or paste a saved entry's body from
+the Library.
 
 ![Multi-target command fan-out — same body, dispatched to every
 selected agent in parallel.](screenshots/26-multitarget-cmd-fanout.png)
 
 The global **Scripts** page is the same concept for whole-fleet
 script runs. It is still being reimplemented from the upstream
-shape — at the moment it is a stub that links into the per-client
-Scripts tab.
+shape — at the moment it is a stub whose button opens the
+**Commands** page, where you can pick an interpreter to run a script
+body across several agents. To run a script on a single agent, use
+the Scripts tab on that agent's page.
 
 ![Global Scripts stub.](screenshots/25-scripts-global-stub.png)
 
 ## Schedules
 
-For recurring runs, attach a cron expression to a saved command or
-script. The scheduler is in-process; no external cron is needed.
+For recurring runs, create a schedule: a cron expression, the target
+agents (or client groups), and the command or script body to run. The
+body is entered on the schedule itself; schedules do not reference
+Library entries, so changing a Library entry does not change a
+schedule. The scheduler is in-process; no external cron is needed.
 
-![Schedules — cron expression, target agent, and the body of the
-command or script to dispatch.](screenshots/27-schedules-cron.png)
+![Schedules list — name, type (command or script), cron expression,
+how many clients and groups it targets, and who created it. New
+schedule / Edit opens the form for the body, interpreter, timeout and
+targets.](screenshots/27-schedules-cron.png)
 
 ## File transfer
 
-Push a file from the server's filesystem (or paste it inline) to a
-chosen path on the agent. The transfer goes over the same chisel
-session as everything else.
+From a client's **Files** tab, upload a file from your browser to a
+chosen path on the agent, with optional mode, owner and group, and
+options for an atomic (sync) write and force-overwrite. The transfer
+goes over the same chisel session as everything else.
 
-![File push — pick the agent, the destination path, the mode, and
-the body of the file.](screenshots/32-file-push.png)
+![File push on a client's Files tab — local file, remote path, mode,
+owner/group, and the sync (atomic) and force-overwrite
+options.](screenshots/32-file-push.png)
 
 ## Audit log
 
@@ -426,8 +498,11 @@ secret — the one high-value read worth tracking — is recorded too, as a
 
 When a key provider is configured, each audit entry carries a keyed
 HMAC chained to the previous entry (the key is derived from the server
-DEK, so it is not on the audited box in usable form). Editing or
-deleting a row after the fact breaks the chain. Check it with:
+DEK and is never stored in the audit database, so someone who has only
+the database files cannot recompute it; anyone who can read the DEK —
+the `key_file`, or the running server's environment or memory — can).
+Editing or deleting a row after the fact breaks the chain. Check it
+with:
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
@@ -439,7 +514,7 @@ the sequence number and kind (`mac` — a row was edited, `link`/`gap` — a
 row was removed or reordered). This detects tampering **on the box**; it
 does not stop a host with the DEK from forging new entries — ship entries
 to an off-host, append-only sink for that. Rotation starts a fresh chain
-per `auditlog.<date>.db` file.
+per `auditlog.<timestamp>.db` file.
 
 ![Global audit log.](screenshots/24-audit-log-global.png)
 
@@ -447,36 +522,58 @@ per `auditlog.<date>.db` file.
 
 User groups gate which API endpoints (and therefore which SPA
 sections) each user can reach. The built-in `Administrators` group has
-every permission set and cannot be edited; build new groups by ticking
-only the columns the role needs. A user's effective permissions are the
-union across its groups.
+every permission set and cannot be edited or deleted. To add a group,
+give a user its name on the **Users** page (type it in the group field
+and click **Add group**); the group then appears on **User Groups**,
+where you tick only the columns the role needs. Permissions can be
+edited only with database-backed users and an
+`[api] auth_group_details_table`; otherwise the page is read-only. A
+user's effective permissions are the union across its groups.
 
 ![User Groups — RBAC columns for tunnels, commands, scripts, scheduler,
 monitoring, auditlog, uploads, and vault.](screenshots/19-user-groups-rbac-columns.png)
 
-Client groups are operator-side labels you can attach to any
-agent. They are useful as targeting filters for the multi-target
-command page and for the audit-log query
-builder.
+Client groups are rule-based sets of agents: a group's `params` match
+client attributes such as client ID, name, hostname, OS or tags, and
+every agent that matches belongs to the group. Groups are created and
+changed through the API (see
+[Client groups and permissions](client-groups-permissions.md#managing-groups-via-the-api));
+the SPA's Client Groups page lists them read-only. You can target a
+group by passing `group_ids` to the multi-client command and script
+API calls, or in a schedule's "Target groups" field. The ad-hoc
+Commands page selects targets per client only, and the audit log has
+no group filter.
 
 ![Client Groups list.](screenshots/21-client-groups-list.png)
 
-Each user has a profile page that shows their group membership
-and lets them rotate their own password.
+Each user has a profile page (**Settings → Profile**) that shows their
+username, group membership and 2FA recipient, and manages their own
+TOTP second factor. The web UI has no self-service password change. An
+administrator sets a user's password from **Settings → Users**, or a
+user can change their own through the API with `PUT /api/v1/me`
+(`password` plus `old_password`). With static `[api] auth`, the
+password is whatever the config file sets.
 
-![Profile page in static-auth mode — password rotation is gated
-behind the same `[api] auth` config edit when running pinned auth;
-in `auth_file` mode it is a self-service action.](screenshots/31-profile-staticauth.png)
+![Profile page with TOTP disabled at the server — the two-factor card
+names the setting to turn on (`totp_enabled = true` in
+`[api]`).](screenshots/31-profile-staticauth.png)
 
 ## Common pitfalls
 
-- **`429 too many requests` immediately after a 401.** ProxiPort
-  inherits openrport's `BanList`: every failed auth attempt buys a
-  2-second deny on the keyed username. If the SPA fires three
-  parallel API calls after a session expires, the first 401s and
-  the rest 429. The SPA fixes this client-side by short-circuiting
-  on a missing token; if you are writing your own client, do the
-  same.
+- **`429 too many requests` or `423 Locked` after failed logins.**
+  Failed password logins are throttled per source IP plus username:
+  after a failed basic-auth or `/login` attempt for a username, further
+  attempts for that username from the same address get `429` for
+  `[api] user_login_wait` seconds (default 2). Requests with an expired
+  or invalid session token, or with no credentials, just get `401` and
+  add nothing to that throttle, but every unauthorized request counts
+  against the per-IP limit: after `[api] max_failed_login` failures
+  (default 10) the address is refused with `423 Locked` for
+  `[api] ban_time` seconds
+  (default 600). The SPA stops sending API calls once its token is
+  gone; if you write your own client, stop retrying on the first `401`
+  and re-authenticate, so a burst of rejected calls does not lock out
+  your own address.
 - **Agent refuses to connect with "fingerprint mismatch".** Either
   the server's `key_seed` changed or the agent's
   `fingerprint = "..."` value is stale. Compare the fingerprint
