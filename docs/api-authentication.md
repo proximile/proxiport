@@ -21,15 +21,18 @@ curl -s -u admin:password \
   https://proxiport.example.com/api/v1/clients | jq
 ```
 
-When the TOTP second factor is enabled, basic auth with a password
-stops working on every endpoint except `/login`. The workaround for
+When any second factor is enabled (`[api] totp_enabled = true` or a
+`two_fa_token_delivery` method), basic auth with a password stops
+working on every endpoint except `/login`. The workaround for
 script integrations is the personal API token below.
 
 ### JWT bearer token
 
 `GET /api/v1/login` with basic auth returns a short-lived JWT. The
 default lifetime is 10 minutes; request a longer one with
-`?token-lifetime=<seconds>`. The SvelteKit SPA asks for 24 hours.
+`?token-lifetime=<seconds>`, up to 90 days (`7776000`). A larger value,
+or one that is not an integer, is rejected with HTTP 400. The SvelteKit
+SPA asks for 24 hours.
 
 ```bash
 TOKEN=$(curl -s -u admin:password \
@@ -47,15 +50,17 @@ left unset, the server generates a fresh one at every restart and every
 existing session is invalidated.
 
 !!! warning "Login tokens are not bearer tokens"
-    When TOTP is enabled, `/login` returns an intermediate token that
-    is only accepted by `/verify-2fa`. The final bearer token comes
-    back from `/verify-2fa` once the TOTP code is validated.
+    When a second factor is enabled, `/login` returns an intermediate
+    token that is only accepted by `POST /verify-2fa` (and, for a user
+    who has not enrolled a TOTP secret yet, by `POST /me/totp-secret`,
+    so they can enroll). The final bearer token comes back from
+    `/verify-2fa` once the TOTP or delivered code is validated.
 
 ### Personal API token
 
 Each user can mint named, scoped API tokens. They authenticate via HTTP
 basic with the **username + token in place of the password**, so they
-work even when TOTP is enabled on the account:
+work even when a second factor is enabled:
 
 The token is the `<prefix>_<secret>` string returned by
 `POST /api/v1/me/tokens` — use it verbatim (the leading `prefix_` is
@@ -66,11 +71,27 @@ curl -s -u admin:Ab3xK9pq_e83d40e4-e237-43d6-bb99-35972ded631b \
   https://proxiport.example.com/api/v1/clients | jq
 ```
 
-Tokens carry an expiry date and a scope (`read`, `read+write`). Mint
-them from **Settings → API Tokens** in the SPA, or via
-`POST /api/v1/me/tokens`. List them with `GET /api/v1/me/tokens` and
-revoke one with `DELETE /api/v1/me/tokens/{prefix}` — the underlying JWT
-becomes unverifiable immediately.
+Each token has a scope and an expiry date. If you leave out
+`expires_at`, the token expires one year after it is created. There are
+three scopes:
+
+- `read+write` — any request.
+- `read` — `GET` requests only, and not `/ws`, `/ws-ticket`,
+  `/me/totp-secret`, or individual vault values under `/vault/{id}`
+  (the vault listing is still readable).
+- `clients-auth` — only the `/api/v1/clients-auth` routes that manage
+  agent credentials. Only an administrator can mint one; anyone else
+  gets `400`.
+
+Mint `read` or `read+write` tokens from **Admin → API Tokens** in the
+SPA sidebar (also **API tokens** in the user menu at the top right).
+Mint any scope, including `clients-auth`, via `POST /api/v1/me/tokens`.
+List tokens with `GET /api/v1/me/tokens`, and rename one or change its
+expiry with `PUT /api/v1/me/tokens/{prefix}` (body: `name`,
+`expires_at`). Revoke one with `DELETE /api/v1/me/tokens/{prefix}`; it
+stops authenticating on the next request. The token is a random secret
+stored as a bcrypt hash and checked against the database on every
+request, so once its row is deleted it no longer matches.
 
 ## User stores
 
@@ -152,7 +173,6 @@ CREATE TABLE users (
   username TEXT NOT NULL,
   password TEXT NOT NULL,
   password_expired BOOLEAN NOT NULL DEFAULT 0,
-  token TEXT DEFAULT NULL,
   two_fa_send_to TEXT,
   totp_secret TEXT
 );
@@ -173,6 +193,10 @@ CREATE TABLE group_details (
 CREATE UNIQUE INDEX group_details_name ON group_details (name);
 ```
 
+`two_fa_send_to` and `totp_secret` are needed only when the matching
+second factor is enabled. Personal API tokens are stored by the server
+itself, not in these tables.
+
 The MySQL equivalents use `VARCHAR` and `InnoDB`; see
 [`proxiportd.example.conf`](https://github.com/proximile/proxiport/blob/main/proxiportd.example.conf)
 for the `[database]` connection options.
@@ -187,7 +211,8 @@ INSERT INTO groups (username, "group") VALUES ('admin', 'Administrators');
 
 ## Managing users in the SPA
 
-**Settings → Users** and **Settings → User groups** manage the user
+**Admin → Users** and **Admin → User Groups** in the SPA sidebar
+(`/settings/users` and `/settings/user-groups`) manage the user
 store from the web UI, backed by the same `POST`/`PUT`/`DELETE /users`
 and `PUT`/`DELETE /user-groups` endpoints. What you can do depends on
 which store is active:
@@ -205,7 +230,7 @@ alongside a note explaining why. Switch to the JSON file or the database
 
 ### Users
 
-**Settings → Users** lists every account. *New user* and *Edit* set the
+**Admin → Users** lists every account. *New user* and *Edit* set the
 username, password, and group membership; *Delete* removes the account;
 and — when TOTP authenticator 2FA is enabled — *Reset 2FA* clears a
 user's enrolled TOTP secret so they re-enroll on next login (out-of-band
@@ -223,9 +248,12 @@ commands, scripts, scheduler, monitoring, auditlog, uploads, and vault.
 The built-in **Administrators** group grants all eight and cannot be
 edited.
 
-**Settings → User groups** shows each group's permissions. In the
-database store the checkboxes are editable and *Save* writes them back;
-in the JSON-file store they are read-only, because that store grants
+**Admin → User Groups** shows each group's permissions. In the
+database store the checkboxes are editable and *Save* writes them back.
+*Delete* (`DELETE /user-groups/{group_name}`) removes the group's
+permission set and takes the group off every user who had it. The
+built-in Administrators row has neither button. In the JSON-file
+store the checkboxes are read-only, because that store grants
 every user the full permission set. Create a group by assigning its name
 to a user on the **Users** page, then set what it grants here.
 
@@ -236,16 +264,23 @@ to a user on the **Users** page, then set what it grants here.
 
 ## Two-factor authentication
 
-ProxiPort supports two second-factor flows. Both require the JSON file
-or the database — the inline single-user mode cannot enable 2FA.
+ProxiPort supports two second-factor flows. Both need users in the
+JSON file or the database. With the inline single-user `auth` setting,
+`two_fa_token_delivery` is refused at startup. `totp_enabled = true` is
+accepted, but the inline user cannot be updated, so it can never enroll
+and every login stops at the TOTP step. Move to `auth_file` or
+`auth_user_table` before you turn on TOTP.
 
 ### TOTP authenticator app
 
 The recommended setup. Set `[api] totp_enabled = true` and restart.
 Each user is prompted to enroll on next login — the SPA renders a QR
 code; scan it with any RFC 6238 app (Aegis, Google Authenticator,
-1Password, etc.). The secret stays in the database; the QR is
-rendered client-side.
+1Password, etc.). The server generates the secret and a PNG of the QR
+code and returns both once, in the enrollment response (`secret` and
+base64 `qr`); the SPA displays that image along with the secret for
+manual entry. The secret is then kept in the user store (database or
+`auth_file`) and is not shown again.
 
 When users live in the **database** (`auth_user_table`) and a
 `[key_provider]` is configured, the `totp_secret` column is encrypted
@@ -286,7 +321,8 @@ curl -s -X POST \
 !!! warning "The secret is returned once"
     Step 2 is the only response that carries the shared secret and the
     QR image. `GET /api/v1/me/totp-secret` reports enrollment status
-    only — `{"enrolled": true}` — so a leaked session or a read-scoped
+    only — `{"enrolled": true}` for an enrolled account, or `404` when
+    no secret exists yet — so a leaked session or a read-scoped
     API token cannot lift the secret and keep minting codes after the
     session is revoked. Capture the secret at enrollment time, or reset
     the factor and enroll again.
@@ -312,7 +348,9 @@ Admins can reset a user's TOTP from **Users** in the SPA, or by
 ### Out-of-band code delivery
 
 For sites that prefer email or push, set `two_fa_token_delivery` to
-`smtp`, `pushover`, a URL, or the path to an executable. The user's
+`smtp`, `pushover`, a URL, or the path to an executable (URL delivery
+also needs `[api] base_url` set, or the server refuses to start). The
+user's
 `two_fa_send_to` field carries the destination address:
 
 ```toml
@@ -321,7 +359,8 @@ For sites that prefer email or push, set `two_fa_token_delivery` to
   two_fa_token_ttl_seconds = 600
 ```
 
-Configure `[smtp]` or `[pushover]` to match. The flow mirrors TOTP:
+Configure `[smtp]` or `[pushover]` to match, or set `base_url` for URL
+delivery. The flow mirrors TOTP:
 `/login` returns a login token, the server sends a code, and the user
 posts `{username, token}` to `/verify-2fa` to get the final JWT.
 
@@ -334,14 +373,18 @@ default; neither needs configuring to be effective.
 source address ban that address for `ban_time` seconds. A successful
 authentication clears the counter for that address.
 
-**Per-account.** A failed login also bans the *IP and username pair*
-for `ban_time`, so spraying one password across many accounts from a
-single host does not stay under a purely per-account limit, and one
-attacker cannot lock out a legitimate user by burning that user's
-counter from elsewhere.
+**Per-account.** Each failed login also puts the *source IP and
+username pair* on a short deny list for `[api] user_login_wait` seconds
+(default 2). Further attempts at that account from that address get
+`429 Too Many Requests` until the wait expires, which slows online
+guessing against a single account. The key includes the address, so a
+failed login from one host never locks the account out for users on
+other hosts. Spraying one password across many accounts from a single
+host is caught by the per-IP limit above.
 
 ```toml
 [api]
+  user_login_wait = 2.0
   max_failed_login = 10
   ban_time = 600
 ```
@@ -388,6 +431,16 @@ JWT against the matching user record.
   default_user_group = "operators"
 ```
 
+`user_header` defaults to `Authentication-User` and must not be set to
+an empty value. `create_missing_users` is off by default. When it is
+on, a username the server has not seen before gets a new account in
+`default_user_group`, which defaults to `Administrators` — set it on
+purpose, or every user the proxy lets through becomes a full
+administrator. Delegated authentication needs a JSON user file
+(`auth_file`) or a database user table (`auth_user_table`); the server
+refuses to start if `auth_header` is combined with the inline
+single-user `auth`.
+
 The pre-auth flow still goes through `/login`, so the proxy needs to
 inject the header on that endpoint. Once the SPA holds a JWT, every
 subsequent call uses the bearer token and the headers are ignored.
@@ -412,6 +465,12 @@ sudo -u proxiport proxiportd user change -u alice -p \
 Run it as the `proxiport` system user, not root, or the JSON file's
 permissions will end up unreadable by the daemon.
 
+With the JSON file store, the running daemon keeps its own copy of the
+user list, so it does not see the change until you reload it:
+`kill -SIGUSR1 <pid>`, or restart the service (on Windows, restart is
+the only option). With the database store, the change takes effect
+immediately.
+
 ## Hardening checklist
 
 - Pin `[api] jwt_secret` to a long random value, and store it
@@ -426,7 +485,13 @@ permissions will end up unreadable by the daemon.
 - Sit the API behind TLS — see [HTTPS](https.md).
 - Restrict the username/password basic-auth flow at the reverse proxy
   if you only intend to allow bearer tokens.
-- Audit access from **Audit log** in the SPA; every state-changing
-  call is recorded.
+- Review changes on the **Audit** page in the SPA. Most administrative
+  changes are recorded there: users, groups, API tokens and TOTP,
+  session revocation, client deletion, client ACLs, client credentials,
+  client groups, tunnels, commands, scripts, the library, the vault, schedules and
+  uploads. Logins, logouts and 2FA verification are not recorded, and
+  neither are changes to stored tunnels or client attributes, or
+  pairing requests. To review a user's active API sessions, use
+  `GET /api/v1/users/{user_id}/sessions` (admin only).
 
 See also: [operator runbook — rotating credentials](operator-runbook.md#rotating-credentials).

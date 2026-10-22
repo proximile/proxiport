@@ -21,9 +21,11 @@ credentials, see [client authentication](client-authentication.md).
 ## Client groups
 
 A client group is identified by an `id` string and is defined by a
-set of `params`. Every connected agent is evaluated against the
-`params` of every group; matching agents are listed in the group's
-`client_ids` field at read time.
+set of `params`. Every known agent, connected or disconnected, is
+evaluated against the `params` of every group. A disconnected agent
+stays known until `keep_disconnected_clients` expires. Matching agents
+are listed in the group's `client_ids` field at read time, limited to
+the agents the requesting user has access to.
 
 ### Matching modes
 
@@ -48,16 +50,17 @@ or a list with wildcard glob patterns (also case-insensitive):
 
 When multiple parameters are given, an agent is in the group only if
 **all** of them match. Within one parameter that takes a list of
-values on the agent side (`tags`, `ipv4`, `ipv6`, etc.), it is enough
+values on the agent side (`tag`, `ipv4`, `ipv6`, etc.), it is enough
 for **one** value to match. Roughly: AND across keys, OR within each
 key.
 
-The explicit AND/OR form is also accepted on multi-value parameters:
+The explicit `and`/`or` object form is accepted on `tag` only; every
+other key takes a plain list of values, matched as OR:
 
 ```json
 {
   "params": {
-    "tags": { "and": ["Linux", "Datacenter-3"] }
+    "tag": { "and": ["Linux", "Datacenter-3"] }
   }
 }
 ```
@@ -83,6 +86,20 @@ For 2-dimensional labels (e.g. `country=France`), use
 
 ### Managing groups via the API
 
+Creating, updating and deleting client groups requires membership of
+the `Administrators` user group; other users get an error on those
+calls. Any authenticated user can read groups, but each group's
+`client_ids` lists only the clients that user may access, and for a
+user who is not an administrator the list call
+(`GET /api/v1/client-groups`) also leaves out groups that contain none
+of their clients.
+
+A group `id` must be non-empty, at most 30 characters, and use only
+`A-Z`, `a-z`, `0-9`, `_`, `-` and `*`. On `PUT`, the body's `id` must
+equal the id in the URL, or the request is rejected with 400. `POST`
+returns `201 Created`, while `PUT` and `DELETE` return
+`204 No Content`; none of the three returns a body.
+
 ```bash
 TOKEN=$(curl -s -u admin:password \
   https://proxiport.example.com/api/v1/login | jq -r .data.token)
@@ -97,7 +114,8 @@ curl -s -X POST \
     "params": {
       "os_family": ["linux*"],
       "tag": ["edge*"]
-    }
+    },
+    "allowed_user_groups": ["ops"]
   }' \
   https://proxiport.example.com/api/v1/client-groups
 
@@ -109,7 +127,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 curl -s -X PUT \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  --data-raw '{ "id": "linux-edge", "description": "...", "params": { ... } }' \
+  --data-raw '{ "id": "linux-edge", "description": "...", "params": { ... }, "allowed_user_groups": ["ops"] }' \
   https://proxiport.example.com/api/v1/client-groups/linux-edge
 
 # Delete
@@ -117,16 +135,28 @@ curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
   https://proxiport.example.com/api/v1/client-groups/linux-edge
 ```
 
-The same CRUD is wired into the **Client Groups** page in the SPA.
+The **Client Groups** page in the SPA lists each group with its
+description, client count and allowed user groups. It is read-only:
+create, update and delete groups through the `/api/v1/client-groups`
+API shown above.
 
 ### Where groups show up
 
-- The **Commands** page accepts `group_ids` for fan-out — see
+- The multi-client command endpoint (`POST /api/v1/commands`) and the
+  **Schedules** page accept `group_ids` for fan-out; the **Commands**
+  page in the SPA targets clients individually. See
   [command execution](command-execution.md#multi-host-execution).
-- The **Scripts** page accepts `group_ids` similarly.
+- The multi-host script endpoint, `POST /api/v1/scripts`, accepts
+  `group_ids` the same way — see
+  [scripts](scripts.md#multi-host-execution). The SPA's **Scripts**
+  page does not have multi-target selection yet.
 - The file-push endpoint accepts repeated `group_id` form fields —
   see [tunnel hosting → file reception](tunnel-hosting.md#file-reception).
-- The audit-log query builder lets you filter by group ID.
+- Creating, updating and deleting a group is recorded in the audit
+  log under application `client.group`, with the group ID as
+  `affected_id`. The audit log has no filter that scopes entries to a
+  group's members; to filter by host, use `client_id` or
+  `client_hostname`.
 - User-group permissions can grant access to a client group as a
   unit (see below), so adding a host to the right group automatically
   gives the matching operators access.
@@ -152,7 +182,10 @@ intentional.
 - `scheduler` — create, run, list schedules. A schedule runs a
   command or a script, so it also needs the matching `commands` or
   `scripts` permission (see below).
-- `monitoring` — read monitoring metrics.
+- `monitoring` — read monitoring data (graph metrics, metrics,
+  processes, mountpoints) and trigger an OS-updates status refresh on
+  an agent (`POST /api/v1/clients/<id>/updates-status`). The refresh
+  trigger is available even when monitoring is disabled.
 - `uploads` — push files to agents.
 - `auditlog` — read the audit log.
 
@@ -176,20 +209,24 @@ you do not have to hunt down and delete each one. The account and its
 client access are untouched, which makes this the right way to
 withdraw execution from an operator while an investigation runs.
 
-> **Upgrading:** before this release `scheduler` alone was enough to
-> create and run a schedule of either type, which made it a superset
-> of `commands` and `scripts`. If you have a group that grants
-> `scheduler` without them, its members' schedules stop running at
-> upgrade. Add the permission the schedule's type needs, or delete the
-> schedule. `Administrators` is unaffected, and so is any deployment
-> whose auth backend has no group permissions at all (`auth`,
+> **Upgrading from 0.9.x or earlier:** before 0.10.0, `scheduler`
+> alone was enough to create and run a schedule of either type, which
+> made it a superset of `commands` and `scripts`. If you have a group
+> that grants `scheduler` without them, its members' schedules stop
+> running once you upgrade to 0.10.0 or later. Add the permission the
+> schedule's type needs, or delete the schedule. `Administrators` is
+> unaffected, and so is any deployment whose auth backend has no group permissions at all (`auth`,
 > `auth_file`): there is nothing there to check.
 
 ### Managing user groups
 
-Permissions are stored in the `group_details` table (or its JSON-file
-equivalent under `auth_file`). The
-`PUT /api/v1/user-groups/<name>` endpoint takes a permission map:
+Permissions are stored in the database table named by
+`[api] auth_group_details_table` (`group_details` in the example
+config). Neither the JSON user file (`auth_file`) nor the single-user
+`auth` mode can hold them: those stores grant every user every
+permission, and reading, updating or deleting a single user group
+returns `400` there (see [API authentication](api-authentication.md)). On the database store,
+the `PUT /api/v1/user-groups/<name>` endpoint takes a permission map:
 
 ```bash
 curl -s -X PUT \
@@ -211,7 +248,8 @@ curl -s -X PUT \
   https://proxiport.example.com/api/v1/user-groups/ops-readonly
 ```
 
-The same matrix is editable on the **User Groups** page in the SPA.
+On the database store the same matrix is editable on the
+**User Groups** page in the SPA.
 
 ## Client permissions
 
@@ -223,18 +261,25 @@ Two ways to grant per-agent access:
 
 ### Per-client ACL
 
-The client record carries an ACL list (`details.acl` on the response,
-managed via `POST /api/v1/clients/<id>/acl`). Set it to a list of
-user-group names. Members of those groups can target that specific
-agent.
+The client record carries an ACL: the `allowed_user_groups` field on
+the client response (request it with `fields[clients]=allowed_user_groups`
+if you limit the fields). An `Administrators` member sets it with
+`POST /api/v1/clients/<id>/acl` and a body of
+`{"allowed_user_groups": ["ops-readonly", "customer-a"]}`. Every name
+must be an existing user group, or the request is rejected; a
+successful call returns `204 No Content`. Members of the listed groups
+can target that specific agent.
 
 Useful when one server hosts several customers, and access boundaries
 match the tenant rather than any organisational category.
 
 ### Client-group permissions
 
-Each client group can be associated with a list of user groups that
-have access to all agents matching the group definition. Grant once,
+Each client group carries an `allowed_user_groups` array of
+user-group names; members of those groups have access to every agent
+matching the group's `params`. Set it in the same `POST`/`PUT` body as
+`params`. `PUT` replaces the whole document, so include
+`allowed_user_groups` on every update, or it is cleared. Grant once,
 extend automatically as new agents match the group's `params`. This
 is the right shape for fleet-style operation.
 
@@ -283,6 +328,13 @@ read monitoring data. The platform team needs full access.
 
 4. **Grant client-group access.** On `apollo-fleet`, allow user group
    `apollo-oncall`. On `bravo-fleet`, allow user group `bravo-oncall`.
+   This is the `allowed_user_groups` field of each client group (you
+   can also set it when you create the group in step 2):
+
+   ```json
+   { "id": "apollo-fleet", "params": { "tag": ["apollo"] }, "allowed_user_groups": ["apollo-oncall"] }
+   { "id": "bravo-fleet",  "params": { "tag": ["bravo"]  }, "allowed_user_groups": ["bravo-oncall"] }
+   ```
 
 5. **Add the operators.** Apollo on-call humans go into the
    `apollo-oncall` user group. Bravo on-call humans into
