@@ -28,7 +28,7 @@ deployment shapes are supported for the API:
 
 | Setup | When it fits |
 | --- | --- |
-| Built-in ACME | Single-purpose host, no other web service on the box, port 80 reachable from the internet for HTTP-01 challenges. Easiest production setup. |
+| Built-in ACME | Single-purpose host, no other web service on the box, the API on port 443 and reachable from the internet (Let's Encrypt validates with TLS-ALPN-01 on that listener). Easiest production setup. |
 | Manual cert files | Behind an internal CA, an air-gapped environment, or any setup where certbot cannot reach Let's Encrypt directly. |
 | External reverse proxy | You already run nginx/Caddy; you want one TLS surface across many services; you want HTTP/2 / HTTP/3, request logging, rate limiting, or path routing in one place. |
 
@@ -41,29 +41,55 @@ need to be reachable through the proxy:
 - the **agent (chisel)** listener (`[server] address`), serving the
   WebSocket upgrade that carries the SSH-over-WS tunnel transport.
 
-A minimal Caddy config that fronts both, sharing the same hostname on
-port 443:
+The two listeners are separate servers: agents connect only to the
+`[server] address` listener, and the API/SPA is served only on
+`[api] address`. The proxy has to route each to its own backend. The
+simplest way is two hostnames:
 
 ```caddy
 proxiport.example.com {
-    reverse_proxy 127.0.0.1:3000
+    reverse_proxy 127.0.0.1:3000   # API + SPA
+}
+
+agents.proxiport.example.com {
+    reverse_proxy 127.0.0.1:80     # agent (chisel) WebSocket
 }
 ```
 
-Caddy proxies WebSocket upgrades by default; no extra directives
-needed for `/ws/*` paths. To split agents onto a separate hostname or
-port, add a second site block pointing at `127.0.0.1:80`.
+Caddy proxies WebSocket upgrades by default, so neither block needs
+extra directives — neither for the agent transport on the second block
+nor for the SPA's `/api/v1/ws/*` command, script and upload streams on
+the first.
 
 The matching `proxiportd.conf`:
 
 ```toml
 [server]
   address = "127.0.0.1:80"
+  url     = "https://agents.proxiport.example.com"
 
 [api]
   address = "127.0.0.1:3000"
   # leave cert_file and key_file commented out
 ```
+
+To serve agents and the UI on one hostname instead, send the whole site
+to the agent listener (`reverse_proxy 127.0.0.1:80`) and set
+`proxy = "http://127.0.0.1:3000"` under `[server]`. The agent listener
+answers agent upgrades itself and forwards every other request,
+including the SPA's WebSocket streams, to the API.
+Every request on that listener, proxied ones included, is limited to
+`[server] max_request_bytes_client` (512 KB by default), so raise it if
+you upload larger files through the web UI in this setup.
+
+Agents then dial the proxy, not the loopback listener, and must give
+the scheme explicitly: `[client] server = "https://agents.proxiport.example.com"`
+(the port defaults to 443). A value without a scheme, like the
+`host:80` form in the example agent config, is treated as plain
+`ws://`, so the agent never completes the handshake with the TLS port.
+`[server] url` is the connect address the server advertises; setting
+it to the proxied address means agent configs generated through
+pairing point at the proxy as well.
 
 For nginx, the key directives are `proxy_set_header Upgrade`,
 `proxy_set_header Connection "upgrade"`, and a long `proxy_read_timeout`
@@ -99,18 +125,24 @@ under `[api]`:
 the address the ACME challenge will reach. The certificate is issued
 for that hostname.
 
-!!! note "Port 80 is required for HTTP-01"
-    Let's Encrypt validates ownership over port 80 or 443. If the API
-    is on a non-default port, expose port 80 to ProxiPort as well via
-    `[server] acme_http_port = 80`. Other ports do not work — that's
-    a Let's Encrypt protocol restriction, not a ProxiPort one.
+!!! note "Validation uses TLS-ALPN-01 on port 443 by default"
+    With `[api] address` on port 443, Let's Encrypt validates over
+    TLS-ALPN-01 on the API listener itself, and nothing else needs to
+    be open. If the API cannot be reached on 443 from the internet,
+    enable the HTTP-01 fallback with `[server] acme_http_port = 80`,
+    which starts a separate plain-HTTP challenge listener. Let's Encrypt
+    only connects to ports 443 (TLS-ALPN-01) and 80 (HTTP-01) — that's a
+    Let's Encrypt protocol restriction, not a ProxiPort one. The
+    packaged config puts the agent listener on port 80
+    (`[server] address = "0.0.0.0:80"`), so move the agent listener to
+    another port first; otherwise the challenge listener cannot bind
+    and issuance fails.
 
 Certificates are stored in `{data_dir}/acme/`, which defaults to
 `/var/lib/proxiport/acme/`.
 
-If you also use the [Caddy-integrated tunnel subdomains](tunnel-hosting.md),
-the same ACME machinery can issue the wildcard certificate for the
-subdomain prefix:
+The built-in ACME client can also issue a certificate for the built-in
+tunnel proxy. Set the proxy's hostname and turn ACME on for it:
 
 ```toml
 [server]
@@ -118,8 +150,19 @@ subdomain prefix:
   tunnel_enable_acme = true
 ```
 
-Set `log_level = "debug"` under `[logging]` if a request fails — the
-ACME client logs the underlying challenge response there.
+This gets a certificate for that one hostname only. The built-in client
+validates over TLS-ALPN-01 or HTTP-01, so it cannot issue the wildcard
+certificate that the [Caddy-integrated tunnel subdomains](tunnel-hosting.md)
+need. Get that wildcard with a DNS-01 client such as certbot, then
+point `[caddy-integration] cert_file` / `key_file` at it.
+
+If a certificate is not issued, check the server's standard error
+(under systemd, `journalctl -u proxiportd`). Certificate errors appear
+there as `http: TLS handshake error from …: acme/autocert: …` lines,
+whatever `log_level` is set to. Also confirm that the `base_url`
+hostname (and `tunnel_host`, if used) resolves in public DNS to this
+server and that port 443 is reachable from the internet (or port 80,
+when `acme_http_port` is set).
 
 ## Manual cert files
 
@@ -138,8 +181,13 @@ system user and the key must not be passphrase-protected:
 Restart `proxiportd` after writing the config. Verify with:
 
 ```bash
-curl -Iv -u admin:password https://proxiport.example.com/api/v1/status
+curl -sv -u admin:password -o /dev/null https://proxiport.example.com/api/v1/status
 ```
+
+The verbose output shows the certificate the server presented
+(subject, issuer, expiry) followed by `HTTP/1.1 200` (or `HTTP/2 200`).
+Don't use `curl -I`: it sends HEAD, which the API does not serve, so
+you get an error status even when TLS is set up correctly.
 
 ### Using certbot
 
@@ -212,11 +260,17 @@ curl -sf -u admin:password https://proxiport.example.com/api/v1/status | jq
 
 # Agent connection from a managed host
 sudo systemctl restart proxiport
-sudo journalctl -u proxiport -n 50 --no-pager
+sudo tail -n 50 /var/log/proxiport-agent/proxiport.log
 ```
 
-A healthy agent log shows `Connected to <server> within <time>` a few
-seconds after start; the host-key check happens before that line.
+The agent writes its log to the file set by `[logging] log_file` in
+`/etc/proxiport/proxiport.conf`. Packaged and paired installs use
+`/var/log/proxiport-agent/proxiport.log`, or `/var/log/<account>/proxiport.log`
+when the pairing installer ran the agent under another account.
+`journalctl -u proxiport`
+shows the agent's own output only when `log_file` is unset. A healthy
+agent log shows `Connected to <server> within <time>` a few seconds
+after start; the host-key check happens before that line.
 
 See also: [install](install.md), [operator runbook](operator-runbook.md),
 [tunnel hosting](tunnel-hosting.md) for the related Caddy + wildcard
