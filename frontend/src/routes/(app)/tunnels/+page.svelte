@@ -83,7 +83,7 @@
     <button class="btn btn-ghost" onclick={load}>Refresh</button>
   </div>
 
-  <input bind:value={filter} placeholder="Filter…" class="max-w-md" />
+  <input bind:value={filter} placeholder="Filter…" aria-label="Filter tunnels" class="max-w-md" />
   <ErrorBox message={error} />
 
   <div class="card overflow-x-auto">
@@ -96,7 +96,7 @@
     {:else}
       <table class="tbl">
         <thead>
-          <tr><th>Client</th><th>ID</th><th>Public URL</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Idle</th><th>Created</th><th></th></tr>
+          <tr><th>Client</th><th>ID</th><th>Public URL</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Idle</th><th>Created</th><th class="text-right"><span class="sr-only">Actions</span></th></tr>
         </thead>
         <tbody>
           {#each filtered as r}
@@ -114,12 +114,15 @@
               <td class="whitespace-nowrap">
                 {#if isSsh(r)}
                   <button class="btn btn-ghost" title="Copy ssh command"
+                    aria-label={`Copy SSH command for tunnel ${r.id} on ${r.client_name || r.client_id}`}
                     onclick={() => copyToClipboard(sshCommandFor(serverHost || r.lhost || '', r.lport), 'SSH command copied.')}>Copy SSH</button>
                 {:else}
                   <button class="btn btn-ghost" title="Copy public address"
+                    aria-label={`Copy address of tunnel ${r.id} on ${r.client_name || r.client_id}`}
                     onclick={() => copyToClipboard(publicAddr(r), 'Address copied.')}>Copy</button>
                 {/if}
-                <button class="btn btn-danger" onclick={() => deleteTunnel(r.client_id ?? '', String(r.id))}>Delete</button>
+                <button class="btn btn-danger" aria-label={`Delete tunnel ${r.id} on ${r.client_name || r.client_id}`}
+                  onclick={() => deleteTunnel(r.client_id ?? '', String(r.id))}>Delete</button>
               </td>
             </tr>
           {/each}

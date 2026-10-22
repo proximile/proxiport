@@ -15,12 +15,23 @@ export type VaultLock = 'unlocked' | 'locked' | '';
 export type VaultStatusShape = { init: VaultInit; status: VaultLock };
 
 function persistedToken(): Writable<string | null> {
-  const initial = browser ? localStorage.getItem(TOKEN_KEY) : null;
+  let initial: string | null = null;
+  if (browser) {
+    try {
+      initial = localStorage.getItem(TOKEN_KEY);
+    } catch {
+      // storage unavailable: the session lasts until the tab closes
+    }
+  }
   const s = writable<string | null>(initial);
   if (browser) {
     s.subscribe((v) => {
-      if (v) localStorage.setItem(TOKEN_KEY, v);
-      else localStorage.removeItem(TOKEN_KEY);
+      try {
+        if (v) localStorage.setItem(TOKEN_KEY, v);
+        else localStorage.removeItem(TOKEN_KEY);
+      } catch {
+        // storage unavailable
+      }
     });
   }
   return s;
@@ -30,7 +41,32 @@ export const tokenStore = persistedToken();
 // In-memory only: the master passphrase is never persisted (no localStorage /
 // sessionStorage). Unlock state is read from vaultStatus/vaultUnlocked below.
 export const vaultPassphrase = writable<string | null>(null);
-export const sidebarCollapsed = writable<boolean>(false);
+// Remembered per browser. Storage can be unavailable (private mode, blocked
+// site data), in which case the flag simply starts expanded each time.
+function persistedFlag(key: string): Writable<boolean> {
+  let initial = false;
+  if (browser) {
+    try {
+      initial = localStorage.getItem(key) === '1';
+    } catch {
+      // storage unavailable
+    }
+  }
+  const s = writable<boolean>(initial);
+  if (browser) {
+    s.subscribe((v) => {
+      try {
+        localStorage.setItem(key, v ? '1' : '0');
+      } catch {
+        // storage unavailable
+      }
+    });
+  }
+  return s;
+}
+
+export const SIDEBAR_COLLAPSED_KEY = 'proxiport.sidebarCollapsed';
+export const sidebarCollapsed = persistedFlag(SIDEBAR_COLLAPSED_KEY);
 // Mobile-only: whether the off-canvas sidebar drawer is open. Desktop ignores this.
 export const sidebarMobileOpen = writable<boolean>(false);
 
@@ -57,5 +93,8 @@ let toastId = 0;
 export function pushToast(level: Toast['level'], text: string) {
   const id = ++toastId;
   toasts.update((arr) => [...arr, { id, level, text }]);
-  setTimeout(() => toasts.update((arr) => arr.filter((t) => t.id !== id)), 4500);
+  setTimeout(() => dismissToast(id), 4500);
+}
+export function dismissToast(id: number) {
+  toasts.update((arr) => arr.filter((t) => t.id !== id));
 }

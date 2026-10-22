@@ -128,8 +128,8 @@
         recovery — store this passphrase somewhere safe.
       </p>
       <form class="flex flex-col sm:flex-row gap-3" onsubmit={init}>
-        <input type="password" bind:value={pass} placeholder="Set master passphrase" autocomplete="new-password" required />
-        <input type="password" bind:value={pass2} placeholder="Repeat passphrase" autocomplete="new-password" required />
+        <input type="password" bind:value={pass} placeholder="Set master passphrase" aria-label="Master passphrase" autocomplete="new-password" required />
+        <input type="password" bind:value={pass2} placeholder="Repeat passphrase" aria-label="Repeat master passphrase" autocomplete="new-password" required />
         <button class="btn btn-primary" type="submit" disabled={!pass || pass !== pass2}>Initialize</button>
       </form>
       {#if pass2 && pass !== pass2}<p class="text-xs text-amber-300">The passphrases do not match.</p>{/if}
@@ -138,7 +138,7 @@
     <div class="card p-4 space-y-3">
       <h2 class="font-medium">Unlock vault</h2>
       <form class="flex gap-3" onsubmit={unlock}>
-        <input type="password" bind:value={pass} placeholder="Master passphrase" required />
+        <input type="password" bind:value={pass} placeholder="Master passphrase" aria-label="Master passphrase" required />
         <button class="btn btn-primary" type="submit">Unlock</button>
       </form>
     </div>
@@ -149,7 +149,7 @@
     </div>
 
     <div class="card overflow-x-auto">
-      <div class="px-4 py-2 border-b border-pp-border text-sm text-slate-400">
+      <div class="sticky left-0 px-4 py-2 border-b border-pp-border text-sm text-slate-400">
         Entries ({entries.length})
       </div>
       {#if error}

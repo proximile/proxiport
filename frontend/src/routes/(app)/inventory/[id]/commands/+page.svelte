@@ -136,6 +136,7 @@
         bind:value={cmd}
         rows="3"
         placeholder="uname -a"
+        aria-label="Command"
         class="font-mono"
         required
       ></textarea>
@@ -182,7 +183,7 @@
   {/if}
 
   <div class="card overflow-x-auto">
-    <div class="px-4 py-2 border-b border-pp-border text-sm text-slate-400">Recent commands</div>
+    <div class="sticky left-0 px-4 py-2 border-b border-pp-border text-sm text-slate-400">Recent commands</div>
     {#if !history.length}
       <div class="p-4 text-sm text-slate-500">No commands run yet.</div>
     {:else}

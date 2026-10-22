@@ -356,7 +356,7 @@
       {#if !error}<EmptyState title="No users" />{/if}
     {:else}
       <table class="tbl">
-        <thead><tr><th>Username</th><th>Groups</th><th>2FA recipient</th><th></th></tr></thead>
+        <thead><tr><th>Username</th><th>Groups</th><th>2FA recipient</th><th class="text-right"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {#each users as u}
             <tr>

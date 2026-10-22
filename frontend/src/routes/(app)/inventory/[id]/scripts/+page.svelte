@@ -95,7 +95,7 @@
   <div class="card p-4 space-y-3">
     <h2 class="font-medium">Run script on this client</h2>
     <form class="space-y-3" onsubmit={run}>
-      <textarea bind:value={script} rows="10" class="font-mono text-xs" required></textarea>
+      <textarea bind:value={script} rows="10" class="font-mono text-xs" aria-label="Script" required></textarea>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
         <label class="text-xs">
           <span class="text-slate-400 uppercase">Interpreter</span>

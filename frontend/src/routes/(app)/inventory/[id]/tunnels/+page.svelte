@@ -645,7 +645,7 @@
   </div>
 
   <div class="card overflow-x-auto">
-    <div class="px-4 py-2 border-b border-pp-border text-sm text-slate-400">Active tunnels</div>
+    <div class="sticky left-0 px-4 py-2 border-b border-pp-border text-sm text-slate-400">Active tunnels</div>
     {#if loading && !client}
       <div class="p-6 flex justify-center"><Spinner /></div>
     {:else if !client}
@@ -655,7 +655,7 @@
     {:else}
       <table class="tbl">
         <thead>
-          <tr><th>ID</th><th>Public URL</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Idle</th><th>Created</th><th></th></tr>
+          <tr><th>ID</th><th>Public URL</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Idle</th><th>Created</th><th class="text-right"><span class="sr-only">Actions</span></th></tr>
         </thead>
         <tbody>
           {#each client.tunnels as t}
@@ -669,13 +669,13 @@
               <td class="text-slate-400">{fmtRelative(t.created_at)}</td>
               <td class="whitespace-nowrap">
                 {#if isSsh(t)}
-                  <button class="btn btn-ghost" title="Copy ssh command"
+                  <button class="btn btn-ghost" title="Copy ssh command" aria-label={`Copy SSH command for tunnel ${t.id}`}
                     onclick={() => copyToClipboard(sshCommandFor(serverHost || t.lhost || '', t.lport), 'SSH command copied.')}>Copy SSH</button>
                 {:else}
-                  <button class="btn btn-ghost" title="Copy public address"
+                  <button class="btn btn-ghost" title="Copy public address" aria-label={`Copy address of tunnel ${t.id}`}
                     onclick={() => copyToClipboard(localUrl(t), 'Address copied.')}>Copy</button>
                 {/if}
-                <button class="btn btn-danger" onclick={() => deleteTunnel(String(t.id))}>Delete</button>
+                <button class="btn btn-danger" aria-label={`Delete tunnel ${t.id}`} onclick={() => deleteTunnel(String(t.id))}>Delete</button>
               </td>
             </tr>
           {/each}
@@ -685,7 +685,7 @@
   </div>
 
   <div class="card overflow-x-auto">
-    <div class="px-4 py-2 border-b border-pp-border text-sm text-slate-400">
+    <div class="sticky left-0 px-4 py-2 border-b border-pp-border text-sm text-slate-400">
       Stored tunnels (templates for one-click recreation)
     </div>
     {#if storedError}
@@ -697,7 +697,7 @@
     {:else}
       <table class="tbl">
         <thead>
-          <tr><th>Name</th><th>Local</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Auto-close</th><th></th></tr>
+          <tr><th>Name</th><th>Local</th><th>Remote</th><th>Scheme</th><th>ACL</th><th>Auto-close</th><th class="text-right"><span class="sr-only">Actions</span></th></tr>
         </thead>
         <tbody>
           {#each stored as s}
@@ -714,8 +714,8 @@
               <td class="font-mono text-xs">{s.acl || '—'}</td>
               <td>{fo.auto_close ?? '—'}</td>
               <td class="text-right whitespace-nowrap">
-                <button class="btn btn-ghost btn-sm" disabled={creating} onclick={() => recreateFromStored(s)}>Use</button>
-                <button class="btn btn-danger btn-sm" onclick={() => deleteStored(s)}>Delete</button>
+                <button class="btn btn-ghost btn-sm" disabled={creating} aria-label={`Use stored tunnel ${s.name || s.id}`} onclick={() => recreateFromStored(s)}>Use</button>
+                <button class="btn btn-danger btn-sm" aria-label={`Delete stored tunnel ${s.name || s.id}`} onclick={() => deleteStored(s)}>Delete</button>
               </td>
             </tr>
           {/each}

@@ -138,7 +138,7 @@
       <EmptyState title="No API tokens yet" />
     {:else}
       <table class="tbl">
-        <thead><tr><th>Name</th><th>Prefix</th><th>Scope</th><th>Created</th><th>Expires</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Prefix</th><th>Scope</th><th>Created</th><th>Expires</th><th class="text-right"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {#each tokens as t}
             <tr>

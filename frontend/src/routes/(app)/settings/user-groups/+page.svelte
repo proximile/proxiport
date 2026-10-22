@@ -123,7 +123,7 @@
           <tr>
             <th>Group</th>
             {#each PERM_KEYS as k}<th>{k}</th>{/each}
-            {#if editable}<th></th>{/if}
+            {#if editable}<th class="text-right"><span class="sr-only">Actions</span></th>{/if}
           </tr>
         </thead>
         <tbody>

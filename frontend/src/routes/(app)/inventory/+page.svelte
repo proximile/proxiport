@@ -129,9 +129,9 @@
 
   <div class="flex gap-3 items-center">
     <div class="flex-1 max-w-md">
-      <input bind:value={filter} placeholder="Filter by id / hostname / tag / IP …" />
+      <input bind:value={filter} placeholder="Filter by id / hostname / tag / IP …" aria-label="Filter clients" />
     </div>
-    <select bind:value={stateFilter} class="max-w-[12rem]">
+    <select bind:value={stateFilter} class="max-w-[12rem]" aria-label="Connection state">
       <option value="all">All</option>
       <option value="connected">Connected only</option>
       <option value="disconnected">Disconnected only</option>
