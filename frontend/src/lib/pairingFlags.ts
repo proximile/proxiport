@@ -1,7 +1,31 @@
 // The pairing service returns a two-line installer command with no switches;
 // which switches to add is decided here, in the browser. These helpers build
-// the Linux egress switches (-o / -e, the agent's `transports` chain) and
-// splice switches into the command without touching the download line.
+// the permission switches (-x / -s / -r / -b), the Linux egress switches
+// (-o / -e, the agent's `transports` chain) and splice switches into the
+// command without touching the download line.
+
+export interface InstallerOptions {
+  /** -x: remote command and script execution. */
+  x: boolean;
+  /** -s: sudo rights for those commands; meaningless without -x. */
+  s: boolean;
+  /** -r: file reception. */
+  r: boolean;
+  /** -b: sudo rights for file reception; meaningless without -r. */
+  b: boolean;
+}
+
+/**
+ * The permission switches for one installer. A sudo switch is only emitted
+ * together with the switch it extends, so a greyed-out option never grants
+ * anything. The PowerShell installer knows only -x and -r.
+ */
+export function installerFlags(o: InstallerOptions, os: 'linux' | 'windows' = 'linux'): string {
+  const linux = os === 'linux';
+  return [o.x && '-x', linux && o.x && o.s && '-s', o.r && '-r', linux && o.r && o.b && '-b']
+    .filter(Boolean)
+    .join(' ');
+}
 
 /** The agent-host tor daemon that `-o` stands for. */
 export const TOR_PROXY = 'socks5h://127.0.0.1:9050';
@@ -39,17 +63,30 @@ export interface EgressChoice {
  */
 export function egressFlags(c: EgressChoice): string {
   const proxy = c.proxy.trim();
-  const entry = proxy && !proxyError(proxy) ? proxy : '';
+  let entry = proxy && !proxyError(proxy) ? proxy : '';
   const on = c.tor || entry !== '';
+  // -o already stands for the Tor daemon; naming it again with -e makes the
+  // installer refuse the chain as a duplicate.
+  if (c.tor && entry === TOR_PROXY) entry = '';
   return [entry && `-e ${entry}`, c.tor && '-o', on && c.direct && '-e direct']
     .filter(Boolean)
     .join(' ');
 }
 
-/** The first proxy in the chain; it fetches the installer itself too. */
+/** True when the proxy field only repeats the Tor daemon that -o adds. */
+export function proxyIsTor(c: EgressChoice): boolean {
+  return c.tor && c.proxy.trim() === TOR_PROXY;
+}
+
+/**
+ * The first proxy in the chain, spelled for curl; it fetches the installer
+ * itself too. curl resolves the target name locally for socks5:// and speaks
+ * SOCKS4 for socks://, so both become socks5h://, which hands the name to the
+ * proxy, as the installer does for its own downloads.
+ */
 export function fetchProxy(c: EgressChoice): string {
   const proxy = c.proxy.trim();
-  if (proxy && !proxyError(proxy)) return proxy;
+  if (proxy && !proxyError(proxy)) return proxy.replace(/^socks5?:\/\//, 'socks5h://');
   return c.tor ? TOR_PROXY : '';
 }
 
