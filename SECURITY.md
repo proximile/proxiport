@@ -10,6 +10,10 @@ advisory once a fix lands.
 
 Do not file vulnerabilities as public issues.
 
+The same private form also accepts reports under the
+[Code of Conduct](CODE_OF_CONDUCT.md) that must stay private; say in the
+title that it is a conduct report.
+
 Include:
 
 - a description of the vulnerability,
@@ -47,8 +51,6 @@ Out of scope:
 ## What we are not interested in
 
 - automated scanner output without a working PoC
-- "username enumeration" reports on endpoints documented to leak the
-  fact of a username's existence (e.g. the login flow)
 - TLS or operational findings against any third-party host happening to
   run ProxiPort — only the source in this repository is in scope
 

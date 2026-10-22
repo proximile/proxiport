@@ -24,6 +24,12 @@ behaves exactly as it always has.
 
 ## The list is the policy
 
+`transports` supersedes the older single-valued `proxy` key, and the two
+cannot both be set: the agent refuses to start if they are. If your
+config already has `proxy = "..."`, delete it and put that URL in the
+list as its first entry. When `transports` is unset, an existing `proxy`
+keeps working as before.
+
 There is no `allow_fallback` switch, and nothing is ever appended to the
 list for you. The agent dials the open internet if and only if you wrote
 the word `direct` into the list yourself.
@@ -55,7 +61,10 @@ Accepted entries:
 | `http://host:port` | HTTP CONNECT. |
 
 Credentials may be embedded (`socks5h://user:pass@host:1080`). They are
-masked in every log line and are never sent to the server.
+never sent to the server. In the agent's log the password is masked
+(`user:xxxxx@host:1080`); the username is shown. An entry the agent
+rejects at startup is quoted verbatim in the error, password included,
+so get the entry right before you put a real password in it.
 
 Anything else — an unknown scheme, a typo, `https://` — stops the agent
 at startup with an error naming the entry and its position. An unusable
@@ -78,10 +87,16 @@ secondary direct. Server redundancy never buys itself with anonymity — a
 dead primary alone cannot drop you to the clear internet while the
 secondary is still reachable over Tor.
 
-`transport_dial_timeout` (default `45s`) bounds each attempt. A whole
-sweep therefore costs at most
+`transport_dial_timeout` (default `45s`) bounds how long each attempt
+may take to reach the server: the TCP connection, any proxy hop, and the
+WebSocket upgrade. A path that fails at those stages is abandoned within
+that time. A whole sweep of such failures therefore takes at most
 `len(transports) × (1 + len(fallback_servers)) × transport_dial_timeout`;
-keep that inside your watchdog window if you run one.
+keep that inside your watchdog window if you run one. The SSH handshake
+that follows a successful upgrade is not bounded by this timeout. A
+handshake that fails moves on to the next entry right away, but a peer
+that accepts the upgrade and then stalls the key exchange can hold an
+attempt for longer.
 
 After a sweep fails the agent backs off exactly as before (5s to 10m)
 and sweeps again. `server_switchback_interval` (default `2m`) retries
@@ -128,11 +143,21 @@ change and no code change:
 
 ```
 HiddenServiceDir /var/lib/tor/proxiport/
-HiddenServicePort 80 127.0.0.1:8080
+HiddenServicePort 80 127.0.0.1:80
 ```
 
-Add the onion to the server's `url` list so it is advertised alongside
-the clearnet address.
+The target must be the host and port the server's `[server] address`
+listener actually binds: `0.0.0.0:80` in the seeded config, so
+`127.0.0.1:80`. If you moved the listener, or left `address` unset
+(the built-in default is `0.0.0.0:8080`), use that port instead.
+
+Add the onion to the server's `url` list *after* the clearnet address,
+for example
+`url = ["https://proxiport.example.com", "http://yourserveraddress.onion"]`.
+Order matters: the first entry is the address the pairing dialog writes
+into new agents' `server` key, so if the onion comes first, every
+pairing-generated installer (clearnet agents included) gets the onion.
+Configure onion agents' `server` by hand as shown above.
 
 ## Running over a VPN
 
@@ -170,6 +195,10 @@ chain for its own connection test and downloads:
 | `-o` | Reach the server through the tor daemon on the agent host, `socks5h://127.0.0.1:9050`. Shorthand for `-e socks5h://127.0.0.1:9050`. |
 | `-e <entry>` | Add one entry: a proxy URL (`socks5h://host:port`, `http://host:port`) or `direct`. Repeatable; `direct` must be last. |
 
+The switches need curl on the agent host: wget cannot use a SOCKS proxy,
+so with `-o`, `-e`, or a `.onion` server address the installer stops if
+curl is missing.
+
 ```sh
 # Tor, fail closed.
 curl --proxy socks5h://127.0.0.1:9050 https://pairing.proxiport.net/<code> -o proxiport-installer.sh
@@ -184,7 +213,11 @@ and `updates_interval = 0`, comments out an `ip_api_url` it finds in an
 existing config, skips the geolocation lookup that would otherwise label
 the new client with a city, and waits up to 90 s for the first
 "Connected to" line before it judges the agent log, since a Tor circuit
-takes a moment. A server address that ends in `.onion` implies `-o`.
+takes a moment. When no `-o` or `-e` switch is given, a server address
+that ends in `.onion` implies `-o`. If you pass `-e`, the chain is
+exactly the entries you list, so include a Tor proxy yourself (`-o`, or
+`-e` for a tor daemon at another address). A `.onion` server is never
+tried over `direct`.
 
 In the web UI, the dialog that creates a client credential offers the
 same switches as toggles: connect through Tor, a proxy to try before

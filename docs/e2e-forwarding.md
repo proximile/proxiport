@@ -1,9 +1,14 @@
 # End-to-end encrypted forwarding
 
-A normal tunnel is encrypted between your machine and the server, and
-between the server and the agent, but the server decrypts and re-encrypts
-the traffic in between. Whoever controls the server, or the host it runs
-on, can read it.
+A normal tunnel encrypts only the hop between the server and the agent.
+Between your machine and the server, ProxiPort relays the raw bytes; the
+only extra layer there is the TLS the server terminates on a proxied
+(`http_proxy`) tunnel. So whatever your application protocol does not
+encrypt end to end, and everything that passes through a TLS-terminating
+proxied tunnel, can be read by whoever controls the server or the host it
+runs on. Protocols that are already encrypted end to end, such as SSH to
+the host's own sshd or HTTPS through a plain tunnel, reach the server
+only as ciphertext. e2e forwarding closes the gap for every protocol.
 
 With `[e2e]` enabled, the agent runs a small SSH server on its own
 loopback interface. You open an ordinary tunnel to it and run a standard
@@ -36,8 +41,10 @@ It cannot see the targets you forward to or the data you send.
     server run programs or write files on the agent's host. A server that
     wants to can use them to copy the agent's host key or add its own key
     to the authorized keys file, and then read e2e sessions too. The agent
-    logs a warning at startup when `[e2e]` is enabled together with any of
-    them. To rely on e2e against the server itself, disable all three.
+    prints a warning to standard error at startup when `[e2e]` is enabled
+    together with any of them. Under systemd this shows up in the
+    service's journal, not in the `[logging] log_file`. To rely on e2e
+    against the server itself, disable all three.
     `[remote-commands]` and `[file-reception]` are enabled by default.
 
 ## Set it up

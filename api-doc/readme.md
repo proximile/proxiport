@@ -11,10 +11,10 @@ currently embedded in the project docs site at
 
 ## Build the documentation from the sources
 
-There a many tools out there to convert the yaml sources into different formats. For example [Swagger Codegen](https://swagger.io/docs/open-source-tools/swagger-codegen/) or the [Open API Codegenerator](https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/5.0.0/).
+There are many tools out there to convert the yaml sources into different formats. For example [Swagger Codegen](https://swagger.io/docs/open-source-tools/swagger-codegen/) or the [Open API Codegenerator](https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/5.0.0/).
 Both are java command line tools.
 
-More comfort for reading and writing Open API docs is provided by [Redoc](https://github.com/Redocly/redoc) and there command line tool [Redoc CLI](https://redocly.com/docs/redoc/deployment/cli/).
+More comfort for reading and writing Open API docs is provided by [Redoc](https://github.com/Redocly/redoc) and their command line tool [Redocly CLI](https://redocly.com/docs/cli/) (`@redocly/cli`).
 With NodeJS installed you can directly launch the tools with `npx`. See below.
 
 ### Run a local webserver
@@ -43,5 +43,6 @@ Details about the applied rules and their output can be found
 To render the API documentation into a single dependency-free html file use:
 
 ```shell
-npx redoc-cli build -o index.html openapi.yaml
+cd ./api-doc/openapi
+npx @redocly/cli build-docs openapi.yaml -o index.html
 ```

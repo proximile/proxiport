@@ -18,9 +18,9 @@ A live demo runs at
 [**`https://demo.proxiport.net/`**](https://demo.proxiport.net/).
 Sign in with `demo` / `demo` — the SPA login page shows the same
 banner. Three pre-registered agents appear in Inventory. The demo
-guest has a read-only profile and a small set of admin-only
-endpoints (user management, agent-credential listing, request-IP
-echo) are walled off at the edge, so it's safe to poke at without
+guest has a read-only profile, and a small set of endpoints (the
+admin-only user-management and agent-credential routes, plus the
+request-IP echo) are walled off at the edge, so it's safe to poke at without
 exposing operator-side state. The whole DB and agent fleet reset
 every hour.
 
@@ -72,3 +72,29 @@ of what was and was not forked from upstream.
   restart.
 - [Operator runbook](operator-runbook.md) — service control,
   backups, credential rotation, common pitfalls.
+
+**Authentication**
+
+- [API authentication](api-authentication.md)
+- [Client authentication](client-authentication.md)
+
+**Server hardening**
+
+- [HTTPS](https.md)
+- [IP-address determination](ip-address-determination.md)
+- [Anonymous transport (Tor / VPN)](anonymous-transport.md)
+
+**Working with clients**
+
+- [Command execution](command-execution.md)
+- [Scripts](scripts.md)
+- [Tunnel hosting](tunnel-hosting.md)
+- [End-to-end encrypted forwarding](e2e-forwarding.md)
+- [Watchdog](watchdog.md)
+- [Vault](vault.md)
+
+**Configuration**
+
+- [Client groups and permissions](client-groups-permissions.md)
+- [Monitoring](monitoring.md)
+- [Client attributes file](client-attributes.md)

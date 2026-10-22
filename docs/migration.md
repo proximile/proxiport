@@ -23,28 +23,45 @@ schema rebuild.
    sudo cp /etc/rport/rportd.conf /etc/proxiport/proxiportd.conf
    ```
    The option names are the same. Only the file path and the systemd
-   unit name change — but two values need a look. `[api] doc_root` must
+   unit name change — but a few values need a look. `[api] doc_root` must
    point at ProxiPort's web UI (`/usr/share/proxiport/docroot` for a
    package install; an upstream value such as `/var/lib/rport/docroot`
    leaves the UI dark), and any `cert_file`, `key_file` or `auth_file`
    path that still names `/etc/rport` or `/var/lib/rport` must follow the
-   files.
-5. **Point ProxiPort at the existing datastore.** Edit
-   `/etc/proxiport/proxiportd.conf` so the `[server] data_dir`
-   matches your old `/var/lib/rport` location, or move the
-   directory:
+   files. The same goes for `[logging] log_file` and, if set,
+   `[api] access_log_file`: an upstream value under `/var/log/rport` is
+   read-only under the packaged systemd unit, which allows writes only to
+   `/var/lib/proxiport` and `/var/log/proxiport`. `proxiportd` exits at
+   startup if it cannot open its log file, so point them at
+   `/var/log/proxiport/proxiportd.log` and
+   `/var/log/proxiport/api-access.log`.
+5. **Move the existing datastore into place.** The packaged unit only
+   lets `proxiportd` write under `/var/lib/proxiport` and
+   `/var/log/proxiport` (`ProtectSystem=strict`), so move the old
+   directory there and hand it to the `proxiport` account (upstream ran
+   as `rport`):
    ```sh
    sudo mv /var/lib/rport /var/lib/proxiport
+   sudo chown -R proxiport:proxiport /var/lib/proxiport
    ```
-   Either way the directory must belong to the account `proxiportd` runs
-   as — `sudo chown -R proxiport:proxiport /var/lib/proxiport` — since
-   upstream ran as `rport`.
+   Make sure `[server] data_dir` in `/etc/proxiport/proxiportd.conf` is
+   `/var/lib/proxiport`. If you must keep the data somewhere else, point
+   `data_dir` at it and add that path with a systemd drop-in
+   (`sudo systemctl edit proxiportd`, then under `[Service]` add
+   `ReadWritePaths=/var/lib/rport`). Without the drop-in the server
+   cannot write its databases there.
 6. **Start the service.**
    ```sh
    sudo systemctl enable --now proxiportd
-   sudo journalctl -u proxiportd -n 50
+   sudo systemctl status proxiportd
+   sudo tail -n 50 /var/log/proxiport/proxiportd.log
    ```
-   Pending schema migrations run automatically on first start.
+   Pending schema migrations run automatically on first start, and the
+   server writes them to the file set by `[logging] log_file`, along
+   with its host-key fingerprint. If the unit fails to start,
+   `sudo journalctl -u proxiportd -n 50` shows why. That includes a
+   config error or a `log_file` the `proxiport` account cannot write,
+   such as one that still points at the old upstream log directory.
 
    Existing agents reconnect against the same client-auth credentials
    and the same host-key fingerprint, so the inventory comes back
@@ -109,8 +126,15 @@ client-auth credentials.
   client-authentication options live under `[server]`: `auth`,
   `auth_file`, `auth_table`, `auth_multiuse_creds`,
   `equate_clientauthid_clientid`.)
-- The schedule, command, script, library, audit-log, vault, and
-  user-auth tables — same schema, no migration needed.
+- The schedule, command, script, library and user-auth tables: same
+  schema, read as-is. The audit-log and vault tables are read as-is
+  too, and ProxiPort extends them automatically on first start. The
+  audit log gains `seq`, `mac` and `prev_mac` columns for its
+  tamper-evidence chain, plus corrected indexes. The vault status table
+  gains a `kdf` column and drops `dec_check`, and the vault is re-keyed
+  to Argon2id on its next unlock. Because of these changes, rolling
+  back to openrport needs the backup from step 2 (see
+  [Rollback](#rollback)).
 
 ## What is intentionally not migrated
 

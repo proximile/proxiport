@@ -14,9 +14,10 @@ Maintained by [Proximile LLC](https://proximile.llc).
 A public demo runs at
 [**`https://demo.proxiport.net/`**](https://demo.proxiport.net/).
 Sign in with `demo` / `demo` (the SPA login page shows the same
-banner). The demo guest has a read-only profile — destructive
-endpoints are walled off — and the whole state resets every
-hour, so it's safe to poke at. Three pre-registered agents
+banner). The demo guest has a read-only profile, so destructive
+actions are refused, and a few endpoints (user management,
+agent-credential listing, request-IP echo) are walled off at the
+edge. The whole state resets every hour, so it's safe to poke at. Three pre-registered agents
 appear in the Inventory.
 
 The demo is for evaluation only; do not depend on it. To run
@@ -52,8 +53,8 @@ upstream is in [`NOTICE`](NOTICE).
 
 ## Documentation
 
-Project documentation lives in [`docs/`](docs/) and is published to
-GitHub Pages.
+Project documentation lives in [`docs/`](docs/) and is published (via
+GitHub Pages) at [https://docs.proxiport.net/](https://docs.proxiport.net/).
 
 - [`docs/index.md`](docs/index.md) — landing page
 - [`docs/origin.md`](docs/origin.md) — full provenance and the FOSS-only
