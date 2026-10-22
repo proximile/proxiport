@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { page } from '$app/stores';
-  import { apiPost, apiGet, ApiException } from '$lib/api';
+  import { apiPost, apiGet, apiErrorText } from '$lib/api';
   import type { Job } from '$lib/types';
   import { fmtRelative } from '$lib/format';
+  import { finishedJobOutput, isJobFinished, jobErrorText, jobStatusLabel, parseTimeoutSec, pollDeadlineMs } from '$lib/jobs';
   import Spinner from '$lib/components/Spinner.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import { pushToast } from '$lib/stores';
 
   let cmd = $state('');
   let cwd = $state('');
@@ -18,11 +19,29 @@
   let stream: string[] = $state([]);
   let currentJobId = $state('');
 
+  // Polling belongs to this page: leaving it ends every loop and refresh.
+  let destroyed = false;
+  let historyTimer: ReturnType<typeof setTimeout> | undefined;
+  onDestroy(() => {
+    destroyed = true;
+    clearTimeout(historyTimer);
+  });
+
   async function loadHistory() {
+    clearTimeout(historyTimer);
     try {
       const id = $page.params.id;
-      const jobs = await apiGet<Job[]>(`/clients/${id}/commands?fields[jobs]=jid,status,finished_at,started_at,created_by,command,error&page[limit]=50&sort=-finished_at`).catch(() => []);
+      // Newest first by start time, so a job that is still running (and has
+      // no finished_at yet) is at the top rather than past the page limit.
+      const jobs = await apiGet<Job[]>(`/clients/${id}/commands?fields[jobs]=jid,status,finished_at,started_at,created_by,command,error,timeout_sec&page[limit]=50&sort=-started_at`).catch(() => []);
+      if (destroyed) return;
       history = jobs ?? [];
+      // Keep a running row current until it finishes.
+      if (history.some((j) => !isJobFinished(j.status))) {
+        historyTimer = setTimeout(() => {
+          if (!destroyed) loadHistory();
+        }, 5000);
+      }
     } catch (_) {
       // ignore — no commands history yet
     }
@@ -34,7 +53,16 @@
 
   async function run(e: Event) {
     e.preventDefault();
-    if (!cmd.trim() || running) return;
+    if (running) return;
+    if (!cmd.trim()) {
+      error = 'Command cannot be empty.';
+      return;
+    }
+    const t = parseTimeoutSec(timeout);
+    if (t.value === undefined) {
+      error = t.error ?? '';
+      return;
+    }
     running = true;
     error = '';
     stream = [];
@@ -43,35 +71,35 @@
     try {
       const payload: any = {
         command: cmd,
-        timeout_sec: Number(timeout) || 60,
+        timeout_sec: t.value,
         is_sudo: isSudo
       };
       if (cwd) payload.cwd = cwd;
       if (interpreter) payload.interpreter = interpreter;
       const res = await apiPost<{ jid: string }>(`/clients/${id}/commands`, payload);
       currentJobId = res.jid;
-      pollResult(res.jid);
+      loadHistory();
+      pollResult(res.jid, t.value);
     } catch (err) {
-      error = err instanceof ApiException ? err.errors[0]?.title || err.message : String(err);
+      error = apiErrorText(err);
       running = false;
     }
   }
 
-  async function pollResult(jid: string) {
-    // Fallback if the streaming WS isn't available — poll the per-client
-    // command-result endpoint. Single-client jobs live under
-    // /clients/{id}/commands/{jid}; the global /commands/{jid} endpoint is
-    // for multi-client orchestrator jobs only.
+  async function pollResult(jid: string, timeoutSec: number) {
+    // Poll the per-client command-result endpoint. Single-client jobs live
+    // under /clients/{id}/commands/{jid}; the global /commands/{jid} endpoint
+    // is for multi-client orchestrator jobs only.
     const id = $page.params.id;
-    while (running) {
+    const deadline = Date.now() + pollDeadlineMs(timeoutSec);
+    while (running && !destroyed) {
       await new Promise((r) => setTimeout(r, 800));
+      if (destroyed) return;
       try {
         const job = await apiGet<Job>(`/clients/${id}/commands/${jid}`);
-        if (job.status === 'successful' || job.status === 'failed' || job.status === 'cancelled') {
-          if (job.result?.stdout) stream = [...stream, job.result.stdout];
-          if (job.result?.stderr) stream = [...stream, `[stderr] ${job.result.stderr}`];
-          if (job.error) stream = [...stream, `[error] ${job.error}`];
-          stream = [...stream, `\n--- status=${job.status} ---`];
+        if (destroyed) return;
+        if (isJobFinished(job.status)) {
+          stream = [...stream, ...finishedJobOutput(job)];
           running = false;
           loadHistory();
           return;
@@ -81,9 +109,18 @@
         running = false;
         return;
       }
+      if (Date.now() > deadline) {
+        stream = [
+          ...stream,
+          `\n--- no final status from the client within ${timeoutSec}s plus a grace period; ` +
+            `stopped waiting. Recent commands below shows the job once it finishes. ---`
+        ];
+        running = false;
+        loadHistory();
+        return;
+      }
     }
   }
-
   function clearOutput() {
     stream = [];
     currentJobId = '';
@@ -109,7 +146,6 @@
             <option value="">default</option>
             <option value="cmd">cmd</option>
             <option value="powershell">powershell</option>
-            <option value="pwsh">pwsh (cross-plat)</option>
           </select>
         </label>
         <label class="text-xs">
@@ -118,7 +154,7 @@
         </label>
         <label class="text-xs">
           <span class="text-slate-400 uppercase">Timeout (sec)</span>
-          <input bind:value={timeout} inputmode="numeric" pattern="[0-9]*" class="font-mono" />
+          <input bind:value={timeout} inputmode="numeric" class="font-mono" />
         </label>
         <label class="flex items-end gap-2 text-xs">
           <input type="checkbox" bind:checked={isSudo} class="!w-auto" />
@@ -158,9 +194,9 @@
               <td class="text-xs text-slate-400" title={j.finished_at ?? j.started_at ?? ''}>{fmtRelative(j.finished_at ?? j.started_at)}</td>
               <td class="text-xs">{j.created_by ?? '—'}</td>
               <td class="font-mono text-xs truncate max-w-[24rem]">{j.command ?? '—'}</td>
-              <td class="text-xs text-red-300 truncate max-w-[14rem]" title={j.error ?? ''}>{j.error || '—'}</td>
+              <td class="text-xs truncate max-w-[14rem]" class:text-red-300={!!j.error} class:text-amber-300={!j.error && j.status === 'unknown'} title={jobErrorText(j)}>{jobErrorText(j) || '—'}</td>
               <td>
-                <span class="pill" class:pill-good={j.status === 'successful'} class:pill-bad={j.status === 'failed'} class:pill-muted={!j.status}>{j.status ?? '—'}</span>
+                <span class="pill" class:pill-good={j.status === 'successful'} class:pill-bad={j.status === 'failed'} class:pill-warn={j.status === 'unknown'} class:pill-info={j.status === 'running'} class:pill-muted={!j.status} title={j.status ?? ''}>{jobStatusLabel(j.status)}</span>
               </td>
             </tr>
           {/each}
