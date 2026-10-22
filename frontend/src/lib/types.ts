@@ -105,6 +105,7 @@ export type Job = {
   is_sudo?: boolean;
   cwd?: string;
   pid?: number;
+  timeout_sec?: number;
   started_at?: string;
   finished_at?: string;
 };

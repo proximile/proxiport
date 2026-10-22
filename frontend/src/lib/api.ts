@@ -22,6 +22,18 @@ export class ApiException extends Error {
 }
 
 /**
+ * A one-line description of a failed call for an error box: the first error's
+ * title, followed by its detail when the server gave one.
+ */
+export function apiErrorText(err: unknown): string {
+  if (err instanceof ApiException) {
+    const e = err.errors[0];
+    return e ? [e.title, e.detail].filter(Boolean).join(': ') || err.message : err.message;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
  * Refuse to issue any authenticated request when we don't have a token.
  * The server's BanList adds the caller (keyed by username, with `""` for
  * un-authed) to a 2-second deny-list on every failed auth; if the SPA
@@ -70,9 +82,27 @@ function endsSession(status: number, path: string): boolean {
   return !SECRET_CHECK_PATHS.some((p) => path === p || path.startsWith(`${p}?`));
 }
 
+/**
+ * A short plain-text error body, if the response has one. Some refusals (the
+ * IP ban, for one) answer with text/plain rather than a JSON envelope, and
+ * that text says far more than the bare status line. HTML bodies, such as a
+ * proxy's error page, are not shown.
+ */
+async function plainTextError(res: Response): Promise<string> {
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.startsWith('text/plain') || typeof res.text !== 'function') return '';
+  try {
+    return (await res.text()).trim().slice(0, 200);
+  } catch {
+    return '';
+  }
+}
+
 async function raise(res: Response, path = ''): Promise<never> {
   const body = await parseJson(res);
-  const errors: ApiError[] = body?.errors ?? [{ title: res.statusText || `HTTP ${res.status}` }];
+  const errors: ApiError[] = body?.errors ?? [
+    { title: (await plainTextError(res)) || res.statusText || `HTTP ${res.status}` }
+  ];
   if (endsSession(res.status, path)) {
     tokenStore.set(null);
   }

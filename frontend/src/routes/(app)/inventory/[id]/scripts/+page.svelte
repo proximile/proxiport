@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { page } from '$app/stores';
-  import { apiPost, apiGet, ApiException } from '$lib/api';
+  import { apiPost, apiGet, apiErrorText } from '$lib/api';
   import type { Job } from '$lib/types';
+  import { finishedJobOutput, isJobFinished, parseTimeoutSec, pollDeadlineMs } from '$lib/jobs';
   import Spinner from '$lib/components/Spinner.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
   import { utf8ToBase64 } from '$lib/encoding';
@@ -16,9 +18,26 @@
   let stream: string[] = $state([]);
   let currentJobId = $state('');
 
+  const hasShebang = $derived(script.trimStart().startsWith('#!'));
+
+  // Polling belongs to this page: leaving it ends the loop.
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+  });
+
   async function run(e: Event) {
     e.preventDefault();
-    if (!script.trim() || running) return;
+    if (running) return;
+    if (!script.trim()) {
+      error = 'The script body is required.';
+      return;
+    }
+    const t = parseTimeoutSec(timeout);
+    if (t.value === undefined) {
+      error = t.error ?? '';
+      return;
+    }
     running = true;
     error = '';
     stream = [];
@@ -26,36 +45,45 @@
     try {
       const payload: any = {
         script: utf8ToBase64(script),
-        timeout_sec: Number(timeout) || 120,
+        timeout_sec: t.value,
         interpreter,
         is_sudo: isSudo
       };
       if (cwd) payload.cwd = cwd;
       const res = await apiPost<{ jid: string }>(`/clients/${id}/scripts`, payload);
       currentJobId = res.jid;
-      pollResult(res.jid);
+      pollResult(res.jid, t.value);
     } catch (err) {
-      error = err instanceof ApiException ? err.errors[0]?.title || err.message : String(err);
+      error = apiErrorText(err);
       running = false;
     }
   }
 
-  async function pollResult(jid: string) {
+  async function pollResult(jid: string, timeoutSec: number) {
     const id = $page.params.id;
-    while (running) {
+    const deadline = Date.now() + pollDeadlineMs(timeoutSec);
+    while (running && !destroyed) {
       await new Promise((r) => setTimeout(r, 800));
+      if (destroyed) return;
       try {
         const job = await apiGet<Job>(`/clients/${id}/commands/${jid}`);
-        if (job.status === 'successful' || job.status === 'failed' || job.status === 'cancelled') {
-          if (job.result?.stdout) stream = [...stream, job.result.stdout];
-          if (job.result?.stderr) stream = [...stream, `[stderr] ${job.result.stderr}`];
-          if (job.error) stream = [...stream, `[error] ${job.error}`];
-          stream = [...stream, `\n--- status=${job.status} ---`];
+        if (destroyed) return;
+        if (isJobFinished(job.status)) {
+          stream = [...stream, ...finishedJobOutput(job)];
           running = false;
           return;
         }
       } catch (err) {
         stream = [...stream, `[poll error: ${err instanceof Error ? err.message : err}]`];
+        running = false;
+        return;
+      }
+      if (Date.now() > deadline) {
+        stream = [
+          ...stream,
+          `\n--- no final status from the client within ${timeoutSec}s plus a grace period; ` +
+            `stopped waiting. The result may still appear in the Commands tab history. ---`
+        ];
         running = false;
         return;
       }
@@ -72,6 +100,9 @@
         <label class="text-xs">
           <span class="text-slate-400 uppercase">Interpreter</span>
           <input bind:value={interpreter} class="font-mono" />
+          <span class="text-slate-500 block mt-1">
+            {#if hasShebang}Linux and macOS clients use the script's #! line instead; Windows clients use this.{:else}On Linux and macOS a #! first line takes precedence over this.{/if}
+          </span>
         </label>
         <label class="text-xs">
           <span class="text-slate-400 uppercase">Working directory</span>

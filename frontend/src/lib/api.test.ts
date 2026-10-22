@@ -5,6 +5,7 @@ import {
   apiGet,
   apiPost,
   asList,
+  apiErrorText,
   login,
   verify2fa,
   logout,
@@ -153,6 +154,63 @@ describe('session invalidation', () => {
     const err = (await apiGet('/clients').catch((e) => e)) as ApiException;
     expect(err.status).toBe(400);
     expect(err.errors[0]).toEqual({ code: 'x', title: 'nope', detail: 'because' });
+  });
+});
+
+function textResponse(text: string, status: number, statusText: string, ct = 'text/plain; charset=utf-8'): Response {
+  return {
+    ok: false,
+    status,
+    statusText,
+    headers: new Headers({ 'content-type': ct }),
+    json: async () => {
+      throw new Error('not json');
+    },
+    text: async () => text
+  } as unknown as Response;
+}
+
+describe('non-JSON error bodies', () => {
+  it('keeps a plain-text body as the error title', async () => {
+    tokenStore.set('jwt-abc');
+    fetchMock.mockResolvedValue(textResponse('Too many bad attempts. Please try later.\n', 423, 'Locked'));
+
+    const err = (await apiGet('/clients').catch((e) => e)) as ApiException;
+    expect(err.status).toBe(423);
+    expect(err.message).toBe('Too many bad attempts. Please try later.');
+  });
+
+  it('does not show an HTML body', async () => {
+    tokenStore.set('jwt-abc');
+    fetchMock.mockResolvedValue(textResponse('<html>Bad Gateway</html>', 502, 'Bad Gateway', 'text/html'));
+
+    const err = (await apiGet('/clients').catch((e) => e)) as ApiException;
+    expect(err.message).toBe('Bad Gateway');
+  });
+
+  it('falls back to the status when the text body is empty', async () => {
+    tokenStore.set('jwt-abc');
+    fetchMock.mockResolvedValue(textResponse('  ', 423, ''));
+
+    const err = (await apiGet('/clients').catch((e) => e)) as ApiException;
+    expect(err.message).toBe('HTTP 423');
+  });
+});
+
+describe('apiErrorText', () => {
+  it('joins the title and the detail', () => {
+    const err = new ApiException(400, [{ title: 'upload denied', detail: 'uploads to /etc/ are forbidden' }]);
+    expect(apiErrorText(err)).toBe('upload denied: uploads to /etc/ are forbidden');
+  });
+
+  it('uses the title alone when there is no detail', () => {
+    expect(apiErrorText(new ApiException(400, [{ title: 'Invalid interpreter.' }]))).toBe('Invalid interpreter.');
+  });
+
+  it('handles other errors', () => {
+    expect(apiErrorText(new ApiException(500, []))).toBe('HTTP 500');
+    expect(apiErrorText(new Error('offline'))).toBe('offline');
+    expect(apiErrorText('plain')).toBe('plain');
   });
 });
 

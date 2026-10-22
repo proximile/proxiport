@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { apiGet, apiPost, ApiException } from '$lib/api';
-  import type { Client } from '$lib/types';
+  import { onDestroy, onMount } from 'svelte';
+  import { apiGet, apiPost, apiErrorText } from '$lib/api';
+  import type { Client, Job } from '$lib/types';
+  import { isJobFinished, jobStatusLabel, multiJobProgress, parseTimeoutSec, pollDeadlineMs, type MultiJobSummary } from '$lib/jobs';
   import Spinner from '$lib/components/Spinner.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
 
@@ -21,6 +22,12 @@
   let statuses: Record<string, string> = $state({});
   let multiJobId = $state('');
 
+  // Polling belongs to this page: leaving it ends the loop.
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+  });
+
   onMount(async () => {
     try {
       const c = await apiGet<Client[]>('/clients?fields[clients]=id,name,hostname,connection_state&page[limit]=100');
@@ -38,7 +45,16 @@
 
   async function run(e: Event) {
     e.preventDefault();
-    if (!cmd.trim() || selected.size === 0 || running) return;
+    if (running || selected.size === 0) return;
+    if (!cmd.trim()) {
+      error = 'Command cannot be empty.';
+      return;
+    }
+    const t = parseTimeoutSec(timeout);
+    if (t.value === undefined) {
+      error = t.error ?? '';
+      return;
+    }
     running = true;
     error = '';
     buffers = {};
@@ -50,7 +66,7 @@
       const payload: any = {
         client_ids: [...selected],
         command: cmd,
-        timeout_sec: Number(timeout) || 60,
+        timeout_sec: t.value,
         is_sudo: isSudo,
         execute_concurrently: concurrent,
         abort_on_error: abortOnError
@@ -59,37 +75,63 @@
       if (interpreter) payload.interpreter = interpreter;
       const res = await apiPost<{ jid: string }>(`/commands`, payload);
       multiJobId = res.jid;
-      pollMulti(res.jid);
+      pollMulti(res.jid, [...selected], t.value);
     } catch (err) {
-      error = err instanceof ApiException ? err.errors[0]?.title || err.message : String(err);
+      error = apiErrorText(err);
       running = false;
     }
   }
 
-  async function pollMulti(jid: string) {
-    while (running) {
+  async function pollMulti(jid: string, targets: string[], timeoutSec: number) {
+    // A sequential run starts each target only after the previous one has
+    // finished, so the deadline grows with the number of targets.
+    const limitMs = pollDeadlineMs(timeoutSec, concurrent ? 1 : targets.length);
+    const deadline = Date.now() + limitMs;
+    let abortedSeen = 0;
+    while (running && !destroyed) {
       await new Promise((r) => setTimeout(r, 1000));
+      if (destroyed) return;
       try {
-        const summary = await apiGet<any>(`/commands/${jid}`);
-        const jobs = summary?.jobs ?? [];
+        const summary = await apiGet<MultiJobSummary>(`/commands/${jid}`);
+        if (destroyed) return;
+        const jobs: Job[] = summary?.jobs ?? [];
         for (const j of jobs) {
           if (j.client_id) {
-            statuses[j.client_id] = j.status;
+            statuses[j.client_id] = j.status ?? '';
             const buf: string[] = [];
             if (j.result?.stdout) buf.push(j.result.stdout);
             if (j.result?.stderr) buf.push(`[stderr] ${j.result.stderr}`);
             if (j.error) buf.push(`[error] ${j.error}`);
+            if (j.status === 'unknown') {
+              buf.push(`[timed out after ${j.timeout_sec ?? timeoutSec}s; the command may still be running on the client]`);
+            }
             buffers[j.client_id] = buf;
           }
         }
+        const progress = multiJobProgress(summary, targets);
+        // An abort is only final once it has held for two polls, so one
+        // summary read mid-update does not end the run early.
+        abortedSeen = progress === 'aborted' ? abortedSeen + 1 : 0;
+        const timedOut = Date.now() > deadline;
+        if (progress === 'done' || abortedSeen >= 2 || timedOut) {
+          if (progress !== 'done') {
+            // Targets that never got a job were skipped by the abort, or
+            // simply never reported before the deadline.
+            const withJob = new Set(jobs.map((j) => j.client_id));
+            for (const id of Object.keys(statuses)) {
+              if (!withJob.has(id)) statuses[id] = abortedSeen >= 2 ? 'skipped' : 'no result';
+            }
+          }
+          if (timedOut && progress !== 'done') {
+            error = `Stopped waiting after ${Math.round(limitMs / 1000)}s; some clients reported no final status.`;
+          }
+          running = false;
+        }
         statuses = { ...statuses };
         buffers = { ...buffers };
-        if ((jobs.every((j: any) => ['successful', 'failed', 'cancelled'].includes(j.status)))) {
-          running = false;
-          return;
-        }
+        if (!running) return;
       } catch (err) {
-        error = err instanceof Error ? err.message : String(err);
+        error = apiErrorText(err);
         running = false;
         return;
       }
@@ -136,7 +178,6 @@
               <option value="">default</option>
               <option value="cmd">cmd</option>
               <option value="powershell">powershell</option>
-              <option value="pwsh">pwsh</option>
             </select>
           </label>
           <label class="text-xs">
@@ -169,9 +210,9 @@
         <div class="card overflow-hidden">
           <div class="px-3 py-2 border-b border-pp-border text-xs flex justify-between">
             <span class="font-medium text-slate-200 truncate">{nameFor(id)}</span>
-            <span class="pill" class:pill-good={statuses[id] === 'successful'} class:pill-bad={statuses[id] === 'failed'} class:pill-warn={statuses[id] === 'running'} class:pill-muted={!statuses[id]}>{statuses[id] ?? '—'}</span>
+            <span class="pill" class:pill-good={statuses[id] === 'successful'} class:pill-bad={statuses[id] === 'failed'} class:pill-warn={statuses[id] === 'running' || statuses[id] === 'unknown'} class:pill-muted={!statuses[id] || statuses[id] === 'pending' || statuses[id] === 'skipped' || statuses[id] === 'no result'} title={statuses[id] ?? ''}>{jobStatusLabel(statuses[id])}</span>
           </div>
-          <pre class="p-3 font-mono text-xs whitespace-pre-wrap break-all overflow-auto max-h-64" class:text-emerald-200={statuses[id] !== 'failed'} class:text-red-300={statuses[id] === 'failed'}>{(buffers[id] ?? []).length ? (buffers[id] ?? []).join('\n') : ['successful', 'failed', 'cancelled'].includes(statuses[id]) ? '(no output)' : '…'}</pre>
+          <pre class="p-3 font-mono text-xs whitespace-pre-wrap break-all overflow-auto max-h-64" class:text-emerald-200={statuses[id] !== 'failed'} class:text-red-300={statuses[id] === 'failed'}>{(buffers[id] ?? []).length ? (buffers[id] ?? []).join('\n') : statuses[id] === 'skipped' ? '(not run: an earlier client failed and abort on error is on)' : statuses[id] === 'no result' ? '(no result received)' : isJobFinished(statuses[id]) && statuses[id] !== 'pending' ? '(no output)' : '…'}</pre>
         </div>
       {/each}
     </div>
