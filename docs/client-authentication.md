@@ -69,12 +69,17 @@ credential and its bound agents are cleared together once you confirm.
 A bound agent cannot reconnect afterward; add a fresh credential to pair
 a replacement.
 
-The file is read on every lookup, so an edit made on disk is live for
-the next agent that connects — no reload or signal is needed.
+The server caches each credential it looks up for 60 minutes. A new ID
+added to the file on disk is picked up by the next agent that connects.
+A password changed or an entry removed by editing the file directly can
+keep authenticating for up to an hour, until the cached entry expires or
+the server is restarted. Changes made through the **Client Access** page
+or the API take effect immediately.
 
 If you would rather have an external tool own the file, set
-`auth_write = false` and the API will return HTTP 403 on every
-write attempt:
+`auth_write = false` and the API will reject every write attempt
+(creating or deleting a credential) with HTTP 405 Method Not Allowed and
+the error code `ERR_CODE_CLIENT_AUTH_RO`:
 
 ```toml
 [server]
@@ -152,20 +157,40 @@ The on-disk form in `proxiport.conf`:
 
 ```toml
 [client]
-  server = "proxiport.example.com:443"
+  server = "proxiport.example.com:80"
   auth   = "alpha-prod:ph2eePh1Bei4iezi"
-  fingerprint = "<server-host-key-fingerprint>"
+  fingerprint = "SHA256:<server-host-key-fingerprint>"
 ```
 
-The `fingerprint` value pins the server's host key. The agent refuses
-to talk to a server whose key does not match. The fingerprint is
-printed by `proxiportd` on startup and shown on the Info page in the
-SPA.
+The port must match proxiportd's `[server] address` (port 80 in the
+example config). If
+the agent listener sits behind a TLS reverse proxy on 443, write the
+value with a scheme, `server = "https://proxiport.example.com"`, so the
+agent connects over `wss://` rather than plain `ws://`.
+
+The `fingerprint` value pins the server's host key. When it is set, the
+agent refuses to talk to a server whose key does not match. `proxiportd`
+logs two fingerprints on startup, `Fingerprint (SHA-256, pin this)` and
+`Fingerprint (MD5, deprecated)`, and the SPA's Info page shows them too.
+Pin the SHA-256 value (it starts with `SHA256:`), which the agent
+matches in full. The legacy MD5 colon-hex form is still accepted but is
+deprecated, and it is only prefix-matched, so a shortened MD5 pin
+matches more than one key.
+
+If `fingerprint` is left empty, the agent accepts whatever host key the
+server presents and logs the fingerprint to pin. Set
+`require_fingerprint = true` in `[client]` to make a missing pin a hard
+error instead.
 
 ## Managing credentials via the API
 
-When `auth_file` or `auth_table` is active and `auth_write` is true,
-the `/api/v1/clients-auth` endpoints accept full CRUD:
+The `/api/v1/clients-auth` endpoints list, fetch, create and delete
+client credentials. Every route, the listing included, requires an
+administrator account (a member of the `Administrators` user group);
+other users and their API tokens are refused. Listing and fetching work
+with any credential store. Create and delete also need `auth_file` or
+`auth_table` to be active and `auth_write` to be true. The examples
+below assume `admin` is an administrator:
 
 ```bash
 # List
@@ -179,21 +204,35 @@ curl -s -X POST \
   --data-raw '{"id":"delta-edge","password":"foB3ainai9ouQu0o"}' \
   https://proxiport.example.com/api/v1/clients-auth
 
-# Delete
+# Delete (force=true also removes clients still bound to it)
 curl -s -X DELETE -u admin:password \
-  https://proxiport.example.com/api/v1/clients-auth/delta-edge
+  'https://proxiport.example.com/api/v1/clients-auth/delta-edge?force=true'
 ```
 
-The same operations are wired into the **Client Access** page in the
-SPA — create, edit, delete client-auth IDs, and copy them into each
-agent's config.
+Without `?force=true`, a delete is refused with HTTP 409
+(`ERR_CODE_CLIENT_AUTH_HAS_CLIENT`) while any client, connected or not,
+is still bound to the credential.
+
+The same operations are available on the **Client Access** page in the
+SPA, which only administrators can use: add a credential with
+**+ Add credential** and delete one from its row. Credentials cannot be
+edited; to change a password, delete the credential and add it again.
+The password is shown only when you create it and cannot be retrieved
+later. If a pairing service is configured, the page then gives you Linux
+and Windows installer one-liners to copy. If the pairing request fails,
+it shows a `[client]` snippet to paste into the agent's config instead.
 
 ## Multi-use credentials and client identity
 
-By default every agent that successfully authenticates picks its own
-client ID from `proxiport.conf` (the `[client] id` setting, or a UUID
-auto-generated on first start). Two agents may share one client-auth
-credential as long as their IDs differ.
+By default every agent that successfully authenticates presents its
+own client ID. This is the `[client] id` setting in `proxiport.conf` if
+one is configured. Otherwise it is the machine ID (`/etc/machine-id` on
+Linux, the ComputerSystemProduct UUID on Windows), because
+`use_system_id = true` is the default. If `use_system_id = false` and no
+`id` is set, the server assigns a random ID for each connection, so the
+ID (and the client's history) changes every time the agent restarts.
+Two agents may share one client-auth credential as long as their IDs
+differ.
 
 To force a one-to-one relationship between credentials and clients,
 disable `auth_multiuse_creds`:
@@ -211,12 +250,26 @@ provisioning at the cost of losing the credential/identity split.
 
 ## Disconnecting a compromised agent
 
-1. Delete its credential row from the JSON file or the database
-   (Client Access page in the SPA, or `DELETE /api/v1/clients-auth/<id>`).
-2. The next reconnect attempt fails — the agent stays disconnected.
+1. Delete its credential from the **Client Access** page in the SPA
+   (which applies force once you confirm the delete), or through the
+   API with force:
+
+    ```bash
+    curl -s -X DELETE -u admin:password \
+      "https://proxiport.example.com/api/v1/clients-auth/<id>?force=true"
+    ```
+
+    This closes the agent's live session, removes the client records
+    bound to the credential, and deletes the credential.
+2. The agent's reconnect attempts then fail, so it stays disconnected.
 3. If the host is reachable, also stop `proxiport.service` and remove
    the stale binary + config so the credential is not re-issued by
    automation.
+
+Removing the row by editing the JSON file or the database table by
+hand does not drop a session that is already connected. With the file
+store, a credential that was looked up recently can also keep
+authenticating for up to 60 minutes (see [JSON credential file](#json-credential-file)).
 
 Rotating one credential out of many does not affect other agents.
 
@@ -316,12 +369,19 @@ no way to narrow this to a subset after the fact. Rotate all of them.
 - The client listener carries SSH inside the WebSocket, so the
   credential and everything after it are encrypted and the host key is
   checked against the agent's `fingerprint`. To wrap that port in TLS as well, put it behind a reverse
-  proxy — there are no TLS settings under `[server]`. See
-  [HTTPS](https.md).
+  proxy. The client listener has no TLS option of its own: the TLS keys
+  under `[server]` (`tunnel_proxy_cert_file`, `tunnel_proxy_key_file`,
+  `tunnel_enable_acme`, `tls_min`) apply only to the built-in tunnel
+  proxy at `tunnel_host`, not to this port. See [HTTPS](https.md).
 - Watch for repeated failed-auth log lines and ban offending IPs at
-  the firewall. The server has a built-in `client_login_wait` and
-  `max_failed_login` / `ban_time` pair but it is per-IP at the HTTP
-  layer, not a substitute for fail2ban.
+  the firewall. The server has two built-in throttles, and neither
+  replaces fail2ban. `client_login_wait` (default 2 s) refuses further
+  logins for a client auth ID for that long after a failed attempt; it
+  is enforced in the SSH handshake per client auth ID, not per IP.
+  `max_failed_login` / `ban_time` (defaults 5 / 3600 s) bans a source IP
+  at the HTTP layer with status 423. It counts distinct failing
+  credentials from that IP, so an agent that keeps retrying the same
+  wrong credential does not ban itself.
 
 See also: [operator runbook — rotating credentials](operator-runbook.md#rotating-credentials)
 and [install — agent](install.md#agent).

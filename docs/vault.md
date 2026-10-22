@@ -1,9 +1,11 @@
 # Vault
 
 The vault is ProxiPort's encrypted key-value store for documents and
-per-client secrets. It is a separate SQLite database
-(`{data_dir}/vault.sqlite.db` by default) sealed with a passphrase
-that lives only in the server process's memory — never on disk. If a
+per-client secrets. It is a separate SQLite database at
+`{data_dir}/vault.sqlite.db` (the file name is fixed; only `data_dir`
+sets its location), sealed with a passphrase. The server never stores
+the passphrase: while the vault is unlocked, only the key derived from
+it is held, in the server process's memory and never on disk. If a
 `[key_provider]` is configured, every stored value is additionally
 envelope-encrypted at rest under a server-held key — see
 [At-rest encryption](#at-rest-encryption-optional).
@@ -25,14 +27,28 @@ through the SPA or the API before the values become readable.
 4. **Lock.** Optional manual seal. Wipes the key from memory. The
    stored data stays on disk.
 
+**Vaults created by rport or openrport.** Those vaults used an
+unsalted SHA-256 key derivation. On the first successful unlock under
+ProxiPort, the server re-keys the vault to Argon2id: it derives a new
+salted key, re-encrypts every stored value and the verifier in a single
+transaction, records the new key-derivation parameters, and then
+compacts `vault.sqlite.db`. This first unlock takes longer than later
+ones, and the database file is rewritten. Once it has run, rport and
+openrport can no longer open the vault, so take a backup before the
+upgrade if you may need to roll back (see [migration](migration.md)).
+
 The administrator who runs unlock does not gain any per-entry
 visibility beyond what the user-group permissions would otherwise
 allow — locking is a global control, not a per-entry one.
 
 ## Admin API
 
-The endpoints under `/api/v1/vault-admin` require Administrators group
-membership.
+All endpoints under `/api/v1/vault-admin` require the `vault` function
+permission. Status (`GET /api/v1/vault-admin`) needs nothing more.
+Initialize (`POST /vault-admin/init`), unlock (`POST /vault-admin/sesame`)
+and lock (`DELETE /vault-admin/sesame`) also require Administrators
+group membership, and anyone else gets a 403. Members of Administrators
+hold every permission implicitly.
 
 ### Initialize
 
@@ -71,7 +87,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 ```
 
 `init` is `setup-completed` or `uninitialized`. `status` is `unlocked`
-or `locked`.
+or `locked`, or an empty string (`""`) while `init` is `uninitialized`.
 
 ### Unlock and lock
 
@@ -87,6 +103,18 @@ curl -s -X POST \
 curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
   https://proxiport.example.com/api/v1/vault-admin/sesame
 ```
+
+Status codes, for scripting these calls:
+
+| Call | Success | Errors |
+|---|---|---|
+| `POST /vault-admin/init` | `201` | `400` passphrase outside 8–256 bytes; `409` `vault is already initialized` |
+| `POST /vault-admin/sesame` (unlock) | `201` | `401` `wrong password provided`; `409` `vault is already unlocked` or `vault is not yet initialized` |
+| `DELETE /vault-admin/sesame` (lock) | `204` | `409` `vault is already locked` (also returned for a vault that was never initialized) |
+| any `/api/v1/vault` call | — | `409` `vault is locked` |
+
+A cron job that locks or unlocks should treat a `409` "already locked"
+or "already unlocked" as success.
 
 If the wrong passphrase is supplied to unlock, the request is
 rejected and the vault stays locked. If the passphrase is **lost**,
@@ -172,27 +200,27 @@ curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
 
 ### Field reference
 
-`client_id`
-: Optional. Ties a document to a specific agent. Empty (or `0`)
-  means the entry is global and shows up on every client's
-  Documentation tab.
+- `client_id` — Optional. Ties a document to a specific agent. Leave
+  it empty for a global entry that is not tied to any one client. The
+  value is matched exactly, so `0` is its own scope and does not mean
+  global.
+- `required_group` — Optional. If set, only users in this user-group
+  can read, update, or delete the entry. Use it for compartmentalised
+  secrets in a multi-team server.
+- `key` — Required short identifier. Unique within a `client_id`
+  scope.
+- `value` — Required. The encrypted body of the document. Every other
+  column is stored in clear.
+- `type` — Required. One of `text`, `secret`, `markdown`, `string`;
+  the server rejects any other value with 400. The type is stored with
+  the entry and returned when a single entry is read, as a rendering
+  hint for clients.
 
-`required_group`
-: Optional. If set, only users in this user-group can read, update,
-  or delete the entry. Use it for compartmentalised secrets in a
-  multi-team server.
-
-`key`
-: Required short identifier. Unique within a `client_id` scope.
-
-`value`
-: Required. The encrypted body of the document. Every other column
-  is stored in clear.
-
-`type`
-: Required. One of `text`, `secret`, `markdown`, `string`. The SPA
-  uses the type to decide how to render the body — `secret` is
-  masked behind a reveal toggle, `markdown` is rendered, etc.
+The web UI does not render entry bodies yet. **Admin → Vault**
+initializes, unlocks and locks the vault and lists entries by key; the
+per-client **Documents** tab and the **Documentation** page in the
+sidebar are placeholders that do not list vault entries. Use the
+`/api/v1/vault` endpoints to create and read entries.
 
 ## At-rest encryption (optional)
 
@@ -236,11 +264,16 @@ clear-text dumps of the vault outside the server. The dumps belong
 in a safe (encrypted disk, password manager, hardware-backed store)
 — never alongside the unencrypted database file.
 
-A minimal export script:
+A minimal export script. The token must be minted with the
+`read+write` scope (see [API authentication](api-authentication.md)):
+a `read`-scoped token can list the vault but is refused the decrypted
+value of every entry. Because the script runs `curl -s`, that failure
+is silent — each `<id>.json` would hold an error response instead of
+the entry.
 
 ```bash
 USER=admin
-TOKEN=Ab3xK9pq_e83d40e4-e237-43d6-bb99-35972ded631b   # a personal API token, prefix included
+TOKEN=Ab3xK9pq_e83d40e4-e237-43d6-bb99-35972ded631b   # a personal API token with read+write scope, prefix included
 URL=https://proxiport.example.com/api/v1/vault
 FOLDER=./vault-backup
 
@@ -273,8 +306,17 @@ Encrypt `vault-backup.tar.gz` before storing it anywhere external.
   from the required group immediately revokes their access to the
   entries that name it.
 - **The vault does not auto-lock on idle.** If you want a periodic
-  lock, run a cron that POSTs `DELETE /api/v1/vault-admin/sesame`
-  on the schedule you want.
+  lock, run a cron that sends `DELETE /api/v1/vault-admin/sesame` on
+  the schedule you want, and treat a `409` (already locked) as success.
+- **Vault activity is audited.** With the audit log enabled
+  (`enable_audit_log`, on by default), the server records vault init,
+  unlock and lock, and every entry create, update, delete and read.
+  Each record holds the user and the source address, plus the entry
+  id for entry operations; a
+  read is logged as a `read` action. The audit log never stores a
+  stored value itself: create and update records keep the entry's
+  metadata, not its value. Filter the **Audit** page on `vault` to see
+  them.
 
 ## Hardening checklist
 
