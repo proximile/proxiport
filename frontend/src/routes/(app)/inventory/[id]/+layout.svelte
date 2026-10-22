@@ -6,6 +6,7 @@
   import { setClientContext } from '$lib/clientContext';
   import Spinner from '$lib/components/Spinner.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { documentTitle } from '$lib/pageTitle';
 
   let { children } = $props();
   let client: Client | null = $state(null);
@@ -81,6 +82,9 @@
     return slug === '' ? path === '' : path === slug || path.startsWith(slug + '/');
   }
 
+  let activeTab = $derived(TABS.find((t) => isActive(t.slug, $page.url.pathname)));
+  let title = $derived(documentTitle((client as Client | null)?.name || $page.params.id, activeTab?.label));
+
   // Bring the active tab into view within the horizontally-scrolling strip so
   // there is always a visible active-tab indicator on narrow viewports.
   function scrollActiveIntoView(el: HTMLElement, active: boolean) {
@@ -91,6 +95,8 @@
     return { update: reveal };
   }
 </script>
+
+<svelte:head><title>{title}</title></svelte:head>
 
 <div class="p-6 space-y-4">
   <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -113,13 +119,16 @@
   {#if failed}
     <button class="btn btn-ghost" onclick={() => id && load(id)}>Retry</button>
   {:else}
-  <div class="flex gap-1 border-b border-pp-border overflow-x-auto">
+  <!-- Tabs wrap onto a second row until there is room for all of them, so
+       none is hidden off-screen. -->
+  <nav aria-label="Client sections" class="flex flex-wrap xl:flex-nowrap gap-x-1 border-b border-pp-border xl:overflow-x-auto">
     {#each TABS as tab}
       {@const href = tab.slug ? `${baseHref}/${tab.slug}` : baseHref}
       {@const active = isActive(tab.slug, $page.url.pathname)}
       <a
         {href}
         use:scrollActiveIntoView={active}
+        aria-current={active ? 'page' : undefined}
         class="px-4 py-2 text-sm whitespace-nowrap border-b-2 -mb-px"
         class:border-indigo-400={active}
         class:text-indigo-300={active}
@@ -131,7 +140,7 @@
         {tab.label}
       </a>
     {/each}
-  </div>
+  </nav>
 
   <div>
     {@render children()}

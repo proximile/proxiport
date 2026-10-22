@@ -170,7 +170,7 @@
 
     <div class="card p-4 lg:col-span-2">
       <form class="space-y-3" onsubmit={run}>
-        <textarea bind:value={cmd} rows="4" class="font-mono" placeholder="uname -a" required></textarea>
+        <textarea bind:value={cmd} rows="4" class="font-mono" placeholder="uname -a" aria-label="Command" required></textarea>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
           <label class="text-xs">
             <span class="text-slate-400 uppercase">Interpreter</span>

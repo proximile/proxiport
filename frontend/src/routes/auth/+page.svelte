@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
+  import { safeNext } from '$lib/redirect';
   import { login, loginWithNewPassword, isPasswordExpired, verify2fa, createTotpSecret, ApiException } from '$lib/api';
   import { tokenStore } from '$lib/stores';
   import type { LoginResponse } from '$lib/api';
@@ -19,6 +20,21 @@
   let busy = $state(false);
   let error = $state('');
   let loginToken = $state(''); // short-lived JWT from /login when TOTP is enabled
+  let passwordInput: HTMLInputElement | undefined = $state();
+  let totpInput: HTMLInputElement | undefined = $state();
+
+  // After signing in, return to the page that sent the user here.
+  function landing(): string {
+    return safeNext(new URLSearchParams(location.search).get('next'), location.origin);
+  }
+
+  // The submit button is disabled while a request runs, which drops focus;
+  // after a failure put it back on the field the user needs to retype.
+  async function refocus(el: HTMLInputElement | undefined) {
+    await tick();
+    el?.focus();
+    el?.select();
+  }
 
   // First-login TOTP enrollment: when the server says no secret exists yet
   // (totp_key_status === 'pending'), the interim token may create one. We
@@ -34,7 +50,7 @@
   let isDemo = $state(false);
 
   onMount(() => {
-    if (get(tokenStore)) goto('/inventory', { replaceState: true });
+    if (get(tokenStore)) goto(landing(), { replaceState: true });
     if (typeof window !== 'undefined' && window.location.hostname.startsWith('demo.')) {
       isDemo = true;
     }
@@ -57,6 +73,7 @@
     } finally {
       busy = false;
     }
+    if (error && stage === 'creds') refocus(passwordInput);
   }
 
   async function submitNewPassword(e: Event) {
@@ -85,7 +102,7 @@
   async function signedIn(res: LoginResponse) {
     if (res.token && !res.two_fa) {
       tokenStore.set(res.token);
-      goto('/inventory', { replaceState: true });
+      goto(landing(), { replaceState: true });
     } else {
       loginToken = res.token ?? '';
       stage = '2fa';
@@ -118,14 +135,17 @@
       const tok = await verify2fa(username, totp, loginToken);
       if (!tok) throw new Error('Server returned no token');
       tokenStore.set(tok);
-      goto('/inventory', { replaceState: true });
+      goto(landing(), { replaceState: true });
     } catch (err) {
       error = err instanceof ApiException ? err.errors[0]?.title || err.message : String(err);
     } finally {
       busy = false;
     }
+    if (error) refocus(totpInput);
   }
 </script>
+
+<svelte:head><title>Sign in · ProxiPort</title></svelte:head>
 
 <div class="min-h-screen flex items-center justify-center px-4">
   <div class="w-full max-w-sm card p-6 space-y-5">
@@ -153,7 +173,7 @@
         </label>
         <label class="block">
           <span class="text-xs uppercase tracking-wider text-slate-400">Password</span>
-          <input type="password" bind:value={password} autocomplete="current-password" required />
+          <input type="password" bind:this={passwordInput} bind:value={password} autocomplete="current-password" required />
         </label>
         <ErrorBox message={error} />
         <button class="btn btn-primary w-full justify-center" disabled={busy} type="submit">
@@ -219,6 +239,7 @@
         <label class="block">
           <span class="text-xs uppercase tracking-wider text-slate-400">TOTP code</span>
           <input
+            bind:this={totpInput}
             bind:value={totp}
             inputmode="numeric"
             pattern="[0-9]*"

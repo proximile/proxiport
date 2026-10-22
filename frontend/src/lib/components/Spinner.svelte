@@ -2,8 +2,9 @@
   let { size = 16, label = '' }: { size?: number; label?: string } = $props();
 </script>
 
-<span class="inline-flex items-center gap-2 text-slate-400">
+<span class="inline-flex items-center gap-2 text-slate-400" role="status">
   <svg
+    aria-hidden="true"
     width={size}
     height={size}
     viewBox="0 0 24 24"
@@ -14,5 +15,5 @@
     <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25" stroke-width="3" />
     <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
   </svg>
-  {#if label}<span class="text-sm">{label}</span>{/if}
+  {#if label}<span class="text-sm">{label}</span>{:else}<span class="sr-only">Loading</span>{/if}
 </span>

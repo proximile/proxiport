@@ -1,6 +1,33 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { page } from '$app/stores';
   import { sidebarCollapsed, sidebarMobileOpen } from '../stores';
+
+  // `mobile` is true below the md breakpoint, where the sidebar is an
+  // off-canvas drawer. A closed drawer is inert so it leaves the tab order and
+  // the accessibility tree; opening it moves focus in, closing it hands focus
+  // back to the button that opened it.
+  let { mobile = false }: { mobile?: boolean } = $props();
+  let aside: HTMLElement | undefined = $state();
+  let closeBtn: HTMLButtonElement | undefined = $state();
+  let drawerOpen = $derived(mobile && $sidebarMobileOpen);
+  // The icon-rail preference applies to the desktop sidebar only; the mobile
+  // drawer always shows labels.
+  let collapsed = $derived($sidebarCollapsed && !mobile);
+  let wasOpen = false;
+
+  $effect(() => {
+    const open = drawerOpen;
+    if (open === wasOpen) return;
+    wasOpen = open;
+    tick().then(() => {
+      if (open) {
+        closeBtn?.focus();
+      } else if (!document.activeElement || document.activeElement === document.body || aside?.contains(document.activeElement)) {
+        document.getElementById('sidebar-open')?.focus();
+      }
+    });
+  });
 
   type Item = { href: string; label: string; icon: string; matchPrefix?: string };
   type Section = { title?: string; items: Item[] };
@@ -60,10 +87,16 @@
 </script>
 
 <aside
-  class="bg-pp-surface border-r border-pp-border flex flex-col h-full w-56 fixed inset-y-0 left-0 z-40 transition-transform duration-200 md:static md:z-auto md:flex-shrink-0 md:translate-x-0 md:transition-all {$sidebarMobileOpen ? 'translate-x-0' : '-translate-x-full'} {$sidebarCollapsed ? 'md:w-14' : ''}"
+  bind:this={aside}
+  id="app-sidebar"
+  aria-label="Sidebar"
+  inert={mobile && !$sidebarMobileOpen}
+  role={drawerOpen ? 'dialog' : undefined}
+  aria-modal={drawerOpen ? 'true' : undefined}
+  class="bg-pp-surface border-r border-pp-border flex flex-col h-full w-56 fixed inset-y-0 left-0 z-40 motion-safe:transition-transform duration-200 md:static md:z-auto md:flex-shrink-0 md:translate-x-0 md:motion-safe:transition-all {$sidebarMobileOpen ? 'translate-x-0' : '-translate-x-full'} {collapsed ? 'md:w-14' : ''}"
 >
   <div class="h-14 flex items-center justify-between px-3 border-b border-pp-border">
-    {#if !$sidebarCollapsed}
+    {#if !collapsed}
       <div class="text-base font-semibold text-indigo-300 tracking-tight">ProxiPort</div>
     {:else}
       <div class="text-base font-semibold text-indigo-300 mx-auto">PP</div>
@@ -73,13 +106,16 @@
       class="hidden md:block text-slate-400 hover:text-slate-100 cursor-pointer p-1 rounded hover:bg-pp-surface-2"
       onclick={() => sidebarCollapsed.update((v) => !v)}
       aria-label="Toggle sidebar"
+      aria-expanded={!collapsed}
+      aria-controls="app-nav"
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d={$sidebarCollapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'} />
+        <path d={collapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'} />
       </svg>
     </button>
     <!-- Mobile: close the drawer. -->
     <button
+      bind:this={closeBtn}
       class="md:hidden text-slate-400 hover:text-slate-100 cursor-pointer p-1 rounded hover:bg-pp-surface-2"
       onclick={() => sidebarMobileOpen.set(false)}
       aria-label="Close menu"
@@ -90,9 +126,9 @@
     </button>
   </div>
 
-  <nav class="flex-1 overflow-y-auto py-2">
+  <nav id="app-nav" aria-label="Main" class="flex-1 overflow-y-auto py-2">
     {#each sections as section}
-      {#if section.title && !$sidebarCollapsed}
+      {#if section.title && !collapsed}
         <div class="px-3 pt-3 pb-1 text-xs uppercase tracking-wider text-slate-500">
           {section.title}
         </div>
@@ -102,18 +138,20 @@
           <li>
             <a
               href={item.href}
+              aria-current={active(item, $page.url.pathname) ? 'page' : undefined}
+              aria-label={collapsed ? item.label : undefined}
               onclick={() => sidebarMobileOpen.set(false)}
               class="flex items-center gap-3 px-3 py-2 mx-2 my-0.5 rounded-md text-sm transition-colors"
               class:bg-pp-surface-2={active(item, $page.url.pathname)}
               class:text-indigo-300={active(item, $page.url.pathname)}
               class:text-slate-300={!active(item, $page.url.pathname)}
               class:hover:bg-pp-surface-2={!active(item, $page.url.pathname)}
-              title={$sidebarCollapsed ? item.label : ''}
+              title={collapsed ? item.label : ''}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-shrink-0">
                 <path d={ICONS[item.icon] ?? ''} />
               </svg>
-              {#if !$sidebarCollapsed}
+              {#if !collapsed}
                 <span class="truncate">{item.label}</span>
               {/if}
             </a>

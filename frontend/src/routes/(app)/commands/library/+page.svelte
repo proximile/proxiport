@@ -193,6 +193,7 @@
         class:text-indigo-300={tab === t}
         class:border-transparent={tab !== t}
         class:text-slate-400={tab !== t}
+        aria-pressed={tab === t}
         onclick={() => switchTab(t)}
       >
         {t === 'commands' ? `Saved commands (${commands.length})` : `Saved scripts (${scripts.length})`}

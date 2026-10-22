@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 
 import { tokenStore, vaultStatus, vaultUnlocked, type VaultInit, type VaultLock } from './stores';
@@ -54,5 +54,47 @@ describe('token persistence', () => {
     tokenStore.set('jwt-abc');
     tokenStore.set('');
     expect(localStorage.getItem('proxiport.jwt')).toBeNull();
+  });
+});
+
+describe('sidebar collapsed preference', () => {
+  it('is written to storage when toggled', async () => {
+    const { sidebarCollapsed, SIDEBAR_COLLAPSED_KEY } = await import('./stores');
+    sidebarCollapsed.set(true);
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe('1');
+    sidebarCollapsed.set(false);
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe('0');
+  });
+
+  it('is restored on the next load', async () => {
+    vi.resetModules();
+    localStorage.setItem('proxiport.sidebarCollapsed', '1');
+    const fresh = await import('./stores');
+    expect(get(fresh.sidebarCollapsed)).toBe(true);
+  });
+
+  it('starts expanded when storage cannot be read', async () => {
+    vi.resetModules();
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    try {
+      const fresh = await import('./stores');
+      expect(get(fresh.sidebarCollapsed)).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('toasts', () => {
+  it('can be dismissed before they time out', async () => {
+    const { toasts, pushToast, dismissToast } = await import('./stores');
+    toasts.set([]);
+    pushToast('good', 'Saved.');
+    pushToast('bad', 'Failed.');
+    const [first, second] = get(toasts);
+    dismissToast(first.id);
+    expect(get(toasts)).toEqual([second]);
   });
 });
