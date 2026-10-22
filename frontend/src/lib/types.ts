@@ -28,7 +28,20 @@ export type Client = {
   last_heartbeat_at?: string | null;
   client_auth_id?: string;
   tunnels?: Tunnel[];
-  updates_status?: { updates_summary?: { total: number; updates_count: number; security_updates_count: number } };
+  updates_status?: UpdatesStatus | null;
+};
+
+/** The agent's pending-updates report, carried on the client record. */
+export type UpdatesStatus = {
+  refreshed?: string;
+  updates_available?: number;
+  security_updates_available?: number;
+  update_summaries?:
+    | { title: string; description: string; reboot_required: boolean; is_security_update: boolean }[]
+    | null;
+  reboot_pending?: boolean;
+  error?: string;
+  hint?: string;
 };
 
 export type Tunnel = {
@@ -44,6 +57,8 @@ export type Tunnel = {
   idle_timeout_minutes?: number;
   http_proxy?: boolean;
   is_reverse_proxy?: boolean;
+  /** Full URL when the tunnel is served under its own subdomain. */
+  tunnel_url?: string;
   created_at?: string;
 };
 

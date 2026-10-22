@@ -3,6 +3,7 @@
   import { apiGet, apiDelete } from '$lib/api';
   import type { Tunnel, Client } from '$lib/types';
   import { fmtRelative } from '$lib/format';
+  import { tunnelPublicUrl, fmtIdle } from '$lib/clientData';
   import { pushToast } from '$lib/stores';
   import { copyToClipboard, sshCommandFor } from '$lib/clipboard';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -13,6 +14,7 @@
   let rows: Row[] = $state([]);
   let loading = $state(true);
   let error = $state('');
+  let loaded = $state(false);
   let filter = $state('');
 
   // The server-side lhost is the bind address (typically 0.0.0.0, bind-all),
@@ -21,8 +23,7 @@
   const serverHost = typeof window !== 'undefined' ? window.location.hostname : '';
 
   function publicAddr(r: Tunnel): string {
-    const host = serverHost || r.lhost || '';
-    return `${host}:${r.lport}`;
+    return tunnelPublicUrl(r, serverHost);
   }
 
   function isSsh(r: Tunnel): boolean {
@@ -37,6 +38,7 @@
       const clients = await apiGet<Client[]>('/clients?fields[clients]=id,name&page[limit]=100').catch(() => [] as Client[]);
       const map = new Map((clients ?? []).map((c) => [c.id, c.name || c.id]));
       rows = (t ?? []).map((x) => ({ ...x, client_name: map.get(x.client_id ?? '') }));
+      loaded = true;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -74,7 +76,9 @@
   <div class="flex items-center justify-between">
     <div>
       <h1 class="text-2xl font-semibold tracking-tight">Tunnels</h1>
-      <div class="text-sm text-slate-400 mt-1">{rows.length} active tunnel{rows.length === 1 ? '' : 's'}</div>
+      {#if loaded}
+        <div class="text-sm text-slate-400 mt-1">{rows.length} active tunnel{rows.length === 1 ? '' : 's'}</div>
+      {/if}
     </div>
     <button class="btn btn-ghost" onclick={load}>Refresh</button>
   </div>
@@ -83,8 +87,10 @@
   <ErrorBox message={error} />
 
   <div class="card overflow-x-auto">
-    {#if loading && !rows.length}
+    {#if loading && !loaded}
       <div class="p-6 flex justify-center"><Spinner /></div>
+    {:else if !loaded}
+      <EmptyState title="Could not load tunnels" detail="Use Refresh to try again." />
     {:else if !filtered.length}
       <EmptyState title="No active tunnels" detail="Create one from a client's Tunnels tab." />
     {:else}
@@ -103,7 +109,7 @@
               <td class="font-mono text-slate-300">{r.rhost ?? ''}:{r.rport}</td>
               <td><span class="pill pill-info">{r.scheme || r.protocol || '—'}</span></td>
               <td class="font-mono text-xs text-slate-400">{r.acl || '—'}</td>
-              <td>{r.idle_timeout_minutes ?? '—'}m</td>
+              <td>{fmtIdle(r.idle_timeout_minutes)}</td>
               <td class="text-slate-400">{fmtRelative(r.created_at)}</td>
               <td class="whitespace-nowrap">
                 {#if isSsh(r)}

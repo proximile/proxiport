@@ -5,7 +5,7 @@
  * ({"errors": [{"code", "title", "detail"}]}), and the two-step login flow
  * (POST /login then POST /verify-2fa with the TOTP code).
  */
-import { tokenStore, vaultStatus, type VaultStatusShape } from './stores';
+import { tokenStore, vaultStatus, vaultStatusError, type VaultStatusShape } from './stores';
 import { utf8ToBase64 } from './encoding';
 import { get } from 'svelte/store';
 
@@ -86,6 +86,20 @@ export async function apiGet<T = any>(path: string): Promise<T> {
   if (!res.ok) await raise(res, path);
   const body = await parseJson(res);
   return (body && 'data' in body ? body.data : body) as T;
+}
+
+/**
+ * GET a paginated list endpoint and keep the envelope's meta, so a caller can
+ * tell how many items exist beyond the page it received (meta.count).
+ */
+export async function apiGetList<T = any>(path: string): Promise<{ data: T[]; count: number }> {
+  ensureToken();
+  const res = await fetch(`/api/v1${path}`, { headers: { ...authHeader() } });
+  if (!res.ok) await raise(res, path);
+  const body = await parseJson(res);
+  const data = asList<T>(body);
+  const count = Number(body?.meta?.count);
+  return { data, count: Number.isFinite(count) ? count : data.length };
 }
 
 /**
@@ -254,7 +268,14 @@ export async function logout(): Promise<void> {
  * vault has never been set up); 401 means we lost auth.
  */
 export async function refreshVaultStatus(): Promise<VaultStatusShape> {
-  const s = await apiGet<VaultStatusShape>('/vault-admin');
+  let s: VaultStatusShape;
+  try {
+    s = await apiGet<VaultStatusShape>('/vault-admin');
+  } catch (err) {
+    vaultStatusError.set(err instanceof Error ? err.message : String(err));
+    throw err;
+  }
+  vaultStatusError.set('');
   const next: VaultStatusShape = {
     init: (s?.init ?? 'unknown') as VaultStatusShape['init'],
     status: (s?.status ?? '') as VaultStatusShape['status']
