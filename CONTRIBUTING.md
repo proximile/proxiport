@@ -50,8 +50,29 @@ so we can sanity-check the direction before you spend time on a patch.
 2. Fork, branch, push, open a PR against `main`.
 3. A `Signed-off-by` trailer (`git commit -s`) is welcome but not
    required; the pull request itself is the inbound = outbound agreement.
-4. Run `go vet ./...`, `go test ./...`, and the BDD harness locally
-   before pushing. CI runs the same checks.
+4. Before pushing, run the core checks CI gates on. You need the Go
+   version listed in `go.mod` and a C compiler: the server uses the cgo
+   SQLite driver, so run the server checks with `CGO_ENABLED=1`
+   (without cgo the driver compiles to a stub and the database tests
+   fail). The agent (`./cmd/proxiport`) builds with `CGO_ENABLED=0`.
+   - `gofmt -s -l $(git ls-files '*.go')` (must list nothing except
+     generated files, which begin with a `Code generated ... DO NOT
+     EDIT` line and which CI skips) and `go vet ./...`
+   - the unit tests with the race detector, excluding the end-to-end
+     suite: `go test -race -count=1 $(go list ./... | grep -v /bdd/)`
+   - the end-to-end suite under `bdd/`, serially (each package starts a
+     real `proxiportd` and agent, and parallel runs interfere):
+     `go test -count=1 -p 1 ./bdd/...`
+   - `golangci-lint run` (CI pins v2.12.2)
+   - if you touched `frontend/`: `npm run check && npm run test &&
+     npm run build` in that directory
+   - if you touched `docs/` or `mkdocs.yml`: `mkdocs build --strict`
+
+   CI runs these and more: govulncheck, agent cross-builds for Windows,
+   macOS and the BSDs, and shellcheck plus the packaging tests for the
+   shell scripts. A plain `go test ./...` also runs the `bdd/` packages
+   in parallel and can fail spuriously, so use the two test commands
+   above instead.
 
 For sensitive disclosures see [`SECURITY.md`](SECURITY.md).
 

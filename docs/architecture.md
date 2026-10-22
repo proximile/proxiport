@@ -16,8 +16,9 @@ component and no required third-party service.
 | browser |   <----------------------------   |  + SPA    |
 +---------+      SvelteKit SPA + REST         +-----------+
                                                     |
-                                                    | SQLite or
-                                                    | MySQL
+                                                    | SQLite files in
+                                                    | data_dir (opt.
+                                                    | SQL auth tables)
                                                     v
                                               +-----------+
                                               | datastore |
@@ -43,8 +44,11 @@ A single Go binary, `proxiportd`. Responsibilities:
 - serve the REST API and the SvelteKit SPA on `[api] address`
   (`127.0.0.1:3000` in the seeded config; production setups switch this
   to one of the three TLS profiles in [HTTPS](https.md))
-- persist clients, users, tunnels, scripts, commands, schedules, and
-  audit records to SQLite (default) or MySQL
+- persist clients, tunnels, scripts, commands, schedules, monitoring
+  data and audit records to SQLite files under `[server] data_dir`;
+  agent credentials and API users/groups can optionally live in tables
+  in an external SQLite or MySQL/MariaDB database (`[database]`, with
+  `auth_table` / `auth_user_table`) instead of `auth` / `auth_file`
 - enforce auth (SSH password authentication for agents inside the
   tunnel-port WebSocket; JWT for the API; optional TOTP second factor)
 - multiplex tunnel sessions per connected agent
@@ -53,8 +57,9 @@ The server is the only piece that holds state. Agents are otherwise
 stateless beyond their own configuration.
 
 ![Server info page — version, host-key fingerprint, pairing URL, the
-list of Connect-URLs the agents and admins use, and a snapshot of
-the auth posture.](screenshots/23-server-info-2fa-off.png)
+Connect URLs agents use to reach the server (`[server] url`, also
+written into pairing installs), and a snapshot of the auth
+posture.](screenshots/23-server-info-2fa-off.png)
 
 ## Agent
 
@@ -62,8 +67,10 @@ A single Go binary, `proxiport` (the agent). Responsibilities:
 
 - open and maintain a chisel WebSocket control channel to the server
 - present an identity (client ID + auth credentials) to the server
-- accept tunnel requests from the server and open the corresponding
-  local TCP listeners or forward to remote local services
+- accept tunnel connections from the server: the server opens each
+  tunnel's public listener, and for every connection it accepts, the
+  agent connects to the requested local or LAN target over TCP or UDP
+  (if `tunnel_allowed` permits it) and relays the bytes
 - execute commands and scripts dispatched by the server (when enabled
   in the agent config) and stream their output back
 
@@ -144,10 +151,17 @@ Nothing shipped with ProxiPort does.
 
 ## Datastore
 
-SQLite is the default and is the right choice for small to medium
-deployments (single server, up to a few hundred connected agents). For
-larger deployments or for HA setups, MySQL is supported via the existing
-upstream `db.MySQL` driver path.
+ProxiPort keeps its operational state (clients, tunnels, client
+groups, jobs and schedules, scripts and commands, notifications, API
+tokens and sessions, monitoring data and the audit log) in SQLite files
+under `[server] data_dir`. SQLite is the only backend for this state;
+one server with up to a few hundred connected agents is the intended
+scale. An optional `[database]` connection (`db_type = "sqlite"` or
+`"mysql"`, MySQL or MariaDB) can hold the agent-credential table
+(`auth_table`) and the API user and group tables (`auth_user_table`,
+`auth_group_table`). Nothing else goes there: even with MySQL
+configured, all other state stays local to the server, so there is no
+multi-server or HA deployment mode.
 
 The vault — an encrypted KV store for documents and per-client
 secrets — uses a separate SQLite file with passphrase-derived
@@ -174,8 +188,11 @@ unlock again.](screenshots/17-vault-unlock.png)
 ## Frontend
 
 The web UI is a SvelteKit single-page app served as static assets from
-the server's `doc_root`. It talks to the same REST API the agents'
-control plane uses. There is no separate Node runtime in production.
+the server's `doc_root`. It talks to the same REST API that scripts
+and API-token clients use. Agents never touch the REST API; they
+connect over the SSH-over-WebSocket control channel on the agent
+listener (`[server] address`). There is no separate Node runtime in
+production.
 
 ## Authentication
 
@@ -199,7 +216,9 @@ Three layers:
 memory, prompts for the TOTP, and only exchanges for the final JWT
 on a correct code.](screenshots/33-login-2fa-totp.png)
 
-All authentication endpoints feed a per-username ban list with a
-2-second penalty for failed attempts, which is what produces the
-`429 too many requests` response under brute force or session-expiry
-cascades.
+All authentication endpoints (basic auth, `/login`, `/verify-2fa`)
+feed a ban list keyed on the source IP plus username, with a 2-second
+penalty (`[api] user_login_wait`) after a failed attempt, which is
+what produces the `429 too many requests` response under brute force
+or session-expiry cascades. A separate per-IP ban list
+(`[api] max_failed_login` / `ban_time`) also counts failed attempts.

@@ -61,8 +61,9 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the maintainers through GitHub: open an issue on this
-repository, or, when the report must stay private, use the private
-reporting channel described in `SECURITY.md`.
+repository, or, when the report must stay private, use GitHub's private
+vulnerability-report form described in `SECURITY.md`, which also accepts
+private conduct reports (say in the title that it is a conduct report).
 All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
