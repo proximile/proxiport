@@ -1,14 +1,29 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { apiGet, apiPost, apiDelete, ApiException } from '$lib/api';
   import type { ClientAuthEntry } from '$lib/types';
   import Spinner from '$lib/components/Spinner.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import { appendFlags, egressFlags, fetchProxy, proxyError, withFetchProxy } from '$lib/pairingFlags';
+  import {
+    appendFlags,
+    egressFlags,
+    fetchProxy,
+    installerFlags,
+    proxyError,
+    proxyIsTor,
+    withFetchProxy
+  } from '$lib/pairingFlags';
+  import { copyToClipboard } from '$lib/clipboard';
+  import { modal, focusInitial } from '$lib/dialog';
 
   let rows: ClientAuthEntry[] = $state([]);
   let loading = $state(true);
   let error = $state('');
+  // Set only when the list itself failed to load, so the table does not
+  // claim there are no credentials when it simply could not fetch them.
+  let loadError = $state('');
+  let addButton: HTMLButtonElement | undefined = $state();
+  let addDialog: HTMLDialogElement | undefined = $state();
 
   // server-status-derived state
   let authMode = $state<string>('');
@@ -18,9 +33,10 @@
   let fingerprint = $state<string>('');
   let canWrite = $derived(authMode !== 'Read Only');
 
-  // add-credential modal state machine: 'form' → 'pairing' → (close)
+  // add-credential modal state machine: 'form' → 'pairing' → (close), or
+  // 'form' → 'created' → (close) when no pairing service is configured.
   let modalOpen = $state(false);
-  let modalStage = $state<'form' | 'pairing'>('form');
+  let modalStage = $state<'form' | 'pairing' | 'created'>('form');
   let newId = $state('');
   let newPassword = $state('');
   let modalError = $state('');
@@ -34,7 +50,8 @@
   let pairingExpires = $state('');
   let pairingLinux = $state('');
   let pairingWindows = $state('');
-  let copied = $state<'linux' | 'windows' | null>(null);
+  let copied = $state<'linux' | 'windows' | 'config' | null>(null);
+  let now = $state(Date.now());
 
   // installer-flag toggles (match `retrieve/templates/linux/install.sh`
   // getopts in proxiport-pairing).
@@ -60,10 +77,14 @@
   const PWD_CHARSET = /^[A-Za-z0-9_+\-.:]+$/;
   const PWD_MIN = 12;
   const ID_CHARSET = /^[A-Za-z0-9_\-.]+$/;
+  // The server refuses shorter IDs. The charset is ASCII, so characters and
+  // bytes count the same.
+  const ID_MIN = 3;
 
   function validateId(s: string): string {
     if (!s) return 'ID is required.';
     if (!ID_CHARSET.test(s)) return 'ID may contain letters, digits, _ - .';
+    if (s.length < ID_MIN) return `ID must be at least ${ID_MIN} characters.`;
     return '';
   }
   function validatePassword(s: string): string {
@@ -81,13 +102,24 @@
     return out;
   }
 
+  // An error's title plus the server's detail, e.g. "Invalid or missing ID.
+  // Min size is 3."
+  function errorText(err: unknown): string {
+    if (err instanceof ApiException) {
+      const e = err.errors[0];
+      const text = [e?.title, e?.detail].filter(Boolean).join(' ');
+      if (text) return text;
+    }
+    return err instanceof Error ? err.message : String(err);
+  }
+
   async function loadRows() {
     loading = true;
-    error = '';
+    loadError = '';
     try {
       rows = (await apiGet<ClientAuthEntry[]>('/clients-auth?page[limit]=100')) ?? [];
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      loadError = errorText(err);
     } finally {
       loading = false;
     }
@@ -101,13 +133,15 @@
         pairing_url?: string;
         connect_url?: string[] | string;
         fingerprint?: string;
+        fingerprint_sha256?: string;
       }>('/status');
       authMode = status?.clients_auth_mode ?? '';
       authSource = status?.clients_auth_source ?? '';
       pairingUrl = status?.pairing_url ?? '';
       const cu = status?.connect_url;
       connectUrl = Array.isArray(cu) ? (cu[0] ?? '') : (cu ?? '');
-      fingerprint = status?.fingerprint ?? '';
+      // Pin the SHA-256 fingerprint; the MD5 one is only for older servers.
+      fingerprint = status?.fingerprint_sha256 || status?.fingerprint || '';
     } catch {
       // best-effort; UI still works without it
     }
@@ -134,6 +168,22 @@
   function closeAddModal() {
     modalOpen = false;
   }
+  // Escape closes the form, but not a stage that shows the one-time password:
+  // that one closes only through Done.
+  function onAddCancel(e: Event) {
+    e.preventDefault();
+    if (modalStage === 'form' && !submitting) closeAddModal();
+  }
+  // Some browsers close the dialog on a repeated Escape even though cancel was
+  // prevented; reopen it rather than lose a password that is not yet copied.
+  function onAddClose() {
+    if (modalOpen && addDialog && (modalStage !== 'form' || submitting)) {
+      addDialog.showModal();
+      focusInitial(addDialog);
+    } else {
+      modalOpen = false;
+    }
+  }
 
   async function submitAdd(e: Event) {
     e.preventDefault();
@@ -151,11 +201,11 @@
         // fire-and-await; pairingLoading drives the spinner
         await depositPairing();
       } else {
-        // No pairing service configured; close the modal.
-        modalOpen = false;
+        // No pairing service configured: show the agent config once instead.
+        modalStage = 'created';
       }
     } catch (err) {
-      modalError = err instanceof Error ? err.message : String(err);
+      modalError = errorText(err);
     } finally {
       submitting = false;
     }
@@ -189,13 +239,11 @@
     }
   }
 
-  async function copyText(text: string, which: 'linux' | 'windows') {
-    try {
-      await navigator.clipboard.writeText(text);
+  async function copyText(text: string, which: 'linux' | 'windows' | 'config') {
+    const label = which === 'config' ? 'Agent config copied.' : 'Installer command copied.';
+    if (await copyToClipboard(text, label)) {
       copied = which;
       setTimeout(() => { if (copied === which) copied = null; }, 1500);
-    } catch {
-      // ignore
     }
   }
 
@@ -208,6 +256,7 @@
   async function confirmDelete() {
     if (!pendingDelete) return;
     const id = pendingDelete;
+    error = '';
     deletingId = id;
     pendingDelete = null;
     try {
@@ -229,8 +278,12 @@
         }
       }
       await loadRows();
+      // The reload re-renders the add button; put focus back on it rather
+      // than leaving it on the removed row.
+      await tick();
+      addButton?.focus();
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      error = errorText(err);
     } finally {
       deletingId = null;
     }
@@ -239,29 +292,51 @@
   let liveIdErr = $derived(newId ? validateId(newId) : '');
   let livePwdErr = $derived(newPassword ? validatePassword(newPassword) : '');
 
+  // A sub-option is cleared when the option it extends goes off, so a
+  // greyed-out box never stays ticked.
+  $effect(() => {
+    if (!optX) optS = false;
+    if (!optR) optB = false;
+    if (!egressOn) optDirect = false;
+  });
+
   // Compose the installer-flag string from the checkboxes. The pairing
   // service returns the un-flagged base form; flag selection is a
   // client-side concern ($lib/pairingFlags does the splicing).
-  let flagString = $derived(
-    [optX && '-x', optS && '-s', optR && '-r', optB && '-b']
-      .filter(Boolean)
-      .join(' ')
-  );
+  let installerOpts = $derived({ x: optX, s: optS, r: optR, b: optB });
   let egress = $derived({ tor: optTor, proxy: optProxy, direct: optDirect });
-  let linuxFlags = $derived([flagString, egressFlags(egress)].filter(Boolean).join(' '));
+  let torDup = $derived(proxyIsTor(egress));
+  let linuxFlags = $derived([installerFlags(installerOpts), egressFlags(egress)].filter(Boolean).join(' '));
 
   let linuxCommand = $derived(withFetchProxy(appendFlags(pairingLinux, linuxFlags), fetchProxy(egress)));
-  let windowsCommand = $derived(appendFlags(pairingWindows, flagString));
+  let windowsCommand = $derived(appendFlags(pairingWindows, installerFlags(installerOpts, 'windows')));
 
-  function fmtExpires(s: string): string {
+  let agentConfig = $derived(
+    `[client]\nserver = "${connectUrl}"\nauth = "${newId}:${newPassword}"\nfingerprint = "${fingerprint}"`
+  );
+
+  // Tick the expiry countdown while a pairing code is on screen.
+  $effect(() => {
+    if (!modalOpen || modalStage !== 'pairing' || !pairingExpires) return;
+    now = Date.now();
+    const t = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(t);
+  });
+
+  // Move focus into each new stage; the button that led there is gone.
+  $effect(() => {
+    modalStage;
+    pairingLoading;
+    if (addDialog?.open && !addDialog.contains(document.activeElement)) focusInitial(addDialog);
+  });
+
+  function fmtExpires(s: string, nowMs: number): string {
     if (!s) return '';
-    try {
-      const d = new Date(s);
-      const secs = Math.max(0, Math.round((d.getTime() - Date.now()) / 1000));
-      return `expires in ${Math.floor(secs / 60)}m ${secs % 60}s`;
-    } catch {
-      return '';
-    }
+    const t = new Date(s).getTime();
+    if (Number.isNaN(t)) return '';
+    const secs = Math.max(0, Math.round((t - nowMs) / 1000));
+    if (secs === 0) return 'expired';
+    return `expires in ${Math.floor(secs / 60)}m ${secs % 60}s`;
   }
 </script>
 
@@ -276,13 +351,13 @@
       </p>
     </div>
     {#if !loading && canWrite}
-      <button class="btn btn-primary whitespace-nowrap" onclick={openAddModal}>
+      <button class="btn btn-primary whitespace-nowrap" bind:this={addButton} onclick={openAddModal}>
         + Add credential
       </button>
     {/if}
   </div>
 
-  <ErrorBox message={error} />
+  <ErrorBox message={loadError || error} />
 
   {#if !loading && !canWrite}
     <div class="card p-4 text-sm text-slate-300 border border-amber-900/40 bg-amber-950/20">
@@ -296,6 +371,7 @@
     </div>
   {/if}
 
+  {#if loading || !loadError}
   <div class="card overflow-x-auto">
     {#if loading}
       <div class="p-6 flex justify-center"><Spinner /></div>
@@ -328,11 +404,12 @@
                 </td>
                 {#if canWrite}
                   <td class="text-right">
-                    <button class="text-slate-500 hover:text-red-400 cursor-pointer text-sm px-2"
+                    <button class="text-slate-500 hover:text-red-400 cursor-pointer text-sm px-2 py-1 min-h-6 min-w-6"
                             disabled={deletingId === r.id}
                             onclick={() => askDelete(r.id)}
-                            title="Delete credential">
-                      {deletingId === r.id ? '…' : '×'}
+                            aria-label={deletingId === r.id ? `Deleting credential ${r.id}` : `Delete credential ${r.id}`}
+                            title={`Delete credential ${r.id}`}>
+                      <span aria-hidden="true">{deletingId === r.id ? '…' : '×'}</span>
                     </button>
                   </td>
                 {/if}
@@ -343,8 +420,9 @@
       </table>
     {/if}
   </div>
+  {/if}
 
-  {#if !loading && rows.length > 0}
+  {#if !loading && !loadError && rows.length > 0}
     <p class="text-xs text-slate-500">
       The installer one-liner is generated when a credential is created — the secret can't be read back later.
       <!-- Each branch carries the whole sentence. Svelte trims the whitespace at a
@@ -359,12 +437,31 @@
   {/if}
 </div>
 
-<!-- Add-credential modal -->
+{#snippet configBlock()}
+  <div class="flex items-center justify-between mt-2 mb-1">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Agent config</div>
+    <button class="btn btn-ghost text-xs" data-autofocus onclick={() => copyText(agentConfig, 'config')}>
+      {copied === 'config' ? 'Copied ✓' : 'Copy'}
+    </button>
+  </div>
+  <pre class="font-mono text-xs bg-slate-900 p-2 rounded whitespace-pre-wrap break-all">{agentConfig}</pre>
+  <p class="text-xs text-amber-300 mt-1">
+    This is the only time the password is shown. Copy it now; it cannot be retrieved after you close this dialog.
+  </p>
+{/snippet}
+
+<!-- Add-credential modal. A native modal <dialog> keeps focus inside and makes
+     the page behind inert; the dialog itself scrolls when it is taller than
+     the window. -->
 {#if modalOpen}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
-       role="dialog" aria-modal="true" aria-labelledby="add-cred-title"
-       onclick={(e) => { if (e.target === e.currentTarget && modalStage === 'form') closeAddModal(); }}>
-    <div class="card w-full max-w-lg p-6 space-y-4">
+  <dialog class="m-auto w-[calc(100%-2rem)] max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto bg-transparent p-0 text-inherit backdrop:bg-slate-950/70"
+          aria-labelledby="add-cred-title"
+          bind:this={addDialog}
+          use:modal={() => addButton}
+          oncancel={onAddCancel}
+          onclose={onAddClose}
+          onclick={(e) => { if (e.target === e.currentTarget && modalStage === 'form' && !submitting) closeAddModal(); }}>
+    <div class="card p-6 space-y-4">
       {#if modalStage === 'form'}
         <h2 id="add-cred-title" class="text-lg font-semibold">Add client-auth credential</h2>
         <p class="text-xs text-slate-400">
@@ -374,7 +471,7 @@
         <form class="space-y-3" onsubmit={submitAdd}>
           <div>
             <label class="block text-xs uppercase tracking-wide text-slate-400 mb-1" for="cred-id">ID</label>
-            <input id="cred-id" class="w-full font-mono" type="text" autocomplete="off"
+            <input id="cred-id" class="w-full font-mono" type="text" autocomplete="off" data-autofocus
                    bind:value={newId} placeholder="my-new-agent" required />
             {#if liveIdErr}
               <p class="text-xs text-red-400 mt-1">{liveIdErr}</p>
@@ -436,14 +533,11 @@
           <div class="text-xs text-slate-500">
             The credential <code class="font-mono">{newId}</code> was created and is usable. Only the
             installer one-liner failed; you can configure the agent manually with:
-            <code class="block mt-1 font-mono text-xs bg-slate-900 p-2 rounded whitespace-pre-wrap">[client]
-server = "{connectUrl}"
-auth = "{newId}:{newPassword}"
-fingerprint = "{fingerprint}"</code>
+            {@render configBlock()}
           </div>
         {:else if pairingCode}
           <div class="text-xs text-slate-500 mb-2">
-            Pairing code <code class="font-mono text-slate-300">{pairingCode}</code> · {fmtExpires(pairingExpires)}
+            Pairing code <code class="font-mono text-slate-300">{pairingCode}</code> · {fmtExpires(pairingExpires, now)}
           </div>
 
           <fieldset class="space-y-2 text-sm">
@@ -494,6 +588,11 @@ fingerprint = "{fingerprint}"</code>
                      spellcheck="false" placeholder="socks5h://gluetun:1080" bind:value={optProxy} />
               {#if proxyErr}
                 <p class="text-xs text-red-400 mt-1">{proxyErr}</p>
+              {:else if torDup}
+                <p class="text-xs text-amber-300 mt-1">
+                  This is the Tor daemon that -o already adds, so it is listed once. Leave the field empty, or
+                  enter a different proxy to try before Tor.
+                </p>
               {/if}
             </div>
             <label class="grid grid-cols-[auto_1fr] gap-2 items-start cursor-pointer">
@@ -509,7 +608,7 @@ fingerprint = "{fingerprint}"</code>
                 {#if optDirect}
                   With the fallback, a connection over the open internet is logged as an error, not hidden.
                 {:else}
-                  Without the fallback the agent stays disconnected rather than use the open internet.
+                  Without the fallback a Linux agent stays disconnected rather than use the open internet.
                 {/if}
               </p>
             {/if}
@@ -517,7 +616,7 @@ fingerprint = "{fingerprint}"</code>
 
           <div>
             <div class="flex items-center justify-between mb-1">
-              <div class="text-xs uppercase tracking-wide text-slate-400">Linux / macOS</div>
+              <div class="text-xs uppercase tracking-wide text-slate-400">Linux</div>
               <button class="btn btn-ghost text-xs" onclick={() => copyText(linuxCommand, 'linux')}>
                 {copied === 'linux' ? 'Copied ✓' : 'Copy'}
               </button>
@@ -532,34 +631,55 @@ fingerprint = "{fingerprint}"</code>
                 {copied === 'windows' ? 'Copied ✓' : 'Copy'}
               </button>
             </div>
+            {#if egressOn}
+              <p class="text-xs text-amber-300 mb-1">
+                The Windows installer has no Tor or proxy support yet: an agent installed with this command,
+                and its download, use the open internet.
+              </p>
+            {/if}
             <pre class="font-mono text-xs bg-slate-900 p-3 rounded whitespace-pre-wrap break-all">{windowsCommand}</pre>
           </div>
         {/if}
 
         <div class="flex justify-end gap-2 pt-2">
+          <button class="btn btn-primary" data-autofocus onclick={closeAddModal}>Done</button>
+        </div>
+      {:else if modalStage === 'created'}
+        <h2 id="add-cred-title" class="text-lg font-semibold">
+          Credential <code class="font-mono">{newId}</code> created
+        </h2>
+        <div class="text-xs text-slate-500">
+          No pairing service is configured on this server (<code class="text-xs">server.pairing_url</code>), so
+          there is no installer one-liner. Configure the agent with:
+          {@render configBlock()}
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
           <button class="btn btn-primary" onclick={closeAddModal}>Done</button>
         </div>
       {/if}
     </div>
-  </div>
+  </dialog>
 {/if}
 
 <!-- Delete confirmation -->
 {#if pendingDelete}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
-       role="dialog" aria-modal="true"
-       onclick={(e) => { if (e.target === e.currentTarget) cancelDelete(); }}>
-    <div class="card w-full max-w-sm p-6 space-y-4">
-      <h2 class="text-lg font-semibold">Delete credential</h2>
+  <dialog class="m-auto w-[calc(100%-2rem)] max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto bg-transparent p-0 text-inherit backdrop:bg-slate-950/70"
+          aria-labelledby="del-cred-title"
+          use:modal={() => addButton}
+          oncancel={(e) => { e.preventDefault(); cancelDelete(); }}
+          onclose={cancelDelete}
+          onclick={(e) => { if (e.target === e.currentTarget) cancelDelete(); }}>
+    <div class="card p-6 space-y-4">
+      <h2 id="del-cred-title" class="text-lg font-semibold">Delete credential</h2>
       <p class="text-sm text-slate-400">
         Remove <code class="font-mono text-slate-200">{pendingDelete}</code>?
         Any clients still bound to it — including disconnected ones — are removed
         too, and an agent using this credential will be unable to reconnect.
       </p>
       <div class="flex justify-end gap-2 pt-2">
-        <button class="btn btn-ghost" onclick={cancelDelete}>Cancel</button>
+        <button class="btn btn-ghost" data-autofocus onclick={cancelDelete}>Cancel</button>
         <button class="btn btn-danger" onclick={confirmDelete}>Delete</button>
       </div>
     </div>
-  </div>
+  </dialog>
 {/if}
