@@ -144,8 +144,8 @@ stamp a real version into a source build, pass the ldflag yourself, with
 the version of the tag you checked out:
 
 ```sh
-git checkout v0.11.1
-go build -ldflags "-X github.com/proximile/proxiport/share.BuildVersion=0.11.1" \
+git checkout v0.12.0
+go build -ldflags "-X github.com/proximile/proxiport/share.BuildVersion=0.12.0" \
   ./cmd/proxiportd
 ```
 
