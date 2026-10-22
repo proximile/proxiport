@@ -39,6 +39,11 @@ export const sidebarMobileOpen = writable<boolean>(false);
 // from this rather than from the per-session passphrase store.
 export const vaultStatus = writable<VaultStatusShape>({ init: 'unknown', status: '' });
 
+// Why the last vault-status request failed, or '' after a successful one. A
+// failed request leaves vaultStatus at its initial value, which must not be
+// read as "locked".
+export const vaultStatusError = writable<string>('');
+
 /** True iff the server says the vault is initialized AND unlocked. */
 export const vaultUnlocked: Readable<boolean> = derived(
   vaultStatus,

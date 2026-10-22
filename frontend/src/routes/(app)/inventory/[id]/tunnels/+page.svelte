@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { page } from '$app/stores';
   import { apiGet, apiPut, apiPost, apiDelete, ApiException } from '$lib/api';
-  import type { Client, Tunnel } from '$lib/types';
+  import type { Tunnel } from '$lib/types';
+  import { getClientContext } from '$lib/clientContext';
+  import { tunnelPublicUrl, fmtIdle } from '$lib/clientData';
   import { fmtRelative } from '$lib/format';
   import { singleHostAcl } from '$lib/encoding';
   import Spinner from '$lib/components/Spinner.svelte';
@@ -10,9 +13,14 @@
   import { pushToast } from '$lib/stores';
   import { copyToClipboard, sshCommandFor } from '$lib/clipboard';
 
-  let client: Client | null = $state(null);
+  // The client record (with its active tunnels) is loaded by the layout, which
+  // also reports a failed load; this page re-fetches it after a change.
+  const ctx = getClientContext();
+  let client = $derived(ctx?.client ?? null);
+  let loading = $derived(ctx?.loading ?? false);
   let stored: any[] = $state([]);
-  let loading = $state(true);
+  let storedLoaded = $state(false);
+  let storedError = $state('');
   let error = $state('');
   let creating = $state(false);
 
@@ -44,16 +52,19 @@
   // (scheme http with no TLS). See insecureHttp() for the rationale.
   let allowInsecureHttp = $state(false);
 
+  // "Any Service" has no default port, so choosing it keeps the current one.
   const DEFAULT_PORTS: Record<string, number> = {
-    ssh: 22, rdp: 3389, vnc: 5900, realvnc: 5900, http: 80, https: 443, other: 0
+    ssh: 22, rdp: 3389, vnc: 5900, realvnc: 5900, http: 80, https: 443
   };
 
   let lastDefaultPort = $state(22);
   function onServiceChange() {
     const effective = service === 'forwarding' ? subService : service;
-    const next = DEFAULT_PORTS[effective] ?? 0;
-    if (remotePort === lastDefaultPort) remotePort = next;
-    lastDefaultPort = next;
+    const next = DEFAULT_PORTS[effective];
+    if (next !== undefined) {
+      if (remotePort === lastDefaultPort) remotePort = next;
+      lastDefaultPort = next;
+    }
     if (effective !== 'http' && effective !== 'https') tlsProxy = false;
     // skip-verify only applies to an HTTPS target; drop it otherwise.
     if (effective !== 'https') skipTlsVerify = false;
@@ -132,28 +143,38 @@
   let storeInLibrary = $state(false);
   let libraryName = $state('');
 
-  async function load(id: string) {
-    loading = true;
-    error = '';
+  // Only the newest request may write the list, so a slow response for the
+  // previous client cannot show up under this one.
+  let storedSeq = 0;
+  async function loadStored(id: string) {
+    const mine = ++storedSeq;
+    storedError = '';
     try {
-      const [c, s] = await Promise.allSettled([
-        apiGet<Client>(`/clients/${id}`),
-        apiGet<any[]>(`/clients/${id}/stored-tunnels`).catch(() => [])
-      ]);
-      if (c.status === 'fulfilled') client = c.value;
-      if (s.status === 'fulfilled') stored = s.value ?? [];
+      const s = await apiGet<any[]>(`/clients/${id}/stored-tunnels`);
+      if (mine !== storedSeq) return;
+      stored = s ?? [];
+      storedLoaded = true;
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-    } finally {
-      loading = false;
+      if (mine !== storedSeq) return;
+      stored = [];
+      storedLoaded = false;
+      storedError = err instanceof Error ? err.message : String(err);
     }
+  }
+
+  async function load(id: string) {
+    await Promise.all([ctx?.reload(), loadStored(id)]);
   }
 
   $effect(() => {
     const id = $page.params.id;
     if (id) {
-      load(id);
-      loadMyIp();
+      untrack(() => {
+        stored = [];
+        storedLoaded = false;
+        loadStored(id);
+        loadMyIp();
+      });
     }
   });
 
@@ -207,11 +228,10 @@
     return '';
   }
 
-  // Local URL we show in the active-tunnels table — the address users
-  // actually type. window.location.hostname plus the server-assigned lport.
+  // The address users actually open: the tunnel's own subdomain URL, or this
+  // server's host and the server-assigned lport with the matching scheme.
   function localUrl(t: Tunnel): string {
-    const host = serverHost || t.lhost || '';
-    return `${host}:${t.lport}`;
+    return tunnelPublicUrl(t, serverHost);
   }
 
   function isSsh(t: Tunnel): boolean {
@@ -357,6 +377,20 @@
     }
   }
 
+  async function deleteStored(s: any) {
+    const id = $page.params.id;
+    if (!id) return;
+    if (!confirm(`Delete stored tunnel "${s.name || s.id}"?`)) return;
+    try {
+      await apiDelete(`/clients/${id}/stored-tunnels/${encodeURIComponent(String(s.id))}`);
+      pushToast('good', 'Stored tunnel deleted.');
+      await loadStored(id);
+    } catch (err) {
+      pushToast('bad', 'Could not delete stored tunnel: ' +
+        (err instanceof Error ? err.message : String(err)));
+    }
+  }
+
   $effect(() => {
     void service; void subService;
     onServiceChange();
@@ -386,7 +420,7 @@
   <div class="card">
     <div class="px-4 py-3 border-b border-pp-border flex items-center justify-between">
       <h2 class="font-medium">New tunnel</h2>
-      {#if client?.connection_state !== 'connected'}
+      {#if client && client.connection_state !== 'connected'}
         <span class="pill pill-warn">client offline</span>
       {/if}
     </div>
@@ -603,7 +637,7 @@
 
       <div class="flex justify-end">
         <button class="btn btn-primary" type="submit"
-                disabled={creating || client?.connection_state !== 'connected'}>
+                disabled={creating || !client || client.connection_state !== 'connected'}>
           {#if creating}<Spinner />{:else}Create tunnel{/if}
         </button>
       </div>
@@ -614,7 +648,9 @@
     <div class="px-4 py-2 border-b border-pp-border text-sm text-slate-400">Active tunnels</div>
     {#if loading && !client}
       <div class="p-6 flex justify-center"><Spinner /></div>
-    {:else if !client?.tunnels?.length}
+    {:else if !client}
+      <EmptyState title="Active tunnels could not be loaded" />
+    {:else if !client.tunnels?.length}
       <EmptyState title="No active tunnels" />
     {:else}
       <table class="tbl">
@@ -629,7 +665,7 @@
               <td class="font-mono text-slate-300">{remoteUrl(t)}</td>
               <td><span class="pill pill-info">{t.scheme || t.protocol || '—'}</span>{#if t.http_proxy}<span class="pill pill-info ml-1">TLS</span>{/if}</td>
               <td class="font-mono text-xs text-slate-400">{t.acl || '—'}</td>
-              <td class="text-slate-400">{t.idle_timeout_minutes ?? '—'}m</td>
+              <td class="text-slate-400">{fmtIdle(t.idle_timeout_minutes)}</td>
               <td class="text-slate-400">{fmtRelative(t.created_at)}</td>
               <td class="whitespace-nowrap">
                 {#if isSsh(t)}
@@ -652,7 +688,11 @@
     <div class="px-4 py-2 border-b border-pp-border text-sm text-slate-400">
       Stored tunnels (templates for one-click recreation)
     </div>
-    {#if !stored.length}
+    {#if storedError}
+      <div class="p-4"><ErrorBox message={`Could not load stored tunnels: ${storedError}`} /></div>
+    {:else if !storedLoaded}
+      <div class="p-6 flex justify-center"><Spinner /></div>
+    {:else if !stored.length}
       <EmptyState title="No stored tunnels yet" />
     {:else}
       <table class="tbl">
@@ -673,8 +713,9 @@
               </td>
               <td class="font-mono text-xs">{s.acl || '—'}</td>
               <td>{fo.auto_close ?? '—'}</td>
-              <td class="text-right">
+              <td class="text-right whitespace-nowrap">
                 <button class="btn btn-ghost btn-sm" disabled={creating} onclick={() => recreateFromStored(s)}>Use</button>
+                <button class="btn btn-danger btn-sm" onclick={() => deleteStored(s)}>Delete</button>
               </td>
             </tr>
           {/each}

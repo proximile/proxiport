@@ -3,6 +3,7 @@ import { get } from 'svelte/store';
 
 import {
   apiGet,
+  apiGetList,
   apiPost,
   asList,
   apiErrorText,
@@ -12,9 +13,10 @@ import {
   openAuthedSocket,
   wsUrl,
   ApiException,
-  LOGIN_PATH
+  LOGIN_PATH,
+  refreshVaultStatus
 } from './api';
-import { tokenStore } from './stores';
+import { tokenStore, vaultStatusError } from './stores';
 
 /** A Response stand-in good enough for the client's parseJson/raise paths. */
 function jsonResponse(body: unknown, status = 200): Response {
@@ -364,5 +366,35 @@ describe('basic-auth encoding on login', () => {
   it('does not throw on a password outside Latin-1', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ data: { token: 'jwt' } }));
     await expect(login('operator', '🔐€')).resolves.toBeDefined();
+  });
+});
+
+describe('apiGetList', () => {
+  it('returns the page and the total count from meta', async () => {
+    tokenStore.set('jwt-abc');
+    fetchMock.mockResolvedValue(jsonResponse({ data: [{ id: 'c1' }], meta: { count: 150 } }));
+
+    await expect(apiGetList('/clients?page[limit]=1')).resolves.toEqual({ data: [{ id: 'c1' }], count: 150 });
+  });
+
+  it('falls back to the page length when meta is missing', async () => {
+    tokenStore.set('jwt-abc');
+    fetchMock.mockResolvedValue(jsonResponse({ data: [{ id: 'c1' }, { id: 'c2' }] }));
+
+    await expect(apiGetList('/clients')).resolves.toEqual({ data: [{ id: 'c1' }, { id: 'c2' }], count: 2 });
+  });
+});
+
+describe('refreshVaultStatus', () => {
+  it('records a failed status request instead of leaving it looking locked', async () => {
+    tokenStore.set('jwt-abc');
+    fetchMock.mockResolvedValue(jsonResponse({ errors: [{ title: 'backend down' }] }, 500));
+
+    await expect(refreshVaultStatus()).rejects.toBeInstanceOf(ApiException);
+    expect(get(vaultStatusError)).toBe('backend down');
+
+    fetchMock.mockResolvedValue(jsonResponse({ data: { init: 'setup-completed', status: 'locked' } }));
+    await refreshVaultStatus();
+    expect(get(vaultStatusError)).toBe('');
   });
 });

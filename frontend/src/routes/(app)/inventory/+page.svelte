@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { apiGet } from '$lib/api';
+  import { apiGetList } from '$lib/api';
   import type { Client } from '$lib/types';
   import { fmtRelative, fmtBytes } from '$lib/format';
   import Spinner from '$lib/components/Spinner.svelte';
@@ -18,22 +18,56 @@
 
 
   let clients: Client[] = $state([]);
+  // Total number of clients the server has, which can exceed what is loaded.
+  let total = $state(0);
   let filter = $state('');
   let stateFilter: 'all' | 'connected' | 'disconnected' = $state('all');
   let loading = $state(true);
+  let loadingMore = $state(false);
   let error = $state('');
+  // Whether a list has ever loaded: a failed first load is not an empty fleet.
+  let loaded = $state(false);
+
+  const PAGE_SIZE = 100;
+  const FIELDS =
+    'id,name,hostname,os,os_full_name,os_arch,num_cpus,mem_total,address,connection_state,disconnected_at,last_heartbeat_at,version,tags,labels,groups,ipv4';
+
+  function pageUrl(offset: number, limit: number): string {
+    // includes disconnected clients, so historical ones are listed too
+    return `/clients?fields[clients]=${FIELDS}&page[limit]=${limit}&page[offset]=${offset}`;
+  }
 
   async function load() {
+    if ((loading && loaded) || loadingMore) return;
     loading = true;
     error = '';
     try {
-      // include disconnected so we can show historical clients too
-      const res = await apiGet<Client[]>('/clients?fields[clients]=id,name,hostname,os,os_full_name,os_arch,num_cpus,mem_total,address,connection_state,disconnected_at,last_heartbeat_at,version,tags,labels,groups,ipv4&page[limit]=100');
-      clients = res ?? [];
+      // A refresh re-reads as many clients as are already shown.
+      const limit = Math.min(500, Math.max(PAGE_SIZE, clients.length));
+      const res = await apiGetList<Client>(pageUrl(0, limit));
+      clients = res.data;
+      total = res.count;
+      loaded = true;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadMore() {
+    if (loadingMore || loading) return;
+    loadingMore = true;
+    error = '';
+    try {
+      const res = await apiGetList<Client>(pageUrl(clients.length, PAGE_SIZE));
+      const seen = new Set(clients.map((c) => c.id));
+      clients = [...clients, ...res.data.filter((c) => !seen.has(c.id))];
+      total = res.count;
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      loadingMore = false;
     }
   }
 
@@ -44,7 +78,16 @@
     return clients.filter((c) => {
       if (stateFilter !== 'all' && c.connection_state !== stateFilter) return false;
       if (!f) return true;
-      const hay = [c.id, c.name, c.hostname, c.os_full_name, c.address, ...(c.tags ?? []), ...(c.groups ?? [])]
+      const hay = [
+        c.id,
+        c.name,
+        c.hostname,
+        c.os_full_name,
+        c.address,
+        ...(c.ipv4 ?? []),
+        ...(c.tags ?? []),
+        ...(c.groups ?? [])
+      ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
@@ -54,7 +97,15 @@
 
   let summary = $derived.by(() => {
     const conn = clients.filter((c) => c.connection_state === 'connected').length;
-    return { total: clients.length, conn, disc: clients.length - conn };
+    return { total: Math.max(total, clients.length), conn, disc: clients.length - conn };
+  });
+  let partial = $derived(clients.length < summary.total);
+
+  let emptyDetail = $derived.by(() => {
+    if (clients.length === 0) return 'Wait for an agent to connect.';
+    const which = stateFilter === 'all' ? '' : `${stateFilter} `;
+    if (filter) return `No ${which}client matches "${filter}".`;
+    return `No ${which}clients.`;
   });
 </script>
 
@@ -62,13 +113,18 @@
   <div class="flex items-center justify-between">
     <div>
       <h1 class="text-2xl font-semibold tracking-tight">Inventory</h1>
-      <div class="text-sm text-slate-400 mt-1">
-        {summary.total} client{summary.total === 1 ? '' : 's'} ·
-        <span class="text-emerald-400">{summary.conn} connected</span> ·
-        <span class="text-slate-500">{summary.disc} disconnected</span>
-      </div>
+      {#if loaded}
+        <div class="text-sm text-slate-400 mt-1">
+          {summary.total} client{summary.total === 1 ? '' : 's'} ·
+          <span class="text-emerald-400">{summary.conn} connected</span> ·
+          <span class="text-slate-500">{summary.disc} disconnected</span>
+          {#if partial}<span>(of the {clients.length} loaded)</span>{/if}
+        </div>
+      {/if}
     </div>
-    <button class="btn btn-ghost" onclick={load}>Refresh</button>
+    <button class="btn btn-ghost" onclick={load} disabled={loading || loadingMore} aria-busy={loading}>
+      {#if loading && loaded}<Spinner />{/if}Refresh
+    </button>
   </div>
 
   <div class="flex gap-3 items-center">
@@ -85,10 +141,12 @@
   <ErrorBox message={error} />
 
   <div class="card overflow-x-auto">
-    {#if loading && clients.length === 0}
+    {#if loading && !loaded}
       <div class="p-8 flex justify-center"><Spinner label="Loading clients…" /></div>
+    {:else if !loaded}
+      <EmptyState title="Could not load clients" detail="Use Refresh to try again." />
     {:else if filtered.length === 0}
-      <EmptyState title="No clients match" detail={filter ? `No client matches "${filter}".` : 'Wait for an agent to connect.'} />
+      <EmptyState title={clients.length === 0 ? 'No clients yet' : 'No clients match'} detail={emptyDetail} />
     {:else}
       <table class="tbl">
         <thead>
@@ -153,4 +211,16 @@
       </table>
     {/if}
   </div>
+
+  {#if loaded && partial}
+    <div class="flex flex-wrap items-center gap-3 text-sm text-slate-400">
+      <span>
+        Showing the first {clients.length} of {summary.total} clients; the filter only searches the
+        loaded ones.
+      </span>
+      <button class="btn btn-ghost" onclick={loadMore} disabled={loading || loadingMore}>
+        {#if loadingMore}<Spinner />{/if}Load {Math.min(PAGE_SIZE, summary.total - clients.length)} more
+      </button>
+    </div>
+  {/if}
 </div>

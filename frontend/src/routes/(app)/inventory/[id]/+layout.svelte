@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { untrack } from 'svelte';
   import { page } from '$app/stores';
   import { apiGet } from '$lib/api';
   import type { Client } from '$lib/types';
+  import { setClientContext } from '$lib/clientContext';
   import Spinner from '$lib/components/Spinner.svelte';
   import ErrorBox from '$lib/components/ErrorBox.svelte';
 
@@ -11,23 +12,54 @@
   let loading = $state(true);
   let error = $state('');
 
+  // Only the newest request may write state: switching from one client to
+  // another while the first is still loading must not show the first one's
+  // record under the second one's URL.
+  let seq = 0;
+
   async function load(id: string) {
+    const mine = ++seq;
     loading = true;
     error = '';
+    if (client && client.id !== id) client = null;
     try {
-      client = await apiGet<Client>(`/clients/${id}`);
+      const c = await apiGet<Client>(`/clients/${id}`);
+      if (mine === seq) client = c;
     } catch (err) {
+      if (mine !== seq) return;
+      // A failed refresh keeps the record already shown for this id.
       error = err instanceof Error ? err.message : String(err);
-      client = null;
     } finally {
-      loading = false;
+      if (mine === seq) loading = false;
     }
   }
 
+  // Track the id alone, so moving between tabs of the same client does not
+  // fetch it again (load reads client, which must not become a dependency).
+  let id = $derived($page.params.id);
   $effect(() => {
-    const id = $page.params.id;
-    if (id) load(id);
+    const cur = id;
+    if (cur) untrack(() => load(cur));
   });
+
+  setClientContext({
+    get client() {
+      return client;
+    },
+    get loading() {
+      return loading;
+    },
+    get error() {
+      return error;
+    },
+    reload: async () => {
+      if (id) await load(id);
+    }
+  });
+
+  // A failed first load (an unknown id, say) leaves nothing to show in the
+  // tabs; the error alone is the page.
+  let failed = $derived(!!error && !client && !loading);
 
   const TABS = [
     { slug: '', label: 'Inventory' },
@@ -78,6 +110,9 @@
 
   <ErrorBox message={error} />
 
+  {#if failed}
+    <button class="btn btn-ghost" onclick={() => id && load(id)}>Retry</button>
+  {:else}
   <div class="flex gap-1 border-b border-pp-border overflow-x-auto">
     {#each TABS as tab}
       {@const href = tab.slug ? `${baseHref}/${tab.slug}` : baseHref}
@@ -101,4 +136,5 @@
   <div>
     {@render children()}
   </div>
+  {/if}
 </div>

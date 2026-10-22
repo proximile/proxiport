@@ -1,48 +1,49 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { page } from '$app/stores';
   import { apiGet } from '$lib/api';
-  import type { Client } from '$lib/types';
-  import { fmtBytes, fmtRelative } from '$lib/format';
+  import { getClientContext } from '$lib/clientContext';
+  import { latestSample } from '$lib/clientData';
+  import { fmtBytes, fmtDate, fmtRelative } from '$lib/format';
   import Spinner from '$lib/components/Spinner.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
   import KV from '$lib/components/KV.svelte';
 
-  let client: Client | null = $state(null);
-  let metrics: any = $state(null);
-  let loading = $state(true);
-  let error = $state('');
+  type MetricsSample = { cpu_usage_percent?: number; memory_usage_percent?: number; io_usage_percent?: number };
 
-  async function load(id: string) {
-    loading = true;
-    error = '';
+  // The client record comes from the layout, which already fetched it (and
+  // shows any error); this page only adds the latest monitoring sample. The
+  // pending-updates summary is part of the client record (updates_status).
+  const ctx = getClientContext();
+  let client = $derived(ctx?.client ?? null);
+  let loading = $derived(ctx?.loading ?? false);
+  let metrics: MetricsSample | null = $state(null);
+
+  let seq = 0;
+  async function loadMetrics(id: string) {
+    const mine = ++seq;
+    metrics = null;
     try {
-      // The pending-updates summary is already part of the client payload
-      // (client.updates_status). GET /updates-status is POST-only and 404s on
-      // every load, so it is deliberately not fetched here.
-      const [c, m] = await Promise.allSettled([
-        apiGet<Client>(`/clients/${id}`),
-        apiGet<any>(`/clients/${id}/metrics?include_processes=false`).catch(() => null)
-      ]);
-      if (c.status === 'fulfilled') client = c.value;
-      else error = c.reason instanceof Error ? c.reason.message : String(c.reason);
-      if (m.status === 'fulfilled') metrics = m.value;
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-    } finally {
-      loading = false;
+      // The server defaults to the newest sample first; one is all we show.
+      const m = await apiGet<unknown>(`/clients/${id}/metrics?page[limit]=1&sort=-timestamp`);
+      if (mine === seq) metrics = latestSample<MetricsSample>(m);
+    } catch {
+      // Monitoring may be disabled on this client; the card simply omits the rows.
     }
   }
 
+  // Wait for the layout's record so an unknown id costs no extra request.
+  let readyId = $derived(client?.id === $page.params.id ? client?.id : undefined);
   $effect(() => {
-    const id = $page.params.id;
-    if (id) load(id);
+    const id = readyId;
+    if (id) untrack(() => loadMetrics(id));
   });
+
+  let updates = $derived(client?.updates_status ?? null);
 </script>
 
 {#if loading && !client}
   <div class="p-8 flex justify-center"><Spinner label="Loading client…" /></div>
 {:else if client}
-  <ErrorBox message={error} />
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
     <div class="card p-4 space-y-2">
@@ -78,6 +79,9 @@
       {#if metrics?.memory_usage_percent != null}
         <KV k="RAM now" v={`${metrics.memory_usage_percent.toFixed(1)}%`} />
       {/if}
+      {#if metrics?.io_usage_percent != null}
+        <KV k="I/O now" v={`${metrics.io_usage_percent.toFixed(1)}%`} />
+      {/if}
     </div>
 
     <div class="card p-4 space-y-2 lg:col-span-2">
@@ -99,11 +103,17 @@
 
     <div class="card p-4 space-y-2">
       <div class="text-xs uppercase tracking-wider text-slate-500">Updates</div>
-      {#if client.updates_status?.updates_summary}
-        <KV k="Available" v={String(client.updates_status.updates_summary.updates_count ?? 0)} />
-        <KV k="Security" v={String(client.updates_status.updates_summary.security_updates_count ?? 0)} />
-      {:else}
+      {#if !updates || !updates.refreshed || updates.refreshed.startsWith('0001-')}
         <div class="text-sm text-slate-500">No data yet.</div>
+      {:else if updates.error}
+        <div class="text-sm text-amber-300 break-words">The agent could not check for updates: {updates.error}</div>
+        {#if updates.hint}<div class="text-xs text-slate-400 break-words">{updates.hint}</div>{/if}
+        <KV k="Checked" v={fmtDate(updates.refreshed)} />
+      {:else}
+        <KV k="Available" v={String(updates.updates_available ?? 0)} />
+        <KV k="Security" v={String(updates.security_updates_available ?? 0)} />
+        <KV k="Reboot pending" v={updates.reboot_pending ? 'yes' : 'no'} />
+        <KV k="Checked" v={fmtDate(updates.refreshed)} />
       {/if}
     </div>
 
