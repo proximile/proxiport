@@ -4,7 +4,11 @@ import { get } from 'svelte/store';
 import {
   apiGet,
   apiGetList,
+  apiGetPage,
   apiPost,
+  loginWithNewPassword,
+  isPasswordExpired,
+  PASSWORD_EXPIRED_TITLE,
   asList,
   apiErrorText,
   login,
@@ -250,6 +254,41 @@ describe('login', () => {
   it('sends users to the login route, not /login', () => {
     // /login is the API endpoint; /auth is the SPA route.
     expect(LOGIN_PATH).toBe('/auth');
+  });
+});
+
+describe('expired passwords', () => {
+  it('recognises the server refusing an expired password', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ errors: [{ title: PASSWORD_EXPIRED_TITLE }] }, 401));
+    const err = await login('alice', 'old').catch((e) => e);
+    expect(isPasswordExpired(err)).toBe(true);
+    expect(isPasswordExpired(new ApiException(401, [{ title: 'unauthorized' }]))).toBe(false);
+  });
+
+  it('sets the new password through POST /login with the current credentials', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: { token: 'jwt-new' } }));
+
+    await expect(loginWithNewPassword('alice', 'old', 'n3w-secret')).resolves.toEqual({ token: 'jwt-new' });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(init.method).toBe('POST');
+    expect(String(url)).toContain('token-lifetime=');
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+    expect(JSON.parse(init.body as string)).toEqual({ username: 'alice', password: 'old', new_password: 'n3w-secret' });
+  });
+});
+
+describe('apiGetPage', () => {
+  it('returns the rows together with the total from meta.count', async () => {
+    tokenStore.set('jwt');
+    fetchMock.mockResolvedValue(jsonResponse({ data: [{ id: 1 }, { id: 2 }], meta: { count: 942 } }));
+    await expect(apiGetPage('/auditlog?page[limit]=2')).resolves.toEqual({ rows: [{ id: 1 }, { id: 2 }], count: 942 });
+  });
+
+  it('reports a missing total as null', async () => {
+    tokenStore.set('jwt');
+    fetchMock.mockResolvedValue(jsonResponse({ data: [] }));
+    await expect(apiGetPage('/schedules')).resolves.toEqual({ rows: [], count: null });
   });
 });
 

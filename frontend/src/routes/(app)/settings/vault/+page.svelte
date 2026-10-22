@@ -7,30 +7,47 @@
   import ErrorBox from '$lib/components/ErrorBox.svelte';
   import { fmtDate } from '$lib/format';
 
-  type VaultEntry = { id?: number; client_id?: string; required_group?: string; key?: string; value?: string; type?: string; created_at?: string; updated_by?: string };
+  // What GET /vault lists for each entry; values are only returned one at a time.
+  type VaultEntry = { id?: number; client_id?: string; key?: string; created_at?: string; created_by?: string };
 
   let entries: VaultEntry[] = $state([]);
   let loading = $state(true);
   let error = $state('');
+  // True when the vault's state could not be read, so no form is offered.
+  let statusFailed = $state(false);
   let pass = $state('');
+  let pass2 = $state('');
+
+  function message(err: unknown): string {
+    if (err instanceof ApiException) return err.errors[0]?.title || err.message;
+    return err instanceof Error ? err.message : String(err);
+  }
 
   async function loadEntries() {
     try {
       entries = (await apiGet<VaultEntry[]>('/vault?page[limit]=100')) ?? [];
-    } catch (_) {
-      // 409 (locked) or 412 (uninit) — leave list empty.
+    } catch (err) {
+      entries = [];
+      if (err instanceof ApiException && (err.status === 409 || err.status === 412)) {
+        // Locked or not initialised after all: the status read was stale.
+        await refreshVaultStatus().catch(() => {});
+      } else {
+        error = 'Could not list vault entries: ' + message(err);
+      }
     }
   }
 
   async function load() {
     loading = true;
     error = '';
+    statusFailed = false;
     try {
       await refreshVaultStatus();
     } catch (err) {
-      if (err instanceof ApiException) error = err.errors[0]?.title || err.message;
+      statusFailed = true;
+      error = 'Could not read vault status: ' + message(err);
     }
-    if ($vaultUnlocked) {
+    if (!statusFailed && $vaultUnlocked) {
       await loadEntries();
     } else {
       entries = [];
@@ -43,14 +60,19 @@
   async function init(e: Event) {
     e.preventDefault();
     error = '';
+    if (pass !== pass2) {
+      error = 'The passphrases do not match.';
+      return;
+    }
     try {
       await apiPost('/vault-admin/init', { password: pass });
       vaultPassphrase.set(pass);
       pushToast('good', 'Vault initialized and unlocked.');
       pass = '';
+      pass2 = '';
       await load();
     } catch (err) {
-      error = err instanceof ApiException ? err.errors[0]?.title || err.message : String(err);
+      error = message(err);
     }
   }
 
@@ -65,7 +87,7 @@
       pass = '';
       await load();
     } catch (err) {
-      error = err instanceof ApiException ? err.errors[0]?.title || err.message : String(err);
+      error = message(err);
     }
   }
 
@@ -75,10 +97,11 @@
       vaultPassphrase.set(null);
       entries = [];
       pushToast('good', 'Vault locked.');
-      await load();
     } catch (err) {
       pushToast('bad', err instanceof Error ? err.message : String(err));
     }
+    // Re-read either way, so the page shows the vault's real state.
+    await load();
   }
 </script>
 
@@ -92,6 +115,11 @@
 
   {#if loading}
     <Spinner />
+  {:else if statusFailed || $vaultStatus.init === 'unknown'}
+    <div class="card p-4 flex justify-between items-center">
+      <span class="text-slate-400">Vault status unavailable.</span>
+      <button class="btn btn-ghost" onclick={load}>Retry</button>
+    </div>
   {:else if $vaultStatus.init === 'uninitialized'}
     <div class="card p-4 space-y-3">
       <h2 class="font-medium">Initialize vault</h2>
@@ -99,10 +127,12 @@
         Set a master passphrase. ProxiPort uses it to encrypt vault contents. There is no
         recovery — store this passphrase somewhere safe.
       </p>
-      <form class="flex gap-3" onsubmit={init}>
-        <input type="password" bind:value={pass} placeholder="Set master passphrase" required />
-        <button class="btn btn-primary" type="submit">Initialize</button>
+      <form class="flex flex-col sm:flex-row gap-3" onsubmit={init}>
+        <input type="password" bind:value={pass} placeholder="Set master passphrase" autocomplete="new-password" required />
+        <input type="password" bind:value={pass2} placeholder="Repeat passphrase" autocomplete="new-password" required />
+        <button class="btn btn-primary" type="submit" disabled={!pass || pass !== pass2}>Initialize</button>
       </form>
+      {#if pass2 && pass !== pass2}<p class="text-xs text-amber-300">The passphrases do not match.</p>{/if}
     </div>
   {:else if !$vaultUnlocked}
     <div class="card p-4 space-y-3">
@@ -122,20 +152,20 @@
       <div class="px-4 py-2 border-b border-pp-border text-sm text-slate-400">
         Entries ({entries.length})
       </div>
-      {#if !entries.length}
+      {#if error}
+        <!-- The ErrorBox above says why the list is missing. -->
+      {:else if !entries.length}
         <EmptyState title="No entries yet" />
       {:else}
         <table class="tbl">
-          <thead><tr><th>Client</th><th>Group</th><th>Key</th><th>Type</th><th>Updated</th><th>By</th></tr></thead>
+          <thead><tr><th>Key</th><th>Client</th><th>Created</th><th>Created by</th></tr></thead>
           <tbody>
             {#each entries as v}
               <tr>
-                <td class="font-mono text-xs">{v.client_id ?? '—'}</td>
-                <td>{v.required_group ?? '—'}</td>
-                <td class="font-mono">{v.key}</td>
-                <td><span class="pill pill-info">{v.type ?? '—'}</span></td>
+                <td class="font-mono">{v.key || '—'}</td>
+                <td class="font-mono text-xs">{v.client_id || '—'}</td>
                 <td class="text-xs text-slate-400">{fmtDate(v.created_at)}</td>
-                <td class="text-xs">{v.updated_by ?? '—'}</td>
+                <td class="text-xs">{v.created_by || '—'}</td>
               </tr>
             {/each}
           </tbody>

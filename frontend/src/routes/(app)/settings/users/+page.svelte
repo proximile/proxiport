@@ -19,6 +19,9 @@
   let authSource = $state('');
   let loading = $state(true);
   let error = $state('');
+  // Management controls appear only once the user list itself has loaded,
+  // so a failed status read never falls through to an editable page.
+  let usersLoaded = $state(false);
 
   // In "Static Credentials" mode the API authenticates against a single
   // user/password pair from the config (`[api] auth = "..."`), and the server
@@ -48,12 +51,17 @@
   async function load() {
     loading = true;
     error = '';
+    usersLoaded = false;
     try {
       // Read status + the current user first. In static-credentials mode both
       // /users and /user-groups are rejected server-side, so we branch on the
       // auth source rather than letting those calls surface as errors.
+      let statusFailed = false;
       const [s, me] = await Promise.all([
-        apiGet<ServerStatus>('/status').catch(() => ({}) as ServerStatus),
+        apiGet<ServerStatus>('/status').catch(() => {
+          statusFailed = true;
+          return {} as ServerStatus;
+        }),
         apiGet<User>('/me').catch(() => null)
       ]);
       twoFaEnabled = !!s?.two_fa_enabled;
@@ -67,8 +75,19 @@
         users = me ? [me] : [];
         groups = [];
       } else {
-        users = (await apiGet<User[]>('/users')) ?? [];
-        groups = (await apiGet<Group[]>('/user-groups').catch(() => [] as Group[])) ?? [];
+        try {
+          users = (await apiGet<User[]>('/users')) ?? [];
+          usersLoaded = true;
+        } catch (err) {
+          if (!statusFailed) throw err;
+          // Without the status the auth mode is unknown; the list call fails
+          // on a single static account, so show just that account, read-only.
+          users = me ? [me] : [];
+        }
+        groups = usersLoaded ? ((await apiGet<Group[]>('/user-groups').catch(() => [] as Group[])) ?? []) : [];
+      }
+      if (statusFailed) {
+        error = 'Could not read the server status; 2FA and password-policy details may be missing.';
       }
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
@@ -219,7 +238,7 @@
     <h1 class="text-2xl font-semibold tracking-tight">Users</h1>
     <div class="flex gap-2">
       <button class="btn btn-ghost" onclick={load}>Refresh</button>
-      {#if !staticMode}<button class="btn btn-primary" onclick={openCreate}>New user</button>{/if}
+      {#if !staticMode && usersLoaded}<button class="btn btn-primary" onclick={openCreate}>New user</button>{/if}
     </div>
   </div>
 
@@ -334,7 +353,7 @@
     {#if loading}
       <div class="p-6 flex justify-center"><Spinner /></div>
     {:else if !users.length}
-      <EmptyState title="No users" />
+      {#if !error}<EmptyState title="No users" />{/if}
     {:else}
       <table class="tbl">
         <thead><tr><th>Username</th><th>Groups</th><th>2FA recipient</th><th></th></tr></thead>
@@ -355,7 +374,7 @@
               </td>
               <td class="font-mono text-xs">{u.two_fa_send_to || '—'}</td>
               <td>
-                {#if !staticMode}
+                {#if !staticMode && usersLoaded}
                   <div class="flex gap-2 justify-end">
                     <button class="btn btn-ghost" onclick={() => openEdit(u)}>Edit</button>
                     {#if totpMode}
