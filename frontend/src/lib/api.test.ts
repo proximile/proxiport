@@ -221,6 +221,16 @@ describe('apiErrorText', () => {
 });
 
 describe('a stored session that is no longer valid', () => {
+  it('holds list requests behind the same single probe', async () => {
+    tokenStore.set('jwt-dead-lists');
+    fetchMock.mockResolvedValue(jsonResponse({ errors: [{ title: 'unauthorized' }] }, 401));
+
+    const results = await Promise.allSettled([apiGet('/me'), apiGetList('/clients'), apiGetPage('/auditlog')]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(results.every((r) => r.status === 'rejected')).toBe(true);
+  });
+
   // The shell, the top bar and the page each load data in parallel. With a
   // dead session every one of those requests used to fail at the server, and
   // each failure counted toward the address's failed-login limit.

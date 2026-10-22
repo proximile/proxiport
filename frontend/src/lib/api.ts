@@ -169,8 +169,7 @@ export async function apiGet<T = any>(path: string): Promise<T> {
  * tell how many items exist beyond the page it received (meta.count).
  */
 export async function apiGetList<T = any>(path: string): Promise<{ data: T[]; count: number }> {
-  ensureToken();
-  const res = await fetch(`/api/v1${path}`, { headers: { ...authHeader() } });
+  const res = await authedFetch(path);
   if (!res.ok) await raise(res, path);
   const body = await parseJson(res);
   const data = asList<T>(body);
@@ -198,8 +197,7 @@ export function asList<T>(v: unknown): T[] {
  * (the number of matching rows before paging), or null when it sent none.
  */
 export async function apiGetPage<T>(path: string): Promise<{ rows: T[]; count: number | null }> {
-  ensureToken();
-  const res = await fetch(`/api/v1${path}`, { headers: { ...authHeader() } });
+  const res = await authedFetch(path);
   if (!res.ok) await raise(res, path);
   const body = await parseJson(res);
   const inner = body && typeof body === 'object' && 'data' in body ? body.data : body;
