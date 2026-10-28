@@ -23,7 +23,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
-	github.com/jpillora/backoff v1.0.0
+	github.com/jpillora/backoff v1.1.0
 	github.com/jpillora/requestlog v1.0.0
 	github.com/jpillora/sizestr v1.0.0
 	github.com/kardianos/service v1.3.0
@@ -66,7 +66,7 @@ require (
 	github.com/mocktools/go-smtp-mock/v2 v2.5.4
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/oleiade/reflections v1.1.0
-	github.com/pkg/sftp v1.13.11
+	github.com/pkg/sftp v1.13.12
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/trustelem/zxcvbn v1.0.1
 	github.com/wneessen/go-mail v0.8.1
