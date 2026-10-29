@@ -166,6 +166,7 @@ func (cl *ClientListener) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Pe
 	}
 
 	ip := cl.getIP(c.RemoteAddr())
+	ipBans := cl.ipBanList(ip)
 
 	// No agent authenticates with an empty password, and the SSH server hands
 	// a zero-length one straight to this callback. Refusing it here means a
@@ -174,8 +175,8 @@ func (cl *ClientListener) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Pe
 	if len(password) == 0 {
 		cl.log().Infof("Login failed for client auth id %q from %s: empty password", clientAuthID, ip)
 		cl.bannedClientAuths.Add(clientAuthID)
-		if cl.bannedIPs != nil {
-			cl.bannedIPs.AddDistinctBadAttempt(ip, credentialFingerprint(clientAuthID, password))
+		if ipBans != nil {
+			ipBans.AddDistinctBadAttempt(ip, credentialFingerprint(clientAuthID, password))
 		}
 		return nil, fmt.Errorf("invalid authentication for client auth id: %s", clientAuthID)
 	}
@@ -193,22 +194,41 @@ func (cl *ClientListener) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Pe
 		}
 		cl.log().Infof("Login failed for client auth id %q from %s: %s", clientAuthID, ip, reason)
 		cl.bannedClientAuths.Add(clientAuthID)
-		if cl.bannedIPs != nil {
+		if ipBans != nil {
 			// Count distinct failing credentials, not raw attempts, so a
 			// legitimate agent retrying the SAME wrong credential (its own
 			// reconnect loop) can't ban its own IP and lock itself out — while
 			// an attacker trying many distinct credentials is still banned.
-			cl.bannedIPs.AddDistinctBadAttempt(ip, credentialFingerprint(clientAuthID, password))
+			ipBans.AddDistinctBadAttempt(ip, credentialFingerprint(clientAuthID, password))
 		}
 		return nil, fmt.Errorf("invalid authentication for client auth id: %s", clientAuthID)
 	}
 
 	cl.maybeUpgradeClientAuthHash(clientAuthID, clientAuth)
 
-	if cl.bannedIPs != nil {
-		cl.bannedIPs.AddSuccessAttempt(ip)
+	if ipBans != nil {
+		ipBans.AddSuccessAttempt(ip)
 	}
 	return nil, nil
+}
+
+// ipBanList returns the IP ban list a login from ip counts against, or nil
+// when that peer must not be banned by address.
+//
+// A loopback peer is a relay on the server's own host: a Tor onion service
+// mapped to 127.0.0.1, or a reverse proxy in front of the listener. Every agent
+// that arrives through it shares that one address, so banning it would let
+// anyone who can reach the relay lock out every agent behind it with a few
+// made-up credentials. Such logins are still throttled per client auth id by
+// client_login_wait.
+func (cl *ClientListener) ipBanList(ip string) *security.MaxBadAttemptsBanList {
+	if cl.bannedIPs == nil {
+		return nil
+	}
+	if parsed := net.ParseIP(ip); parsed != nil && parsed.IsLoopback() {
+		return nil
+	}
+	return cl.bannedIPs
 }
 
 // credentialFingerprint returns a non-reversible, in-memory-only fingerprint of

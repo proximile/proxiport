@@ -159,6 +159,14 @@ into new agents' `server` key, so if the onion comes first, every
 pairing-generated installer (clearnet agents included) gets the onion.
 Configure onion agents' `server` by hand as shown above.
 
+Every agent that reaches the server through the onion service arrives
+from `127.0.0.1`, so the server cannot tell them apart by address. It
+therefore never bans a loopback source under `max_failed_login`:
+otherwise anyone who can reach the onion could lock out every onion
+agent for `ban_time` with a few made-up credentials. Failed logins
+through the onion are still throttled per client auth ID by
+`client_login_wait`.
+
 ## Running over a VPN
 
 There are two shapes, and they are not equivalent.
