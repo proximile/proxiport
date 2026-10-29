@@ -381,7 +381,10 @@ no way to narrow this to a subset after the fact. Rotate all of them.
   `max_failed_login` / `ban_time` (defaults 5 / 3600 s) bans a source IP
   at the HTTP layer with status 423. It counts distinct failing
   credentials from that IP, so an agent that keeps retrying the same
-  wrong credential does not ban itself.
+  wrong credential does not ban itself. A loopback source is never
+  banned: it is a relay on the server's own host, such as a Tor onion
+  service or a local reverse proxy, and every agent behind it shares
+  that address. `client_login_wait` still applies to those logins.
 
 See also: [operator runbook — rotating credentials](operator-runbook.md#rotating-credentials)
 and [install — agent](install.md#agent).

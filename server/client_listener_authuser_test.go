@@ -17,9 +17,11 @@ import (
 )
 
 // authConnMock is a minimal ssh.ConnMetadata carrying just the user (the client
-// auth id) and a remote address, which is all authUser reads.
+// auth id) and a remote address, which is all authUser reads. The remote
+// address defaults to 127.0.0.1.
 type authConnMock struct {
-	user string
+	user   string
+	remote net.IP
 }
 
 func (m *authConnMock) User() string          { return m.user }
@@ -30,8 +32,16 @@ func (m *authConnMock) LocalAddr() net.Addr {
 	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080}
 }
 func (m *authConnMock) RemoteAddr() net.Addr {
-	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 54321}
+	ip := m.remote
+	if ip == nil {
+		ip = net.IPv4(127, 0, 0, 1)
+	}
+	return &net.TCPAddr{IP: ip, Port: 54321}
 }
+
+// remoteAgent is the address the IP-ban tests log in from: an ordinary,
+// non-loopback peer.
+var remoteAgent = net.ParseIP("203.0.113.7")
 
 // newAuthTestListener builds a ClientListener wired with just enough to exercise
 // authUser: a logger, an empty ban list, and a server holding the given
@@ -130,10 +140,10 @@ func TestAuthUserSameWrongCredentialDoesNotSelfBanIP(t *testing.T) {
 	cl := newAuthTestListenerWithIPBan(t, clientsauth.NewSingleProvider("agent-x", hashed), ipBan)
 
 	for i := 0; i < 10; i++ {
-		_, err := cl.authUser(&authConnMock{user: "agent-x"}, []byte("wrong-pw"))
+		_, err := cl.authUser(&authConnMock{user: "agent-x", remote: remoteAgent}, []byte("wrong-pw"))
 		require.Error(t, err)
 	}
-	assert.False(t, ipBan.IsBanned("127.0.0.1"),
+	assert.False(t, ipBan.IsBanned(remoteAgent.String()),
 		"an agent retrying the same wrong credential must not ban its own IP")
 }
 
@@ -146,11 +156,52 @@ func TestAuthUserDistinctWrongCredentialsBanIP(t *testing.T) {
 	cl := newAuthTestListenerWithIPBan(t, clientsauth.NewSingleProvider("agent-x", hashed), ipBan)
 
 	for _, pw := range []string{"guess-1", "guess-2", "guess-3"} {
-		_, err := cl.authUser(&authConnMock{user: "agent-x"}, []byte(pw))
+		_, err := cl.authUser(&authConnMock{user: "agent-x", remote: remoteAgent}, []byte(pw))
 		require.Error(t, err)
 	}
-	assert.True(t, ipBan.IsBanned("127.0.0.1"),
+	assert.True(t, ipBan.IsBanned(remoteAgent.String()),
 		"three distinct wrong credentials must ban the IP")
+}
+
+// TestAuthUserLoopbackPeerIsNeverIPBanned guards agents behind a relay on the
+// server's own host -- a Tor onion service or a local reverse proxy. They all
+// arrive from one loopback address, so banning it would let a few made-up
+// credentials lock every one of them out.
+func TestAuthUserLoopbackPeerIsNeverIPBanned(t *testing.T) {
+	hashed, err := clientsauth.HashPassword("correct-pw")
+	require.NoError(t, err)
+
+	for _, peer := range []string{"127.0.0.1", "127.0.0.53", "::1", "::ffff:127.0.0.1"} {
+		t.Run(peer, func(t *testing.T) {
+			ipBan := security.NewMaxBadAttemptsBanList(3, time.Hour, nil)
+			cl := newAuthTestListenerWithIPBan(t, clientsauth.NewSingleProvider("agent-x", hashed), ipBan)
+			remote := net.ParseIP(peer)
+
+			for _, id := range []string{"guess-1", "guess-2", "guess-3", "guess-4", "guess-5"} {
+				_, err := cl.authUser(&authConnMock{user: id, remote: remote}, []byte("made-up"))
+				require.Error(t, err)
+			}
+			assert.False(t, ipBan.IsBanned(cl.getIP(&net.TCPAddr{IP: remote})),
+				"a loopback relay address must not be banned")
+
+			_, err := cl.authUser(&authConnMock{user: "agent-x", remote: remote}, []byte("correct-pw"))
+			assert.NoError(t, err, "a genuine agent behind the relay must still log in")
+		})
+	}
+}
+
+// TestAuthUserLoopbackPeerStillWaitsPerAuthID confirms what still throttles
+// guessing through a relay: a failed login makes that client auth id wait.
+func TestAuthUserLoopbackPeerStillWaitsPerAuthID(t *testing.T) {
+	hashed, err := clientsauth.HashPassword("correct-pw")
+	require.NoError(t, err)
+	cl := newAuthTestListener(t, clientsauth.NewSingleProvider("agent-x", hashed),
+		logger.NewLogger("authuser-test", logger.LogOutput{File: os.Stdout}, logger.LogLevelInfo))
+
+	_, err = cl.authUser(&authConnMock{user: "agent-x"}, []byte("guess-1"))
+	require.Error(t, err)
+	_, err = cl.authUser(&authConnMock{user: "agent-x"}, []byte("correct-pw"))
+	assert.ErrorIs(t, err, ErrTooManyRequests, "the per-auth-id wait must still apply to a loopback peer")
 }
 
 // TestAuthUserFailureIsLoggedAtInfo guards the log level: the reason for a
