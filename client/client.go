@@ -368,10 +368,14 @@ func (c *Client) connectionLoop(ctx context.Context, withInitialSendRequestDelay
 		// make the connection attempt
 		var sshClientConn *sshClientConnection
 		var isPrimary bool
+		var endpoint string
 		select {
 		// When switchback to main server succeeds we get connection on the channel, otherwise try to connect
 		case sshClientConn = <-switchbackChan:
 			isPrimary = true
+			if cands := c.candidates(); len(cands) > 0 {
+				endpoint = endpointLabel(cands[0])
+			}
 		case <-ctx.Done():
 			connerr = ctx.Err()
 			continue
@@ -386,6 +390,7 @@ func (c *Client) connectionLoop(ctx context.Context, withInitialSendRequestDelay
 			// Index 0 is the preferred candidate: first transport, main server.
 			// Anything else means the switchback poller should try to get back.
 			isPrimary = selected.Index == 0
+			endpoint = endpointLabel(selected)
 		}
 
 		go c.handleSSHRequests(ctx, sshClientConn)
@@ -398,11 +403,12 @@ func (c *Client) connectionLoop(ctx context.Context, withInitialSendRequestDelay
 
 		if withInitialSendRequestDelay {
 			delay := time.Duration(rand.Intn(InitialConnectionRequestSendDelayJitterMilliseconds)) * time.Millisecond
-			c.Debugf("waiting for %d milliseconds before sending connection request", delay/time.Millisecond)
+			c.Infof("Waiting %s before sending the connection request (a random delay of up to %ds spreads agent reconnects after a server restart)",
+				delay.Round(100*time.Millisecond), InitialConnectionRequestSendDelayJitterMilliseconds/1000)
 			time.Sleep(delay)
 		}
 
-		err := c.sendConnectionRequest(ctx, sshClientConn.Connection, MinSendRequestRetryWaitTime)
+		err := c.sendConnectionRequest(ctx, sshClientConn.Connection, endpoint, MinSendRequestRetryWaitTime)
 		if err != nil {
 			// Connection request has failed then the connection will be closed and we try again
 			cancelSwitchback()
@@ -611,7 +617,34 @@ func (c *Client) connectToMainOrFallback(ctx context.Context) (conn *sshClientCo
 		c.Debugf("candidate %d failed: %v", cand.Index, err)
 		failures = append(failures, err)
 	}
-	return nil, candidate{}, stderrors.Join(failures...)
+	return nil, candidate{}, sweepFailure(failures)
+}
+
+// sweepFailure collects the failure of every candidate in a sweep. Its message
+// keeps them on one line, separated by "; ", so each reason stays inside the
+// single log record that reports the sweep; errors.Join would put the second
+// and later reasons on continuation lines with no timestamp or level.
+type sweepFailure []error
+
+func (f sweepFailure) Error() string {
+	msgs := make([]string, len(f))
+	for i, err := range f {
+		msgs[i] = err.Error()
+	}
+	return strings.Join(msgs, "; ")
+}
+
+func (f sweepFailure) Unwrap() []error {
+	return f
+}
+
+// endpointLabel names the server a candidate reaches and, when it is not
+// direct, the transport it goes through, for the "Connected to" log line.
+func endpointLabel(cand candidate) string {
+	if cand.Transport.IsDirect() {
+		return cand.Server
+	}
+	return cand.Server + " via " + cand.Transport.Label()
 }
 
 // logSelectedCandidate announces the chosen path, and raises an alertable error
@@ -668,12 +701,12 @@ func (c *Client) connect(ctx context.Context, cand candidate) (*sshClientConnect
 	dialCtx, cancelDial := context.WithTimeout(ctx, timeout)
 	defer cancelDial()
 
-	wsConn, _, err := d.DialContext(dialCtx, cand.Server, c.configHolder.Connection.HTTPHeaders)
+	wsConn, resp, err := d.DialContext(dialCtx, cand.Server, c.configHolder.Connection.HTTPHeaders)
 	if err != nil {
 		return nil, &transportFailure{
 			Transport: cand.Transport.Label(),
 			Server:    cand.Server,
-			Err:       ConnectionErrorHints(cand.Server, c.Logger, err, cand.Transport.IsDirect()),
+			Err:       ConnectionErrorHints(cand.Server, c.Logger, err, resp, cand.Transport.IsDirect()),
 		}
 	}
 
@@ -754,7 +787,10 @@ func canRetryFn(err error) (can bool) {
 	return strings.Contains(err.Error(), "timeout")
 }
 
-func (c *Client) sendConnectionRequest(ctx context.Context, sshConn ssh.Conn, minRetryWaitDuration time.Duration) error {
+// sendConnectionRequest registers the agent over an open SSH connection.
+// endpoint names the server and transport for the log; when it is empty the
+// connection's remote address is used instead.
+func (c *Client) sendConnectionRequest(ctx context.Context, sshConn ssh.Conn, endpoint string, minRetryWaitDuration time.Duration) error {
 	connReq, err := c.connectionRequest(ctx)
 	if err != nil {
 		return err
@@ -814,7 +850,12 @@ func (c *Client) sendConnectionRequest(ctx context.Context, sshConn ssh.Conn, mi
 		return fmt.Errorf("can't decode reply payload: %s", err)
 	}
 
-	msg := fmt.Sprintf("Connected to %s within %s", sshConn.RemoteAddr().String(), time.Since(t0))
+	// The duration is the request's round trip only; the dial, the SSH
+	// handshake and any initial delay happened before t0.
+	if endpoint == "" {
+		endpoint = sshConn.RemoteAddr().String()
+	}
+	msg := fmt.Sprintf("Connected to %s (connection request answered in %s)", endpoint, time.Since(t0).Round(time.Millisecond))
 	c.watchdog.Ping(WatchdogStateConnected, msg)
 	c.Infof(msg)
 

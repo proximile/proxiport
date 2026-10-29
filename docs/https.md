@@ -269,8 +269,10 @@ The agent writes its log to the file set by `[logging] log_file` in
 when the pairing installer ran the agent under another account.
 `journalctl -u proxiport`
 shows the agent's own output only when `log_file` is unset. A healthy
-agent log shows `Connected to <server> within <time>` a few seconds
-after start; the host-key check happens before that line.
+agent log shows `Connected to <server> (connection request answered in
+<time>)` within about ten seconds of start: the agent waits a random
+delay of up to 10 s, which it logs, before it sends its first connection
+request. The host-key check happens before that line.
 
 See also: [install](install.md), [operator runbook](operator-runbook.md),
 [tunnel hosting](tunnel-hosting.md) for the related Caddy + wildcard

@@ -80,7 +80,7 @@ the agent is alive.
   succeeded.
 
 `last_message` is a free-text description of the most recent event,
-such as `Connected to <ip:port> within <duration>`,
+such as `Connected to <server> (connection request answered in <duration>)`,
 `ping to <ip:port> succeeded within <rtt>` or
 `Retrying in <duration>...` — useful for logs, not stable enough to
 parse.
