@@ -6,18 +6,19 @@ on:
       - "v*"
   workflow_dispatch:
 
-permissions:
-  contents: write
-  packages: write
-  # Required for keyless Sigstore signing (cosign requests an OIDC token from
-  # the Actions provider to obtain a short-lived Fulcio certificate).
-  id-token: write
+permissions: {}
 
 jobs:
-  goreleaser:
-    name: Build and publish release
+  # Everything that runs third-party code -- the Go toolchain and every module
+  # dependency, npm and the frontend's packages, goreleaser, syft,
+  # govulncheck -- runs here, with a read-only token, no OIDC token and no
+  # release credential. Nothing in this job can sign or publish.
+  build:
+    name: Build release files
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,10 +62,7 @@ jobs:
       - name: Install build deps (incl. linux/arm64 cross toolchain)
         run: sudo apt-get update && sudo apt-get install -y build-essential gcc-aarch64-linux-gnu
 
-      # cosign signs the checksums file (keyless); syft generates the SBOMs.
-      # Both must be on PATH before goreleaser runs its `signs`/`sboms` steps.
-      - name: Install cosign
-        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      # syft generates the SBOMs; it must be on PATH before goreleaser runs.
       - name: Install syft
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
@@ -80,18 +78,110 @@ jobs:
           CGO_ENABLED: "1"
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
-      - name: Run goreleaser
+      - name: Build with goreleaser (no signing, no publishing)
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
           version: "v2.20.0"
-          args: release --clean
+          args: release --clean --skip=sign,publish,announce
         env:
-          # Use a fine-grained PAT (RELEASE_PAT, scoped contents: write
-          # on this repo) instead of GITHUB_TOKEN so the release-published
-          # event propagates to the downstream deploy-demo workflow.
-          # Workflows triggered by GITHUB_TOKEN cannot trigger further
-          # workflows — that's the documented anti-loop guard. Falls back
-          # to GITHUB_TOKEN on forks / dispatch where RELEASE_PAT is
-          # absent, so the release still cuts.
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+      # The files a release carries: archives, packages, SBOMs and
+      # checksums.txt, which lists every one of them. Plus the release notes.
+      - name: Collect the release files
+        run: |
+          set -euo pipefail
+          mkdir release
+          python3 - <<'PY'
+          import json, shutil
+          keep = {"Archive", "Linux Package", "SBOM", "Checksum"}
+          for a in json.load(open("dist/artifacts.json")):
+              if a["type"] in keep:
+                  shutil.copy(a["path"], "release/" + a["name"])
+          PY
+          cp dist/CHANGELOG.md release/
+          cd release
+          sha256sum --strict -c checksums.txt >/dev/null
+          ls -1
+
+      - name: Upload the release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: release/
+          if-no-files-found: error
+          retention-days: 3
+
+  # Signs checksums.txt and publishes. Runs only cosign and gh, in the
+  # `release` environment, which waits for a maintainer's approval.
+  publish:
+    name: Sign and publish release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
+      # Keyless Sigstore signing: cosign requests an OIDC token from the
+      # Actions provider for a short-lived Fulcio certificate. The certificate
+      # names this workflow file and the tag, which is what installers check.
+      id-token: write
+    steps:
+      - name: Download the release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: release
+
+      # Every file must be listed in checksums.txt and match it, so nothing
+      # was added or changed between the jobs.
+      - name: Check the files against checksums.txt
+        working-directory: release
+        run: |
+          set -euo pipefail
+          sha256sum --strict -c checksums.txt >/dev/null
+          for f in *; do
+            case "$f" in checksums.txt|CHANGELOG.md) continue ;; esac
+            awk -v f="$f" '$2 == f { found = 1 } END { exit !found }' checksums.txt \
+              || { echo "not listed in checksums.txt: $f" >&2; exit 1; }
+          done
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+
+      - name: Sign checksums.txt
+        working-directory: release
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --output-signature checksums.txt.sig \
+            --output-certificate checksums.txt.pem \
+            checksums.txt
+          # Check it the way installers and deploy-demo will before anything
+          # is published.
+          cosign verify-blob \
+            --certificate checksums.txt.pem \
+            --signature checksums.txt.sig \
+            --certificate-identity-regexp "^https://github\.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+\$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            checksums.txt
+
+      - name: Publish the release
+        working-directory: release
+        env:
+          # A fine-grained PAT (RELEASE_PAT, contents: write on this repo)
+          # instead of GITHUB_TOKEN, so the release-published event reaches
+          # deploy-demo: events caused by GITHUB_TOKEN never start other
+          # workflows. Falls back to GITHUB_TOKEN where the secret is absent,
+          # so the release still cuts.
+          GH_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          files=()
+          for f in *; do
+            [ "$f" = CHANGELOG.md ] || files+=("$f")
+          done
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --latest \
+            --title "$TAG" --notes-file CHANGELOG.md "${files[@]}"
