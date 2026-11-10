@@ -1,4 +1,4 @@
-FROM alpine:latest as downloader
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS downloader
 
 ARG proxiport_version=0.1.0
 ARG NOVNC_VERSION=1.3.0
@@ -16,14 +16,14 @@ RUN wget -q https://github.com/proximile/proxiport/releases/download/v${proxipor
 RUN wget https://github.com/novnc/noVNC/archive/refs/tags/v${NOVNC_VERSION}.zip -O novnc.zip \
     && unzip novnc.zip && mv noVNC-${NOVNC_VERSION} ./novnc
 
-FROM node:22-alpine as frontend-builder
+FROM node:22.23-alpine3.24@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS frontend-builder
 WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM alpine:latest
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 USER root
 

@@ -19,8 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Set up Go
@@ -29,16 +30,18 @@ jobs:
         # ci.yml — 1.26.10 clears GO-2026-6809 (crypto/x509 distrusts compromised
         # intermediate certificates) on top of the HTTP/2 and CONNECT fixes in
         # 1.26.9. Bump both files together as new fixes ship.
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.10"
+          # No build cache in the release job: a cache entry written by an
+          # earlier workflow run must not feed the binaries we sign.
+          cache: false
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          package-manager-cache: false
 
       # goreleaser bundles frontend/build into the proxiportd package and
       # tarball, so the SPA must be built before goreleaser runs.
@@ -61,9 +64,11 @@ jobs:
       # cosign signs the checksums file (keyless); syft generates the SBOMs.
       # Both must be on PATH before goreleaser runs its `signs`/`sboms` steps.
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - name: Install syft
-        uses: anchore/sbom-action/download-syft@v0
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          syft-version: v1.57.1
 
       # Gate the release on a call-graph-aware vulnerability scan: never publish
       # binaries built against a reachable known-vulnerable dependency or stdlib.
@@ -73,13 +78,13 @@ jobs:
       - name: govulncheck (dependency vulnerability scan)
         env:
           CGO_ENABLED: "1"
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
       - name: Run goreleaser
-        uses: goreleaser/goreleaser-action@v7
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: "v2.20.0"
           args: release --clean
         env:
           # Use a fine-grained PAT (RELEASE_PAT, scoped contents: write

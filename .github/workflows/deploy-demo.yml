@@ -41,23 +41,32 @@ jobs:
     steps:
       - name: Resolve release tag
         id: tag
+        # The tag reaches the shell through the environment, never by template
+        # expansion into the script, and must be a release version tag. Later
+        # steps read it as $TAG.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [[ "${{ github.event_name }}" == "release" ]]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT_NAME" == "release" ]]; then TAG="$RELEASE_TAG"; else TAG="$INPUT_TAG"; fi
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "not a release version tag: $TAG" >&2
+            exit 1
           fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ steps.tag.outputs.tag }}
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          package-manager-cache: false
 
       - name: Build SPA
         working-directory: frontend
@@ -68,7 +77,7 @@ jobs:
       # cosign verifies the keyless Sigstore signature over checksums.txt before
       # we trust any hash from it.
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 
       - name: Download and verify the proxiportd binary from the release
         env:
@@ -76,7 +85,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p stage
-          TAG="${{ steps.tag.outputs.tag }}"
           # Strip leading 'v' from tag; release artifacts use the bare semver.
           VER="${TAG#v}"
           ASSET="proxiportd_${VER}_linux_x86_64.tar.gz"
@@ -204,4 +212,4 @@ jobs:
           USERS=$(curl -sSo /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "https://$DEMO_HOST/api/v1/users")
           [[ "$USERS" == "403" ]] || { echo "/users wall down: got $USERS"; exit 1; }
 
-          echo "demo deploy of ${{ steps.tag.outputs.tag }} OK"
+          echo "demo deploy of $TAG OK"

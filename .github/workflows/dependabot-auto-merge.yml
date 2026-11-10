@@ -2,7 +2,8 @@ name: dependabot-auto-merge
 
 # Auto-merge Dependabot pull requests for patch and minor version bumps
 # once the required CI checks pass. Major-version bumps are left for a
-# human to review and merge.
+# human to review and merge, and so is every GitHub Actions bump: an action
+# runs inside CI with its tokens, so a new commit of one is read first.
 #
 # This only *enables* auto-merge; GitHub completes the merge only after
 # the branch-protection required checks are green, so a bump that breaks
@@ -18,18 +19,21 @@ permissions:
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    # Check the PR's author, not whoever triggered this run: github.actor
+    # can be dependabot on a run that another user caused.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     steps:
       - name: Fetch Dependabot metadata
         id: meta
-        uses: dependabot/fetch-metadata@v3
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Enable auto-merge for patch and minor updates
         if: >-
-          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
-          steps.meta.outputs.update-type == 'version-update:semver-minor'
+          steps.meta.outputs.package-ecosystem != 'github_actions' &&
+          (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+          steps.meta.outputs.update-type == 'version-update:semver-minor')
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
