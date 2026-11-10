@@ -1,12 +1,19 @@
 # Keep dependencies current across the Go module, the frontend, and the
 # GitHub Actions used by CI. Patch and minor bumps are auto-merged once the
-# required checks pass (see dependabot-auto-merge.yml); majors stay manual.
+# required checks pass (see dependabot-auto-merge.yml); majors and every
+# Actions bump stay manual.
+#
+# A version must be 7 days old before Dependabot proposes it, so a release
+# that is pulled after a compromise never reaches a PR. Security updates are
+# not subject to the cooldown.
 version: 2
 updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       go-minor-and-patch:
@@ -18,6 +25,8 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       npm-minor-and-patch:
@@ -29,6 +38,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       actions-minor-and-patch:

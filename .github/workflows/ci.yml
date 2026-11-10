@@ -23,8 +23,9 @@ jobs:
       # Full history: golangci-lint's `issues.new` mode needs a git base to
       # diff against. A shallow (depth-1) clone has none, so the new-issue
       # filter is unreliable and can surface the whole pre-existing backlog.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Set up Go
@@ -34,7 +35,7 @@ jobs:
         # out. go.mod's `go` directive is only a floor, so it will not do this
         # for us. The govulncheck step below is what makes the pin load-bearing
         # — bump this whenever it flags a called stdlib vulnerability.
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.10"
           cache: true
@@ -124,23 +125,24 @@ jobs:
         run: go test -count=1 -p 1 -timeout 8m ./bdd/...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.12.2
           args: --timeout=5m
 
       # Known-vulnerability scan of the module (deps + the Go stdlib version in
       # go.mod). govulncheck is call-graph aware, so it only fails on vulns
-      # actually reachable from our code — low false-positive rate. @latest
-      # tracks the newest scanner + Go vuln DB, which is what a security gate
-      # wants. CGO=1 so the sqlite-linked server packages analyze as they build.
-      # Note: because it queries a live vuln DB, a newly-disclosed reachable vuln
-      # can turn main red with no code change — that's intended (you want to
-      # know); if it ever proves disruptive, move it to a scheduled run.
+      # actually reachable from our code — low false-positive rate. The scanner
+      # is pinned, because @latest is code resolved at run time in a job that
+      # gates every merge and every release; bump it deliberately. The vuln
+      # DB is not pinned: it's fetched at run time, so a newly-disclosed
+      # reachable vuln can still turn main red with no code change — that's
+      # intended. CGO=1 so the sqlite-linked server packages analyze as they
+      # build.
       - name: govulncheck (dependency vulnerability scan)
         env:
           CGO_ENABLED: "1"
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
   cross:
     name: Agent cross-build (${{ matrix.goos }})
@@ -165,12 +167,13 @@ jobs:
       GOOS: ${{ matrix.goos }}
       CGO_ENABLED: "0"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.10"
           cache: true
@@ -200,7 +203,7 @@ jobs:
         # on the backlog these files accumulated while unlinted. Windows and
         # darwin only: that is where the platform-specific source lives.
         if: matrix.goos == 'windows' || matrix.goos == 'darwin'
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.12.2
           args: --timeout=8m ./client/...
@@ -213,10 +216,12 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
@@ -258,10 +263,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
@@ -276,7 +283,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
@@ -362,3 +371,22 @@ jobs:
                   rc = 1
           sys.exit(rc)
           PY
+
+  workflows:
+    name: Workflow security (zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Static checks on the workflows themselves: template injection, cache
+      # poisoning, persisted credentials, unpinned actions, spoofable bot
+      # checks. Offline, so the result depends only on the checkout. The image
+      # is pinned by digest; bump it deliberately.
+      - name: zizmor
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro"
+          ghcr.io/zizmorcore/zizmor:1.32.0@sha256:3014cc8f68f663935f69b3c3e0e41f5ce102b268d97db13db0f62208747f860d
+          --offline --format=github /repo
