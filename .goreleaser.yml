@@ -295,7 +295,7 @@ checksum:
 # release artifacts. Verify with:
 #   cosign verify-blob --certificate checksums.txt.pem \
 #     --signature checksums.txt.sig \
-#     --certificate-identity-regexp 'https://github.com/proximile/proxiport' \
+#     --certificate-identity-regexp '^https://github\.com/proximile/proxiport/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
 #     checksums.txt
 # Requires cosign on PATH and `id-token: write` in the release workflow.
