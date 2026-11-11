@@ -4,9 +4,11 @@ name: deploy-demo
 # artifacts as part of `release.yml`, then the GitHub UI flips the
 # release out of "draft" — the publication event fires at that point).
 #
-# Pulls the just-released proxiportd Linux/amd64 binary, builds the
-# matching SPA from the tag, and ships both to the demo droplet
-# behind Caddy at https://demo.proxiport.net/.
+# Pulls the just-released proxiportd Linux/amd64 archive, checks it against
+# the signed checksums, and ships the binary and the SPA it carries to the
+# demo droplet behind Caddy at https://demo.proxiport.net/. Nothing is built
+# here and no package manager runs: the job that holds the deploy key handles
+# only release files whose signature it has verified.
 #
 # Requires the repo secret `DEMO_DEPLOY_SSH_KEY` — an Ed25519
 # private key whose public half is in /root/.ssh/authorized_keys
@@ -57,29 +59,12 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ steps.tag.outputs.tag }}
-
-      - name: Set up Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "22"
-          package-manager-cache: false
-
-      - name: Build SPA
-        working-directory: frontend
-        run: |
-          npm ci --no-audit --no-fund
-          npm run build
-
       # cosign verifies the keyless Sigstore signature over checksums.txt before
       # we trust any hash from it.
       - name: Install cosign
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 
-      - name: Download and verify the proxiportd binary from the release
+      - name: Download and verify the proxiportd archive from the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -92,7 +77,7 @@ jobs:
           # Pull the asset plus the signed checksum manifest and its cosign
           # signature + certificate.
           gh release download "$TAG" \
-              --repo "${{ github.repository }}" \
+              --repo "$GITHUB_REPOSITORY" \
               --pattern "$ASSET" \
               --pattern "checksums.txt" \
               --pattern "checksums.txt.sig" \
@@ -103,7 +88,7 @@ jobs:
           cosign verify-blob \
               --certificate stage/checksums.txt.pem \
               --signature stage/checksums.txt.sig \
-              --certificate-identity-regexp '^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+              --certificate-identity-regexp "^https://github\.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+\$" \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
               stage/checksums.txt
 
@@ -113,6 +98,9 @@ jobs:
           tar -C stage -xzf "stage/$ASSET"
           file stage/proxiportd
           stat -c '%s' stage/proxiportd
+          # The archive carries the SPA built for this release.
+          test -s stage/docroot/index.html
+          test -s stage/docroot/_app/version.json
 
       - name: Configure SSH
         env:
@@ -121,9 +109,10 @@ jobs:
           # runner-side MITM could poison). Populate with the droplet's
           # `/etc/ssh/ssh_host_ed25519_key.pub` in known_hosts format.
           DEMO_KNOWN_HOSTS: ${{ secrets.DEMO_KNOWN_HOSTS }}
+          DEMO_DEPLOY_SSH_KEY: ${{ secrets.DEMO_DEPLOY_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.DEMO_DEPLOY_SSH_KEY }}" > ~/.ssh/demo_deploy
+          ( umask 077; printf '%s\n' "$DEMO_DEPLOY_SSH_KEY" > ~/.ssh/demo_deploy )
           chmod 0600 ~/.ssh/demo_deploy
           if [[ -n "$DEMO_KNOWN_HOSTS" ]]; then
             printf '%s\n' "$DEMO_KNOWN_HOSTS" >> ~/.ssh/known_hosts
@@ -143,7 +132,7 @@ jobs:
           # Stage SPA (recursive, atomically swapped on the droplet)
           $SSH "$DEMO_SSH_USER@$DEMO_HOST" 'rm -rf /tmp/proxiport-spa.new && mkdir -p /tmp/proxiport-spa.new'
           rsync -a -e "ssh -i ~/.ssh/demo_deploy -o StrictHostKeyChecking=yes" \
-              frontend/build/ "$DEMO_SSH_USER@$DEMO_HOST:/tmp/proxiport-spa.new/"
+              stage/docroot/ "$DEMO_SSH_USER@$DEMO_HOST:/tmp/proxiport-spa.new/"
 
           # Atomic-ish swap + restart. The reset timer's own state
           # (admin password file, seed DB, agent compose) is left
@@ -188,8 +177,8 @@ jobs:
           [[ "$CODE" == "200" ]] || { echo "demo did not return 200 after restart"; exit 1; }
 
           # The old SPA tree would answer 200 too; make sure the served build is
-          # the one this job just built and pushed.
-          if ! curl -sS "https://$DEMO_HOST/_app/version.json" | cmp -s - frontend/build/_app/version.json; then
+          # the one this job just pushed.
+          if ! curl -sS "https://$DEMO_HOST/_app/version.json" | cmp -s - stage/docroot/_app/version.json; then
               echo "the served SPA is not the build this job pushed"; exit 1
           fi
 

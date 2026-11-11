@@ -1,0 +1,4 @@
+# Input for requirements-docs.txt. Regenerate with:
+#   pip-compile --generate-hashes --output-file .github/requirements-docs.txt .github/requirements-docs.in
+mkdocs-material
+pymdown-extensions
