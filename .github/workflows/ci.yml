@@ -37,7 +37,7 @@ jobs:
         # — bump this whenever it flags a called stdlib vulnerability.
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.10"
+          go-version: "1.26.11"
           cache: true
 
       # golangci-lint's gofmt only sees files it analyses, which is the host
@@ -175,7 +175,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.10"
+          go-version: "1.26.11"
           cache: true
 
       - name: go build (agent)
