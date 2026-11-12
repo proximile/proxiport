@@ -1,6 +1,0 @@
-enum:
- - Information
- - Warning
- - Average
- - High
- - Disaster

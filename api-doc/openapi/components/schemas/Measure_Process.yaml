@@ -1,7 +1,0 @@
-title: Process
-type: object
-properties:
- name:
- type: string
- cmdline:
- type: string

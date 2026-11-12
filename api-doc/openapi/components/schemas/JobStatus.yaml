@@ -1,6 +1,0 @@
-type: string
-enum:
- - running
- - successful
- - unknown
- - failed
