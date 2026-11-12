@@ -35,6 +35,20 @@ cd ./api-doc/openapi
 npx @redocly/cli lint openapi.yaml
 ```
 
+The two findings the linter is told to skip are listed in
+`.redocly.lint-ignore.yaml`: the removed `/me/token` endpoints answer
+`410` and so have no `2xx` response.
+
+The Go tests check the spec too, without Node:
+
+```shell
+go test ./server/ -run OpenAPI
+```
+
+They fail when a file is not valid YAML, when a path file is not nested as
+a path item, when a file is not referenced from `openapi.yaml`, and when
+the operations of the spec and the routes of the API router differ.
+
 Details about the applied rules and their output can be found
 [here](https://redocly.com/docs/cli/resources/built-in-rules/).
 

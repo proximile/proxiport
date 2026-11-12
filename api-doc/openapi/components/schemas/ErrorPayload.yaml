@@ -1,6 +1,6 @@
 type: object
 properties:
- errors:
- type: array
- items:
- $ref: ./ErrorPayloadItem.yaml
+  errors:
+    type: array
+    items:
+      $ref: ./ErrorPayloadItem.yaml

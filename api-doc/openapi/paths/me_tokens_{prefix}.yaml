@@ -1,93 +1,93 @@
 put:
- tags:
- - Profile & Info
- summary: Update a specific API token of the current user
- operationId: MeTokenPut
- parameters:
- - name: prefix
- in: path
- description: the 8-character prefix identifying the token to update
- required: true
- schema:
- type: string
- requestBody:
- required: true
- content:
- application/json:
- schema:
- type: object
- properties:
- name:
- type: string
- description: token name, 250 characters max, unique per user
- expires_at:
- type: string
- description: date and time when this token will expire
- format: date-time
- responses:
- '200':
- description: the updated token
- content:
- application/json:
- schema:
- type: object
- properties:
- prefix:
- type: string
- name:
- type: string
- expires_at:
- type: string
- format: date-time
- '400':
- description: missing or invalid token prefix, or a token with that name already exists
- content:
- application/json:
- schema:
- $ref: ../components/schemas/ErrorPayload.yaml
- '401':
- description: Unauthorized
- content:
- application/json:
- schema:
- $ref: ../components/schemas/ErrorPayload.yaml
- '500':
- description: Invalid Operation
- content:
- application/json:
- schema:
- $ref: ../components/schemas/ErrorPayload.yaml
+  tags:
+    - Profile & Info
+  summary: Update a specific API token of the current user
+  operationId: MeTokenPut
+  parameters:
+    - name: prefix
+      in: path
+      description: the 8-character prefix identifying the token to update
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+              description: token name, 250 characters max, unique per user
+            expires_at:
+              type: string
+              description: date and time when this token will expire
+              format: date-time
+  responses:
+    '200':
+      description: the updated token
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              prefix:
+                type: string
+              name:
+                type: string
+              expires_at:
+                type: string
+                format: date-time
+    '400':
+      description: missing or invalid token prefix, or a token with that name already exists
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
+    '401':
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
+    '500':
+      description: Invalid Operation
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
 delete:
- tags:
- - Profile & Info
- summary: Delete a specific API token of the current user
- operationId: MeTokenDelete
- parameters:
- - name: prefix
- in: path
- description: the 8-character prefix identifying the token to delete
- required: true
- schema:
- type: string
- responses:
- '204':
- description: token deleted
- content: {}
- '400':
- description: missing or invalid token prefix
- content:
- application/json:
- schema:
- $ref: ../components/schemas/ErrorPayload.yaml
- '401':
- description: Unauthorized
- content:
- application/json:
- schema:
- $ref: ../components/schemas/ErrorPayload.yaml
- '500':
- description: Invalid Operation
- content:
- application/json:
- schema:
- $ref: ../components/schemas/ErrorPayload.yaml
+  tags:
+    - Profile & Info
+  summary: Delete a specific API token of the current user
+  operationId: MeTokenDelete
+  parameters:
+    - name: prefix
+      in: path
+      description: the 8-character prefix identifying the token to delete
+      required: true
+      schema:
+        type: string
+  responses:
+    '204':
+      description: token deleted
+      content: {}
+    '400':
+      description: missing or invalid token prefix
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
+    '401':
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
+    '500':
+      description: Invalid Operation
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml

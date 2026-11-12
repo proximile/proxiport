@@ -75,6 +75,7 @@ require (
 require (
 	filippo.io/bigmod v0.1.0
 	github.com/xhit/go-str2duration/v2 v2.2.0
+	go.yaml.in/yaml/v3 v3.0.5
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
@@ -85,7 +86,6 @@ require (
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
 )
 
 require (

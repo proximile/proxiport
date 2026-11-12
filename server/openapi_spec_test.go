@@ -32,12 +32,11 @@ var (
 // OpenAPI tooling / codegen — it is exactly the bug that shipped in
 // me_token.yaml.
 //
-// The check is textual rather than structural on purpose: the spec is authored
-// with a 1-space indentation style that a strict YAML parser rejects wholesale
-// (nesting collapses into sibling keys), so a parse-tree walk is not viable
-// here. A quoted mapping key containing "/" is treated as a media type and must
-// be well formed; that precisely targets the malformed-content-key class with
-// no false positives on ordinary schema keys.
+// The check is textual: a YAML parser accepts the malformed key as an ordinary
+// string. A quoted mapping key containing "/" is treated as a media type and
+// must be well formed; that precisely targets the malformed-content-key class
+// with no false positives on ordinary schema keys. The structure of the spec is
+// checked in openapi_structure_test.go.
 func TestOpenAPIMediaTypeKeysAreWellFormed(t *testing.T) {
 	files := collectYAMLFiles(t)
 	if len(files) == 0 {
@@ -157,8 +156,9 @@ func TestOpenAPIFilesAreReferenced(t *testing.T) {
 		t.Fatalf("followed no $ref from %s/openapi.yaml", openAPIRoot)
 	}
 	for _, f := range collectYAMLFiles(t) {
-		// redocly.yaml configures the linter; it is not part of the spec.
-		if filepath.Base(f) == "redocly.yaml" {
+		// redocly.yaml and .redocly.lint-ignore.yaml configure the linter;
+		// they are not part of the spec.
+		if strings.HasSuffix(filepath.Base(f), "redocly.yaml") || strings.HasPrefix(filepath.Base(f), ".") {
 			continue
 		}
 		if !reached[filepath.Clean(f)] {
