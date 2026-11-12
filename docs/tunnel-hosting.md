@@ -565,9 +565,11 @@ and surfaces on the **Audit** page.
   subdomain. Either the tunnel was not created as a proxied tunnel
   (`http_proxy=true`, so it has no `tunnel_url`), or Caddy lost its
   routes, for example after a restart. List the live routes with the
-  admin-socket `curl` shown above, and check
-  `journalctl -u proxiportd -n 100 --no-pager` for
-  `failed to create downstream caddy proxy` or other caddy errors.
+  admin-socket `curl` shown above. If Caddy refused the route, creating the
+  tunnel failed with `failed to create downstream caddy proxy`: the API
+  answered 500 with that message, and the server log has it too
+  (`[logging] log_file`, `/var/log/proxiport/proxiportd.log` in the
+  shipped config; the journal only when `log_file` is empty).
   Caddy serves the static wildcard certificate from
   `[caddy-integration] cert_file`/`key_file`; no ACME runs for tunnel
   subdomains.

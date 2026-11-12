@@ -473,7 +473,10 @@ targets.](screenshots/27-schedules-cron.png)
 From a client's **Files** tab, upload a file from your browser to a
 chosen path on the agent, with optional mode, owner and group, and
 options for an atomic (sync) write and force-overwrite. The transfer
-goes over the same chisel session as everything else.
+goes over the same chisel session as everything else. The page waits
+for the agent's result: it confirms a push the agent wrote, shows the
+agent's message for one it refused or failed, and says so if no result
+arrives in time (the audit log has it once the agent reports).
 
 ![File push on a client's Files tab — local file, remote path, mode,
 owner/group, and the sync (atomic) and force-overwrite
