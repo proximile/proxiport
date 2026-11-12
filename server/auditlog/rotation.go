@@ -59,12 +59,19 @@ type RotationProvider struct {
 
 	mtx    sync.RWMutex
 	sqlite *SQLiteProvider
+	// closed is set by Close. A tick that was already waiting when Close ran
+	// can still reach rotate, and without this it renamed the closed database
+	// and opened a new one that nothing would ever close.
+	closed bool
 }
 
 // errAuditLogUnavailable is returned when a rotation could not reopen the
 // database. Callers get an error instead of a nil dereference, which from the
 // client listener would be an unrecovered panic.
 var errAuditLogUnavailable = errors.New("audit log is unavailable: rotation failed to reopen the database")
+
+// errAuditLogClosed is returned by rotate once the provider has been closed.
+var errAuditLogClosed = errors.New("audit log is closed")
 
 func newRotationProvider(l *logger.Logger, period time.Duration, retention int, dataDir string, dataSourceOptions sqlite.DataSourceOptions, hmacKey []byte) (*RotationProvider, error) {
 	sqlite, err := newSQLiteProvider(dataDir, dataSourceOptions, hmacKey)
@@ -100,6 +107,9 @@ func (r *RotationProvider) rotationLoop() {
 			return
 		case <-r.ticker.C:
 			err := r.rotate()
+			if errors.Is(err, errAuditLogClosed) {
+				return
+			}
 			if err != nil {
 				r.logger.Errorf("Could not rotate auditlog: %v", err)
 			}
@@ -117,6 +127,10 @@ func rotatedName(now time.Time) string {
 func (r *RotationProvider) rotate() error {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+
+	if r.closed {
+		return errAuditLogClosed
+	}
 
 	err := r.sqlite.Close()
 	if err != nil {
@@ -260,6 +274,7 @@ func (r *RotationProvider) Verify(ctx context.Context) (ChainVerification, error
 func (r *RotationProvider) Close() error {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+	r.closed = true
 	r.ticker.Stop()
 	select {
 	case <-r.done:
