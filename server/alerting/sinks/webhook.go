@@ -1,4 +1,4 @@
-// TODO(v0.2): Replace this stub with a real generic-webhook sink.
+// TODO: Replace this stub with a real generic-webhook sink.
 // Implementation hints:
 //   - default Method to POST;
 //   - serialize Alert to JSON;

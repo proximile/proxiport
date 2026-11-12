@@ -295,7 +295,7 @@ func (r *ClientRepository) GetAllByClientAuthID(clientAuthID string) (matchingCl
 	return matchingClients
 }
 
-// GetAll returns all non-obsolete active and disconnected client clients.
+// GetAllClients returns all non-obsolete clients, connected and disconnected.
 func (r *ClientRepository) GetAllClients() []*clientdata.Client {
 	availableClients := r.getNonObsoleteClients()
 	return availableClients
@@ -365,7 +365,7 @@ func (r *ClientRepository) getNonObsoleteClients() (matchingClients []*clientdat
 	return matchingClients
 }
 
-// getNonObsoleteByUser return connected clients the user has access to either by user group or by client group.
+// getNonObsoleteClientsByUser returns the non-obsolete clients the user has access to either by user group or by client group.
 // returns a new client array that can be used without locks (assuming not shared)
 func (r *ClientRepository) getNonObsoleteClientsByUser(user User, clientGroups []*cgroups.ClientGroup) (matchingClients []*clientdata.Client) {
 	userGroups := user.GetGroups()

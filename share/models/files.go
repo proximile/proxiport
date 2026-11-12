@@ -268,18 +268,6 @@ func IsAbsoluteDestination(p string) bool {
 	return false
 }
 
-// pathIsWithin reports whether target is the root itself or sits underneath it.
-//
-// The root may contain glob metacharacters -- "/home/*/.ssh" has to cover every
-// user -- so this walks target and its ancestors and filepath.Match-es each
-// against the root. Testing whole ancestor paths is also what keeps
-// "/etc/cron.daily-reports" from being treated as inside "/etc/cron.d".
-// caseInsensitiveFS reports whether this platform's filesystem is
-// case-insensitive by default. Only Windows was considered before, but APFS is
-// case-insensitive in its default configuration too, so "/Etc/sudoers.d/x"
-// reached the real file on macOS while matching the pattern nowhere. Treating
-// darwin as case-insensitive can only refuse more, which is the safe direction
-// for a filter of this kind.
 // stripExtendedLengthPrefix removes Windows' extended-length path prefix.
 //
 // `\\?\C:\Windows\System32\x` names exactly the same file as
@@ -395,10 +383,22 @@ func literalPrefix(pattern string) (prefix, rest string) {
 	return pattern, ""
 }
 
+// caseInsensitiveFS reports whether this platform's filesystem is
+// case-insensitive by default. Only Windows was considered before, but APFS is
+// case-insensitive in its default configuration too, so "/Etc/sudoers.d/x"
+// reached the real file on macOS while matching the pattern nowhere. Treating
+// darwin as case-insensitive can only refuse more, which is the safe direction
+// for a filter of this kind.
 func caseInsensitiveFS() bool {
 	return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 }
 
+// pathIsWithin reports whether target is the root itself or sits underneath it.
+//
+// The root may contain glob metacharacters -- "/home/*/.ssh" has to cover every
+// user -- so this walks target and its ancestors and filepath.Match-es each
+// against the root. Testing whole ancestor paths is also what keeps
+// "/etc/cron.daily-reports" from being treated as inside "/etc/cron.d".
 func pathIsWithin(target, root string) bool {
 	return pathIsWithinFold(target, root, caseInsensitiveFS())
 }

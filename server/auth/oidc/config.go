@@ -1,4 +1,4 @@
-// TODO(v0.2): Config currently has no Validate logic and no loader.
+// TODO: Config currently has no Validate logic and no loader.
 // When wiring lands, the loader should:
 //   - read the [auth-oidc] block from proxiportd.conf,
 //   - bind it via the existing mapstructure loader path,

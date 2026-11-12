@@ -1,8 +1,8 @@
 name: deploy-demo
 
-# Fires after a release publication (goreleaser writes the binary
-# artifacts as part of `release.yml`, then the GitHub UI flips the
-# release out of "draft" — the publication event fires at that point).
+# Fires when a release is published: `release.yml` builds the artifacts,
+# waits for a maintainer's approval, signs the checksums and then creates
+# the release, which is the publication event.
 #
 # Pulls the just-released proxiportd Linux/amd64 binary, builds the
 # matching SPA from the tag, and ships both to the demo droplet

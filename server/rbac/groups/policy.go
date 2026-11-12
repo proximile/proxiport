@@ -1,4 +1,4 @@
-// TODO(v0.2): Define the concrete policy-rule struct (verb, resource
+// TODO: Define the concrete policy-rule struct (verb, resource
 // selector, effect) and a loader that reads from Config.PolicyFile.
 // The Policy interface below is the contract every backend (file,
 // database, remote PDP) has to satisfy. See docs/rbac-design.md for

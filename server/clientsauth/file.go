@@ -14,8 +14,8 @@ import (
 	"github.com/proximile/proxiport/share/query"
 )
 
-// FileProvider is file based client provider.
-// It is not thread save so should be surrounded by CachedProvider.
+// FileProvider is the file-based client auth provider.
+// It does no locking of its own.
 type FileProvider struct {
 	fileName string
 	cache    *cache.Cache
@@ -30,7 +30,7 @@ func NewFileProvider(fileName string, cache *cache.Cache) *FileProvider {
 	}
 }
 
-// GetAll returns proxiport clients auth credentials from a given file.
+// getAll returns proxiport clients auth credentials from a given file.
 func (c *FileProvider) getAll() ([]*ClientAuth, error) {
 	idPswdPairs, err := c.load()
 	if err != nil {
@@ -186,11 +186,15 @@ func (c *FileProvider) save(idPswdPairs map[string]string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open proxiport clients auth file: %v", err)
 	}
-	defer file.Close()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "	")
 	if err := encoder.Encode(idPswdPairs); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("failed to write proxiport clients auth: %v", err)
+	}
+	// A failed close can mean the credentials did not reach the disk.
+	if err := file.Close(); err != nil {
 		return fmt.Errorf("failed to write proxiport clients auth: %v", err)
 	}
 

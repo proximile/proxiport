@@ -94,7 +94,7 @@ func (al *APIListener) handleGetClientGraphMetrics(w http.ResponseWriter, req *h
 	al.writeJSONResponse(w, http.StatusOK, payload)
 }
 
-// handleGetClientGraphMetricsGraph handles /clients/{client_id}/graph-metrics/{"+routeParamGraphName+"}
+// handleGetClientGraphMetricsGraph handles /clients/{client_id}/graph-metrics/{graph_name}
 func (al *APIListener) handleGetClientGraphMetricsGraph(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	clientID := vars[routes.ParamClientID]

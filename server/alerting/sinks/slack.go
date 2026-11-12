@@ -1,4 +1,4 @@
-// TODO(v0.2): Replace this stub with a real Slack-incoming-webhook
+// TODO: Replace this stub with a real Slack-incoming-webhook
 // sink. Implementation hints:
 //   - read the webhook URL from os.Getenv(Config.WebhookURLEnv) and
 //     refuse to start if unset (don't accept a literal URL in the

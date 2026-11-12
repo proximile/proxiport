@@ -525,7 +525,7 @@ func (c *Config) ParseAndValidate(mLog *logger.MemLogger) error {
 	mLog.Debugf("max_concurrent_ssh_handshakes = %d", c.Server.MaxConcurrentSSHConnectionHandshakes)
 
 	if c.Server.MaxConcurrentSSHConnectionHandshakes > (maxProcs * 2) {
-		mLog.Infof("warning: allowing too many concurrent ssh handhakes ('max_concurrent_ssh_handshakes') will slow down the server significantly and cause operational reliability issues. Please use a value less than or equal to the MAX_PROCS (%d)", maxProcs)
+		mLog.Infof("warning: allowing too many concurrent ssh handshakes ('max_concurrent_ssh_handshakes') will slow down the server significantly and cause operational reliability issues. Please use a value less than or equal to the MAX_PROCS (%d)", maxProcs)
 	}
 
 	if c.Server.CheckClientsConnectionInterval < CheckClientsConnectionIntervalMinimum {

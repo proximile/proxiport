@@ -1,4 +1,4 @@
-// TODO(v0.2): Add a YAML loader for Config and the RuleFile shape
+// TODO: Add a YAML loader for Config and the RuleFile shape
 // below. Picking YAML over JSON to keep operator-edited policy files
 // readable; see docs/rbac-design.md for the rationale and example
 // files.

@@ -25,7 +25,7 @@ func ParseIdentifiable(raw string) (identifiable, error) {
 	parts := strings.Split(raw, ":::")
 
 	if len(parts) != 2 {
-		return identifiable{}, fmt.Errorf("cant parse identifielbe: %v", raw)
+		return identifiable{}, fmt.Errorf("can't parse identifiable: %v", raw)
 	}
 
 	return identifiable{

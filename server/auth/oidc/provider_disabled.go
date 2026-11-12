@@ -1,4 +1,4 @@
-// TODO(v0.2): Remove disabledProvider from the default constructor
+// TODO: Remove disabledProvider from the default constructor
 // once a real provider exists. It will remain here as the explicit
 // off-state for tests and for operators who want to assert "OIDC is
 // definitely not on".

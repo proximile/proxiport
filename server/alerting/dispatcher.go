@@ -1,4 +1,4 @@
-// TODO(v0.2): Replace disabledDispatcher with a real fan-out
+// TODO: Replace disabledDispatcher with a real fan-out
 // dispatcher that:
 //   - reads sinks from Config,
 //   - resolves each Alert against the configured Rules,
