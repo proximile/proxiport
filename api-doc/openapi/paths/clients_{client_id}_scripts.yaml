@@ -4,10 +4,10 @@ post:
  summary: Execute a script by a proxiport client.
  operationId: ClientScriptsPost
  description: >-
- Proxiport server will copy script contents to a temp folder on an proxiport client.
+ Proxiport server will copy script contents to a temp folder on a proxiport client.
  Then it will implicitly execute shell script as a command e.g. sh
  /tmp/script.sh.
- NOTE: if command limitation is enabled by an proxiport client then it should allow execution commands like sh script.sh or cmd script.bat or powershell -executionpolicy bypass -file script.ps1.
+ NOTE: if command limitation is enabled by a proxiport client then it should allow execution commands like sh script.sh or cmd script.bat or powershell -executionpolicy bypass -file script.ps1.
  parameters:
  - name: client_id
  in: path

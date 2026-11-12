@@ -67,7 +67,7 @@ var ClientHelp = `
     transport is HTTP, in many instances we'll be traversing through
     proxies, often these proxies will close idle connections. You must
     specify a time with a unit, for example '30s' or '2m'. Defaults
-    to '0s' (disabled).
+    to '3m'; '0s' disables it.
 
     --max-retry-count, Maximum number of times to retry before exiting.
     Defaults to unlimited (-1).
@@ -131,7 +131,7 @@ var ClientHelp = `
 
     --remote-commands-send-back-limit, Limit the maximum length of the command or script output that is sent back.
     Applies to the stdout and stderr separately. If exceeded the specified number of bytes are sent.
-    Defaults: 2048
+    Defaults: 4194304 (4 MiB)
 
     --updates-interval, How often after the proxiport client has started pending updates are summarized.
     Defaults: 4h
@@ -144,20 +144,29 @@ var ClientHelp = `
     --monitoring-enabled, Enable or disable gathering of monitoring data.
     Defaults: true
 
-   --monitoring-interval, the interval time in seconds, when monitoring data is gathered
-   Defaults: 60s
+    --monitoring-interval, How often monitoring data is gathered, as a time with a unit.
+    A value below 60s is raised to 60s.
+    Defaults: 60s
 
-   --monitoring-fs-type-include, list of filesystem types to include in list of mountpoints
-   --monitoring-fs-path-exclude, list of filesystem path to exclude from list of mountpoints
-   --monitoring-fs-path-exclude-recurse, enable or disable recursive handling
-   --monitoring-fs-identify-mountpoints-by-device, enable or disable the identification of mountpoints by device
+    --monitoring-fs-type-include, list of filesystem types to include in list of mountpoints
+    --monitoring-fs-path-exclude, list of filesystem path to exclude from list of mountpoints
+    --monitoring-fs-path-exclude-recurse, enable or disable recursive handling
+    --monitoring-fs-identify-mountpoints-by-device, enable or disable the identification of mountpoints by device
 
-   --monitoring-pm-enabled, enable or disable process-monitoring
-   --monitoring-pm-kerneltasks-enabled, enable or disable monitoring of kerneltasks
-   --monitoring-pm-max-number-processes, maximum number of processes in process monitoring list
+    --monitoring-pm-enabled, enable or disable process-monitoring
+    --monitoring-pm-kerneltasks-enabled, enable or disable monitoring of kerneltasks
+    --monitoring-pm-max-number-processes, maximum number of processes in process monitoring list
 
-   --monitoring-net-lan, enable monitoring of lan network card
-   --monitoring-net-wan, enable monitoring of wan network card
+    --monitoring-net-lan, enable monitoring of lan network card
+    --monitoring-net-wan, enable monitoring of wan network card
+
+    --file-reception-enabled, Receive files pushed by the server.
+    Defaults: true
+
+    --file-reception-protected, A path the client refuses to write a pushed file to. Wildcards are
+    supported. Can be used multiple times. Giving it replaces the built-in list of protected paths.
+
+    --bind-interface, The local network interface to connect to the server from, e.g. "eth0".
 
     --scheme, Flag all <REMOTES> aka tunnels to be used by a URI scheme, for example http, rdp or vnc.
 

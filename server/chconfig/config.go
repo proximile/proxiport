@@ -420,7 +420,7 @@ func (c *Config) validateNoPlaceholderSecrets() error {
 	for _, p := range placeholderSecrets {
 		if p.get(c) == p.value {
 			return fmt.Errorf(
-				"%s is still the placeholder from proxiport.example.conf. That value is published "+
+				"%s is still the placeholder from proxiportd.example.conf. That value is published "+
 					"in the project repository, so it is not a secret. Set a real one before starting "+
 					"(the .deb and .rpm postinstall does this automatically; a tarball, container or "+
 					"hand-copied config does not)", p.setting)

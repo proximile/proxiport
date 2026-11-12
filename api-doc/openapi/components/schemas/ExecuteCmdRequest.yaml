@@ -4,7 +4,7 @@ properties:
  type: string
  description: >-
  remote command to execute by proxiport client(s). NOTE: if command limitation
- is enabled by an proxiport client then a full path command can be required to
+ is enabled by a proxiport client then a full path command can be required to
  use. cwd:
  type: string
  description: current working directory where the command will be executed

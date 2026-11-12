@@ -16,7 +16,7 @@ properties:
  login_uri:
  type: string
  description: >-
- This URI can be used to obtain an Proxiport JWT bearer token. For OAuth providers this
+ This URI can be used to obtain a Proxiport JWT bearer token. For OAuth providers this
  involves exchanging the authorization `code` received via the `authorize_url`. Other types
  of provider may have alternative implementations.
  state:
