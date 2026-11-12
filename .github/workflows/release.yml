@@ -28,12 +28,14 @@ jobs:
       - name: Set up Go
         # Build released binaries with the 1.26.x PATCH that clears known stdlib
         # CVEs (not the exact `go 1.26.0` floor in go.mod). Kept in lockstep with
-        # ci.yml — 1.26.10 clears GO-2026-6809 (crypto/x509 distrusts compromised
-        # intermediate certificates) on top of the HTTP/2 and CONNECT fixes in
-        # 1.26.9. Bump both files together as new fixes ship.
+        # ci.yml — 1.26.11 clears GO-2026-6859 (net/http: an HTTP/1 server
+        # panics when a MaxBytesReader limit is hit while the handler writes
+        # its headers) and the other fixes of that release, on top of the
+        # crypto/x509 distrust change in 1.26.10. Bump both files together as
+        # new fixes ship.
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.10"
+          go-version: "1.26.11"
           # No build cache in the release job: a cache entry written by an
           # earlier workflow run must not feed the binaries we sign.
           cache: false
