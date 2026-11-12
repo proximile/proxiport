@@ -1,8 +1,8 @@
 type: object
 properties:
- id:
- type: string
- description: client auth ID
- password:
- type: string
- description: client auth password
+  id:
+    type: string
+    description: client auth ID
+  password:
+    type: string
+    description: client auth password

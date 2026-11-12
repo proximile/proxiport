@@ -1,0 +1,6 @@
+# This file instructs Redocly's linter to ignore the rules contained for specific parts of your API.
+# See https://redocly.com/docs/cli/ for more information.
+paths/me_token_deprecated.yaml:
+  operation-2xx-response:
+    - '#/get/responses'
+    - '#/post/responses'

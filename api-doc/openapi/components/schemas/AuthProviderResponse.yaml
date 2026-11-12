@@ -1,21 +1,15 @@
 type: object
 properties:
- auth_provider:
- type: string
- description: >-
- The label associated with the auth provider. Will be `built-in` if using
- the OSS built-in authorization. If using Proxiport Plus then can be one of
- `github`, `microsoft` or `google`.
- settings_url:
- type: string
- description: >-
- Where to get info on the settings required to login using a web app.
-
- Note: not used when using the built-in authorization.
- device_settings_url:
- type: string
- description: >-
- Where to get info on the settings required to login using a device style (e.g. CLI) app.
-
- Note: not used when using the built-in authorization.
+  auth_provider:
+    type: string
+    description: The login method. Always `built-in`.
+  settings_uri:
+    type: string
+    description: Always empty. Kept so that existing clients keep working.
+  device_settings_uri:
+    type: string
+    description: Always empty. Kept so that existing clients keep working.
+  max_token_lifetime:
+    type: integer
+    description: The `max_token_lifetime` setting of the `[api]` section, in hours.
 description: Response returned by the `/auth/provider` endpoint

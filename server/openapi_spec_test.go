@@ -32,14 +32,13 @@ var (
 // OpenAPI tooling / codegen — it is exactly the bug that shipped in
 // me_token.yaml.
 //
-// The check is textual rather than structural on purpose: the spec is authored
-// with a 1-space indentation style that a strict YAML parser rejects wholesale
-// (nesting collapses into sibling keys), so a parse-tree walk is not viable
-// here. A quoted mapping key containing "/" is treated as a media type and must
-// be well formed; that precisely targets the malformed-content-key class with
-// no false positives on ordinary schema keys.
+// The check is textual: a YAML parser accepts the malformed key as an ordinary
+// string. A quoted mapping key containing "/" is treated as a media type and
+// must be well formed; that precisely targets the malformed-content-key class
+// with no false positives on ordinary schema keys. The structure of the spec is
+// checked in openapi_structure_test.go.
 func TestOpenAPIMediaTypeKeysAreWellFormed(t *testing.T) {
-	files := collectYAMLFiles(t, openAPIRoot)
+	files := collectYAMLFiles(t)
 	if len(files) == 0 {
 		t.Fatalf("no OpenAPI YAML files found under %s", openAPIRoot)
 	}
@@ -105,7 +104,7 @@ func TestOpenAPIMediaTypeDetector(t *testing.T) {
 // a file that exists — catching a documented route or schema that references a
 // missing file (another drift class).
 func TestOpenAPIPathRefsResolve(t *testing.T) {
-	files := collectYAMLFiles(t, openAPIRoot)
+	files := collectYAMLFiles(t)
 	refRe := regexp.MustCompile(`\$ref:\s*([^\s#]+)`)
 	for _, f := range files {
 		raw, err := os.ReadFile(f) //nolint:gosec // f comes from walking a fixed in-repo spec dir, not user input
@@ -125,10 +124,54 @@ func TestOpenAPIPathRefsResolve(t *testing.T) {
 	}
 }
 
-func collectYAMLFiles(t *testing.T, root string) []string {
+// TestOpenAPIFilesAreReferenced asserts every file of the spec can be reached
+// from openapi.yaml by following relative $ref entries. A path or schema file
+// that nothing references is never rendered, so it goes stale unnoticed: it
+// either describes something the server no longer does, or it is the right
+// description of a response that the path file forgot to point at.
+func TestOpenAPIFilesAreReferenced(t *testing.T) {
+	refRe := regexp.MustCompile(`\$ref:\s*([^\s#]+)`)
+	reached := map[string]bool{}
+	todo := []string{filepath.Join(openAPIRoot, "openapi.yaml")}
+	for len(todo) > 0 {
+		f := filepath.Clean(todo[len(todo)-1])
+		todo = todo[:len(todo)-1]
+		if reached[f] {
+			continue
+		}
+		raw, err := os.ReadFile(f) //nolint:gosec // f is under a fixed in-repo spec dir, not user input
+		if err != nil {
+			continue // a $ref to a missing file is TestOpenAPIPathRefsResolve's finding
+		}
+		reached[f] = true
+		for _, m := range refRe.FindAllStringSubmatch(string(raw), -1) {
+			target := strings.Trim(m[1], `"'`)
+			if strings.HasPrefix(target, "#") || strings.HasPrefix(target, "http") {
+				continue // in-document or remote ref
+			}
+			todo = append(todo, filepath.Join(filepath.Dir(f), target))
+		}
+	}
+	if len(reached) < 2 {
+		t.Fatalf("followed no $ref from %s/openapi.yaml", openAPIRoot)
+	}
+	for _, f := range collectYAMLFiles(t) {
+		// redocly.yaml and .redocly.lint-ignore.yaml configure the linter;
+		// they are not part of the spec.
+		if strings.HasSuffix(filepath.Base(f), "redocly.yaml") || strings.HasPrefix(filepath.Base(f), ".") {
+			continue
+		}
+		if !reached[filepath.Clean(f)] {
+			t.Errorf("%s is not referenced from openapi.yaml, directly or through another file", relPath(f))
+		}
+	}
+}
+
+// collectYAMLFiles lists every YAML file of the spec.
+func collectYAMLFiles(t *testing.T) []string {
 	t.Helper()
 	var out []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(openAPIRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -138,7 +181,7 @@ func collectYAMLFiles(t *testing.T, root string) []string {
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walk %s: %v", root, err)
+		t.Fatalf("walk %s: %v", openAPIRoot, err)
 	}
 	return out
 }

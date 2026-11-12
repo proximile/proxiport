@@ -1,7 +1,0 @@
-title: NetBytes
-type: object
-properties:
- in:
- type: number
- out:
- type: number

@@ -1,191 +1,207 @@
 openapi: 3.0.1
 info:
- title: proxiportd HTTP(S) API
- description: >-
- The API listens on whatever `[api] address` is set to in proxiportd.conf.
- The seeded default is `127.0.0.1:3000`; production setups bind a public
- TLS profile on port 443.
- version: 1.0.0
- license:
- name: AGPL-3.0-or-later
- url: https://raw.githubusercontent.com/proximile/proxiport/main/LICENSE
+  title: proxiportd HTTP(S) API
+  description: >-
+    The API listens on whatever `[api] address` is set to in proxiportd.conf.
+    The seeded default is `127.0.0.1:3000`; production setups bind a public
+    TLS profile on port 443.
+  version: 1.0.0
+  license:
+    name: AGPL-3.0-or-later
+    url: https://raw.githubusercontent.com/proximile/proxiport/main/LICENSE
 servers:
- - url: https://yourserver/api/v1
- - url: http://127.0.0.1:3000/api/v1
+  - url: https://yourserver/api/v1
+  - url: http://127.0.0.1:3000/api/v1
 security:
- - bearer_auth: []
- - basic_auth: []
+  - bearer_auth: []
+  - basic_auth: []
 tags:
- - name: Login
- description: |
- 
- - name: Auth
- description: |
- 
- - name: Profile & Info
- description: Profile and System Information
- - name: Clients and Tunnels
- description: 
- - name: Client Groups
- description: 
- - name: Client Auth Credentials
- description: 
- - name: Commands
- description: 
- - name: Users
- description: 
+  - name: Login
+    description: Log in, log out and complete two-factor authentication.
+  - name: Auth
+    description: Find out which login method the server uses.
+  - name: Profile & Info
+    description: Your own account, your API tokens and two-factor secret, and the state of the server.
+  - name: Clients and Tunnels
+    description: Clients, their attributes and access lists, and the tunnels to them, stored tunnels included.
+  - name: Client Groups
+    description: Named groups of clients.
+  - name: Client Auth Credentials
+    description: The credentials agents connect with, and pairing codes for installing an agent.
+  - name: Commands
+    description: Run commands on clients and read the results.
+  - name: Scripts
+    description: Run scripts on clients.
+  - name: Jobs
+    description: Scheduled commands and scripts.
+  - name: Library
+    description: Stored commands and scripts.
+  - name: Upload
+    description: Push files to clients.
+  - name: Monitoring
+    description: Measurements from the agents, such as metrics, graphs, processes and mount points.
+  - name: Vault
+    description: The encrypted vault. Set it up, unlock and lock it, and store and read values.
+  - name: Audit Log
+    description: Read the audit log and verify its integrity chain.
+  - name: Notifications
+    description: The log of notifications the server sent.
+  - name: Users
+    description: API users, their sessions and two-factor secrets.
+  - name: User Groups
+    description: User groups and their permissions.
 paths:
- /login:
- $ref: paths/login.yaml
- /auth/provider:
- $ref: paths/auth_provider.yaml
- /logout:
- $ref: paths/logout.yaml
- /verify-2fa:
- $ref: paths/verify-2fa.yaml
- /me:
- $ref: paths/me.yaml
- /me/ip:
- $ref: paths/me_ip.yaml
- /me/tokens:
- $ref: paths/me_token.yaml
- /me/tokens/{prefix}:
- $ref: paths/me_tokens_{prefix}.yaml
- /me/token:
- $ref: paths/me_token_deprecated.yaml
- /status:
- $ref: paths/status.yaml
- /clients:
- $ref: paths/clients.yaml
- /tunnels:
- $ref: paths/tunnels.yaml
- /clients/{client_id}:
- $ref: paths/clients_{client_id}.yaml
- /clients/{client_id}/attributes:
- $ref: paths/clients_{client_id}_attributes.yaml
- /clients/{client_id}/tunnels:
- $ref: paths/clients_{client_id}_tunnels.yaml
- /clients/{client_id}/tunnels/{tunnel_id}:
- $ref: paths/clients_{client_id}_tunnels_{tunnel_id}.yaml
- /clients/{client_id}/tunnels/{tunnel_id}/acl:
- $ref: paths/clients_{client_id}_tunnels_{tunnel_id}_acl.yaml
- /clients/{client_id}/acl:
- $ref: paths/clients_{client_id}_acl.yaml
- /clients/{client_id}/updates-status:
- $ref: paths/clients_{client_id}_updates-status.yaml
- /clients/{client_id}/commands:
- $ref: paths/clients_{client_id}_commands.yaml
- /clients/{client_id}/scripts:
- $ref: paths/clients_{client_id}_scripts.yaml
- /scripts:
- $ref: paths/scripts.yaml
- /clients/{client_id}/commands/{job_id}:
- $ref: paths/clients_{client_id}_commands_{job_id}.yaml
- /commands:
- $ref: paths/commands.yaml
- /commands/{job_id}:
- $ref: paths/commands_{job_id}.yaml
- /commands/{job_id}/jobs:
- $ref: paths/commands_{job_id}_jobs.yaml
- /ws-ticket:
- $ref: paths/ws-ticket.yaml
- /ws/commands:
- $ref: paths/ws_commands.yaml
- /ws/scripts:
- $ref: paths/ws_scripts.yaml
- /ws/uploads:
- $ref: paths/ws_uploads.yaml
- /clients-auth:
- $ref: paths/clients-auth.yaml
- /clients-auth/{client_auth_id}:
- $ref: paths/clients-auth_{client_auth_id}.yaml
- /pairing:
- $ref: paths/pairing.yaml
- /client-groups:
- $ref: paths/client-groups.yaml
- /client-groups/{group_id}:
- $ref: paths/client-groups_{group_id}.yaml
- /client-tags:
- $ref: paths/client-tags.yaml
- /users:
- $ref: paths/users.yaml
- /users/{user_id}:
- $ref: paths/users_{user_id}.yaml
- /users/{user_id}/sessions:
- $ref: paths/users_{user_id}_sessions.yaml
- /users/{user_id}/sessions/{session_id}:
- $ref: paths/users_{user_id}_sessions_{session_id}.yaml
- /users/{user_id}/totp-secret:
- $ref: paths/users_{user_id}_totp-secret.yaml
- /user-groups:
- $ref: paths/user-groups.yaml
- /user-groups/{name}:
- $ref: paths/user-groups_{name}.yaml
- /vault-admin:
- $ref: paths/vault-admin.yaml
- /vault:
- $ref: paths/vault.yaml
- /vault/{id}:
- $ref: paths/vault_{id}.yaml
- /vault-admin/init:
- $ref: paths/vault-admin_init.yaml
- /vault-admin/sesame:
- $ref: paths/vault-admin_sesame.yaml
- /library/scripts:
- $ref: paths/library_scripts.yaml
- /library/scripts/{id}:
- $ref: paths/library_scripts_{id}.yaml
- /library/commands:
- $ref: paths/library_commands.yaml
- /library/commands/{id}:
- $ref: paths/library_commands_{id}.yaml
- /auditlog:
- $ref: paths/auditlog.yaml
- /auditlog/verify:
- $ref: paths/auditlog_verify.yaml
- /me/totp-secret:
- $ref: paths/me_totp-secret.yaml
- /clients/{client_id}/graph-metrics:
- $ref: paths/clients_{client_id}_graph-metrics.yaml
- /clients/{client_id}/graph-metrics/{graph_name}:
- $ref: paths/clients_{client_id}_graph-metrics_{graph_name}.yaml
- /clients/{client_id}/metrics:
- $ref: paths/clients_{client_id}_metrics.yaml
- /clients/{client_id}/mountpoints:
- $ref: paths/clients_{client_id}_mountpoints.yaml
- /clients/{client_id}/processes:
- $ref: paths/clients_{client_id}_processes.yaml
- /clients/{client_id}/stored-tunnels:
- $ref: paths/clients_{client_id}_stored-tunnels.yaml
- /clients/{client_id}/stored-tunnels/{id}:
- $ref: paths/clients_{client_id}_stored-tunnels_{id}.yaml
- /schedules:
- $ref: paths/schedules.yaml
- /schedules/{id}:
- $ref: paths/schedules_{id}.yaml
- /files:
- $ref: paths/files.yaml
- /notification-logs:
- $ref: paths/notification-logs.yaml
- /notification-logs/{notification-id}:
- $ref: paths/notification-logs-id.yaml
+  /login:
+    $ref: paths/login.yaml
+  /auth/provider:
+    $ref: paths/auth_provider.yaml
+  /logout:
+    $ref: paths/logout.yaml
+  /verify-2fa:
+    $ref: paths/verify-2fa.yaml
+  /me:
+    $ref: paths/me.yaml
+  /me/ip:
+    $ref: paths/me_ip.yaml
+  /me/tokens:
+    $ref: paths/me_token.yaml
+  /me/tokens/{prefix}:
+    $ref: paths/me_tokens_{prefix}.yaml
+  /me/token:
+    $ref: paths/me_token_deprecated.yaml
+  /status:
+    $ref: paths/status.yaml
+  /clients:
+    $ref: paths/clients.yaml
+  /tunnels:
+    $ref: paths/tunnels.yaml
+  /clients/{client_id}:
+    $ref: paths/clients_{client_id}.yaml
+  /clients/{client_id}/attributes:
+    $ref: paths/clients_{client_id}_attributes.yaml
+  /clients/{client_id}/tunnels:
+    $ref: paths/clients_{client_id}_tunnels.yaml
+  /clients/{client_id}/tunnels/{tunnel_id}:
+    $ref: paths/clients_{client_id}_tunnels_{tunnel_id}.yaml
+  /clients/{client_id}/tunnels/{tunnel_id}/acl:
+    $ref: paths/clients_{client_id}_tunnels_{tunnel_id}_acl.yaml
+  /clients/{client_id}/acl:
+    $ref: paths/clients_{client_id}_acl.yaml
+  /clients/{client_id}/updates-status:
+    $ref: paths/clients_{client_id}_updates-status.yaml
+  /clients/{client_id}/commands:
+    $ref: paths/clients_{client_id}_commands.yaml
+  /clients/{client_id}/scripts:
+    $ref: paths/clients_{client_id}_scripts.yaml
+  /scripts:
+    $ref: paths/scripts.yaml
+  /clients/{client_id}/commands/{job_id}:
+    $ref: paths/clients_{client_id}_commands_{job_id}.yaml
+  /commands:
+    $ref: paths/commands.yaml
+  /commands/{job_id}:
+    $ref: paths/commands_{job_id}.yaml
+  /commands/{job_id}/jobs:
+    $ref: paths/commands_{job_id}_jobs.yaml
+  /ws-ticket:
+    $ref: paths/ws-ticket.yaml
+  /ws/commands:
+    $ref: paths/ws_commands.yaml
+  /ws/scripts:
+    $ref: paths/ws_scripts.yaml
+  /ws/uploads:
+    $ref: paths/ws_uploads.yaml
+  /clients-auth:
+    $ref: paths/clients-auth.yaml
+  /clients-auth/{client_auth_id}:
+    $ref: paths/clients-auth_{client_auth_id}.yaml
+  /pairing:
+    $ref: paths/pairing.yaml
+  /client-groups:
+    $ref: paths/client-groups.yaml
+  /client-groups/{group_id}:
+    $ref: paths/client-groups_{group_id}.yaml
+  /client-tags:
+    $ref: paths/client-tags.yaml
+  /users:
+    $ref: paths/users.yaml
+  /users/{user_id}:
+    $ref: paths/users_{user_id}.yaml
+  /users/{user_id}/sessions:
+    $ref: paths/users_{user_id}_sessions.yaml
+  /users/{user_id}/sessions/{session_id}:
+    $ref: paths/users_{user_id}_sessions_{session_id}.yaml
+  /users/{user_id}/totp-secret:
+    $ref: paths/users_{user_id}_totp-secret.yaml
+  /user-groups:
+    $ref: paths/user-groups.yaml
+  /user-groups/{name}:
+    $ref: paths/user-groups_{name}.yaml
+  /vault-admin:
+    $ref: paths/vault-admin.yaml
+  /vault:
+    $ref: paths/vault.yaml
+  /vault/{id}:
+    $ref: paths/vault_{id}.yaml
+  /vault-admin/init:
+    $ref: paths/vault-admin_init.yaml
+  /vault-admin/sesame:
+    $ref: paths/vault-admin_sesame.yaml
+  /library/scripts:
+    $ref: paths/library_scripts.yaml
+  /library/scripts/{id}:
+    $ref: paths/library_scripts_{id}.yaml
+  /library/commands:
+    $ref: paths/library_commands.yaml
+  /library/commands/{id}:
+    $ref: paths/library_commands_{id}.yaml
+  /auditlog:
+    $ref: paths/auditlog.yaml
+  /auditlog/verify:
+    $ref: paths/auditlog_verify.yaml
+  /me/totp-secret:
+    $ref: paths/me_totp-secret.yaml
+  /clients/{client_id}/graph-metrics:
+    $ref: paths/clients_{client_id}_graph-metrics.yaml
+  /clients/{client_id}/graph-metrics/{graph_name}:
+    $ref: paths/clients_{client_id}_graph-metrics_{graph_name}.yaml
+  /clients/{client_id}/metrics:
+    $ref: paths/clients_{client_id}_metrics.yaml
+  /clients/{client_id}/mountpoints:
+    $ref: paths/clients_{client_id}_mountpoints.yaml
+  /clients/{client_id}/processes:
+    $ref: paths/clients_{client_id}_processes.yaml
+  /clients/{client_id}/stored-tunnels:
+    $ref: paths/clients_{client_id}_stored-tunnels.yaml
+  /clients/{client_id}/stored-tunnels/{id}:
+    $ref: paths/clients_{client_id}_stored-tunnels_{id}.yaml
+  /schedules:
+    $ref: paths/schedules.yaml
+  /schedules/{id}:
+    $ref: paths/schedules_{id}.yaml
+  /files:
+    $ref: paths/files.yaml
+  /notification-logs:
+    $ref: paths/notification-logs.yaml
+  /notification-logs/{notification_id}:
+    $ref: paths/notification-logs-id.yaml
 components:
- securitySchemes:
- basic_auth:
- type: http
- description: >-
- HTTP-basic authentication works for all routes. You can use user's
- password only when 2FA is not enabled. For scripting you can use
- long-lived API token generated using /me/tokens endpoint instead of the
- password.
- scheme: basic
- bearer_auth:
- type: apiKey
- description: >-
- Instead of HTTP basic authentication you can retrieve a bearer token
- using /login endpoint. Send the retrieved token in 'Authorization:
- Bearer <TOKEN>' header. If 2FA is enabled, the bearer token from /login
- endpoint can only be used in /verify-2fa or /me/totp-secret endpoints
- (see below).
- name: Authorization
- in: header
+  securitySchemes:
+    basic_auth:
+      type: http
+      description: >-
+        HTTP-basic authentication works for all routes. You can use user's
+        password only when 2FA is not enabled. For scripting you can use
+        long-lived API token generated using /me/tokens endpoint instead of the
+        password.
+      scheme: basic
+    bearer_auth:
+      type: apiKey
+      description: >-
+        Instead of HTTP basic authentication you can retrieve a bearer token
+        using /login endpoint. Send the retrieved token in 'Authorization:
+        Bearer <TOKEN>' header. If 2FA is enabled, the bearer token from /login
+        endpoint can only be used in /verify-2fa or /me/totp-secret endpoints
+        (see below).
+      name: Authorization
+      in: header

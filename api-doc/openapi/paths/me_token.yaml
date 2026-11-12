@@ -1,81 +1,81 @@
 post:
- tags:
- - Profile & Info
- summary: Generate a new API token for the current user and return it
- operationId: MeTokenPost
- requestBody:
- required: true
- content:
- application/json:
- schema:
- type: object
- required:
- - scope
- - name
- properties:
- scope:
- enum:
- - read
- - read+write
- - clients-auth
- description: what this token is authorized for
- name:
- type: string
- description: token name, 250 characters max, unique per user
- expires_at:
- type: string
- description: >-
- date and time when this token will expire. Optional; defaults to
- one year from creation.
- format: date-time
- responses:
- '200':
- description: API token
- content:
- application/json:
- schema:
- $ref: ../components/schemas/APIToken.yaml
- '400':
- description: missing or invalid scope / name, or a token with that name already exists
- content:
- application/json:
- schema:
- $ref: ../components/schemas/ErrorPayload.yaml
- '401':
- description: Unauthorized
- content:
- application/json:
- schema:
- $ref: ../components/schemas/ErrorPayload.yaml
- '500':
- description: Invalid Operation
- content:
- application/json:
- schema:
- $ref: ../components/schemas/ErrorPayload.yaml
+  tags:
+    - Profile & Info
+  summary: Generate a new API token for the current user and return it
+  operationId: MeTokenPost
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          type: object
+          required:
+            - scope
+            - name
+          properties:
+            scope:
+              enum:
+                - read
+                - read+write
+                - clients-auth
+              description: what this token is authorized for
+            name:
+              type: string
+              description: token name, 250 characters max, unique per user
+            expires_at:
+              type: string
+              description: >-
+                date and time when this token will expire. Optional; defaults to
+                one year from creation.
+              format: date-time
+  responses:
+    '200':
+      description: API token
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/APIToken.yaml
+    '400':
+      description: missing or invalid scope / name, or a token with that name already exists
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
+    '401':
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
+    '500':
+      description: Invalid Operation
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
 get:
- tags:
- - Profile & Info
- summary: Returns the current user's list of API tokens
- operationId: MeTokenGet
- responses:
- '200':
- description: Successful Operation
- content:
- application/json:
- schema:
- type: array
- items:
- $ref: ../components/schemas/APIToken.yaml
- '401':
- description: Unauthorized
- content:
- application/json:
- schema:
- $ref: ../components/schemas/ErrorPayload.yaml
- '500':
- description: Invalid Operation
- content:
- application/json:
- schema:
- $ref: ../components/schemas/ErrorPayload.yaml
+  tags:
+    - Profile & Info
+  summary: Returns the current user's list of API tokens
+  operationId: MeTokenGet
+  responses:
+    '200':
+      description: Successful Operation
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: ../components/schemas/APIToken.yaml
+    '401':
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
+    '500':
+      description: Invalid Operation
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
