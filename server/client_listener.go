@@ -534,7 +534,7 @@ func (cl *ClientListener) handleWebsocket(w http.ResponseWriter, req *http.Reque
 	}
 }
 
-// checkVersions print if client and server versions dont match.
+// checkVersions logs when the client and server versions don't match.
 func checkVersions(log *logger.DynamicLogger, clientVersion string) {
 	if clientVersion == chshare.BuildVersion {
 		return

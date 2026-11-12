@@ -1,4 +1,4 @@
-// TODO(v0.2): Replace NoopEvaluator with a real evaluator that loads
+// TODO: Replace NoopEvaluator with a real evaluator that loads
 // a Config.PolicyFile (YAML), compiles it into an internal rule
 // table, and evaluates Permit() in O(rules * matchers). The Noop
 // stub keeps the public type stable while the real engine is built.

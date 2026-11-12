@@ -178,7 +178,7 @@ nfpms:
     ids:
       - proxiport
     vendor: Proximile LLC
-    homepage: https://proxiport.net
+    homepage: https://docs.proxiport.net
     maintainer: Proximile LLC <191914090+proximile@users.noreply.github.com>
     description: |-
       ProxiPort agent. Idles on a remote machine, connects out to a
@@ -232,7 +232,7 @@ nfpms:
     ids:
       - proxiportd
     vendor: Proximile LLC
-    homepage: https://proxiport.net
+    homepage: https://docs.proxiport.net
     maintainer: Proximile LLC <191914090+proximile@users.noreply.github.com>
     description: |-
       ProxiPort server. Accepts WebSocket connections from ProxiPort

@@ -1,4 +1,4 @@
-// TODO(v0.2): Implement rule evaluation. The Rule shape below is the
+// TODO: Implement rule evaluation. The Rule shape below is the
 // minimum needed for a thresholded match against a monitoring
 // measurement; the real engine will also need:
 //   - hysteresis (don't refire within X seconds),

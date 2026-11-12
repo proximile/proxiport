@@ -1,4 +1,4 @@
-// TODO(v0.2): Replace this stub with a real SMTP sink. The likely
+// TODO: Replace this stub with a real SMTP sink. The likely
 // implementation reuses share/email or jordan-wright/email (already
 // a project dependency for the notifications package). Honor
 // EmailSinkConfig.StartTLS and read the password from the env var

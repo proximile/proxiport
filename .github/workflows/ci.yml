@@ -130,8 +130,8 @@ jobs:
           version: v2.12.2
           args: --timeout=5m
 
-      # Known-vulnerability scan of the module (deps + the Go stdlib version in
-      # go.mod). govulncheck is call-graph aware, so it only fails on vulns
+      # Known-vulnerability scan of the module (deps + the stdlib of the Go
+      # toolchain pinned above). govulncheck is call-graph aware, so it only fails on vulns
       # actually reachable from our code — low false-positive rate. The scanner
       # is pinned, because @latest is code resolved at run time in a job that
       # gates every merge and every release; bump it deliberately. The vuln
