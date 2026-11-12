@@ -99,6 +99,19 @@ new name and ends their sessions, so they sign in again. Before a new
 user takes a name, anything still stored under it is removed: a new user
 never inherits a token from an earlier user of the same name.
 
+An administrator can see and revoke another user's API tokens:
+
+| Request | Effect |
+|---|---|
+| `GET /api/v1/users/{username}/tokens` | Lists the user's tokens: prefix, name, scope and dates, never the token itself. |
+| `DELETE /api/v1/users/{username}/tokens/{prefix}` | Revokes one token. |
+| `DELETE /api/v1/users/{username}/tokens` | Revokes all of the user's tokens. |
+
+When an administrator sets a user's password or marks it expired, the
+user's sessions end and their API tokens are deleted. A user who changes
+their own password ends their sessions but keeps their API tokens, so
+after a suspected compromise check the token list as well.
+
 ## User stores
 
 Exactly one user store is active at a time. Combining the three modes

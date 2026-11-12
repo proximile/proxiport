@@ -106,7 +106,7 @@ func (al *APIListener) initRouter() {
 	clientMonitoring := clientDetails.NewRoute().Subrouter()
 	clientMonitoring.Use(al.permissionsMiddleware(users.PermissionMonitoring))
 	clientMonitoring.HandleFunc("/updates-status", al.handleRefreshUpdatesStatus).Methods(http.MethodPost)
-	if al.Server.config.Monitoring.Enabled {
+	if al.config.Monitoring.Enabled {
 		clientMonitoring.HandleFunc("/graph-metrics", al.handleGetClientGraphMetrics).Methods(http.MethodGet)
 		clientMonitoring.HandleFunc("/graph-metrics/{"+routes.ParamGraphName+"}", al.handleGetClientGraphMetricsGraph).Methods(http.MethodGet)
 		clientMonitoring.HandleFunc("/metrics", al.handleGetClientMetrics).Methods(http.MethodGet)
@@ -146,6 +146,10 @@ func (al *APIListener) initRouter() {
 	adminOnly.HandleFunc("/users/{user_id}/sessions", al.handleGetUserAPISessions).Methods(http.MethodGet)
 	adminOnly.HandleFunc("/users/{user_id}/sessions", al.handleDeleteAllUserAPISessions).Methods(http.MethodDelete)
 	adminOnly.HandleFunc("/users/{user_id}/sessions/{session_id}", al.handleDeleteUserAPISession).Methods(http.MethodDelete)
+
+	adminOnly.HandleFunc("/users/{user_id}/tokens", al.handleGetUserAPITokens).Methods(http.MethodGet)
+	adminOnly.HandleFunc("/users/{user_id}/tokens", al.handleDeleteAllUserAPITokens).Methods(http.MethodDelete)
+	adminOnly.HandleFunc("/users/{user_id}/tokens/{prefix}", al.handleDeleteUserAPIToken).Methods(http.MethodDelete)
 
 	adminOnly.HandleFunc("/user-groups", al.handleListUserGroups).Methods(http.MethodGet)
 	adminOnly.HandleFunc("/user-groups/{group_name}", al.wrapStaticPassModeMiddleware(al.handleGetUserGroup)).Methods(http.MethodGet)

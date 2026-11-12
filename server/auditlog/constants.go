@@ -15,6 +15,8 @@ const (
 	ApplicationAuthUser        = "auth.user"
 	ApplicationAuthUserMe      = "auth.user.me"
 	ApplicationAuthUserMeToken = "auth.user.me.token" //nolint:gosec
+	ApplicationAuthUserToken   = "auth.user.token"    //nolint:gosec
+	ApplicationAuthUserTokens  = "auth.user.tokens"   //nolint:gosec
 	ApplicationAuthUserTotP    = "auth.user.totp"
 	ApplicationAuthUserGroup   = "auth.user.group"
 	ApplicationAuthAPISession  = "auth.api.session"
