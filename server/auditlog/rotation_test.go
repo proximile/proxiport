@@ -117,6 +117,33 @@ func TestRotationTickerRotates(t *testing.T) {
 	}, 10*time.Second, 20*time.Millisecond, "background ticker must rotate the live db within the timeout")
 }
 
+// TestRotationDoesNothingAfterClose: a tick that is already waiting when Close
+// runs still reaches rotate. It must not rename the closed database and open a
+// new one, which would be left open with nothing to close it.
+func TestRotationDoesNothingAfterClose(t *testing.T) {
+	dir := t.TempDir()
+
+	rotation, err := newRotationProvider(nil, time.Hour, 0, dir, dso, nil)
+	require.NoError(t, err)
+	require.NoError(t, rotation.Save(&Entry{Timestamp: time.Now(), Username: "kept"}))
+	require.NoError(t, rotation.Close())
+
+	require.ErrorIs(t, rotation.rotate(), errAuditLogClosed)
+
+	matches, err := filepath.Glob(filepath.Join(dir, rotatedGlob))
+	require.NoError(t, err)
+	require.Empty(t, matches, "a closed provider must not rotate")
+
+	// The entry is still in the live database, which a new provider can open.
+	reopened, err := newRotationProvider(nil, time.Hour, 0, dir, dso, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reopened.Close() })
+	entries, err := reopened.List(context.Background(), &query.ListOptions{})
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "kept", entries[0].Username)
+}
+
 // assertRotatedSqlite opens the single rotated db in dir (found by glob, so it
 // does not depend on recomputing the rotation timestamp) and asserts it holds
 // exactly the expected entry.
