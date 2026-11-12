@@ -101,7 +101,7 @@ func NewServer(ctx context.Context, config *chconfig.Config, opts *ServerOpts) (
 		stagedUploads: newStagedUploadRegistry(),
 	}
 
-	s.acme = acme.New(s.Logger.Fork("acme"), config.Server.DataDir, config.Server.AcmeHTTPPort)
+	s.acme = acme.New(s.Fork("acme"), config.Server.DataDir, config.Server.AcmeHTTPPort)
 	if config.Server.InternalTunnelProxyConfig.EnableAcme {
 		s.acme.AddHost(config.Server.InternalTunnelProxyConfig.Host)
 	}
@@ -179,14 +179,14 @@ func NewServer(ctx context.Context, config *chconfig.Config, opts *ServerOpts) (
 	}
 
 	// even if monitoring disabled, always create the monitoring service to support queries of past data etc
-	s.monitoringService = monitoring.NewService(monitoringProvider, s.Logger.Fork("monitoring"))
+	s.monitoringService = monitoring.NewService(monitoringProvider, s.Fork("monitoring"))
 
-	s.monitoringQueue = monitoring.NewMeasurementQueuing(s.Logger.Fork("measurements-queue"), s.monitoringService, 10000)
+	s.monitoringQueue = monitoring.NewMeasurementQueuing(s.Fork("measurements-queue"), s.monitoringService, 10000)
 
 	sourceOptions := config.Server.GetSQLiteDataSourceOptions()
 
 	// particularly the client.db needs performant db access, so allow multi-threaded access
-	// and use the RetryWhenBusy fn to ensure writes succeed if we get a busy error due to
+	// and use the WithRetryWhenBusy fn to ensure writes succeed if we get a busy error due to
 	// concurrent thread access.
 	sourceOptions.MaxOpenConnections = DefaultMaxClientDBConnections
 
@@ -335,7 +335,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.config.Server.CheckClientsConnectionInterval,
 		s.config.Server.CheckClientsConnectionTimeout,
 	)
-	go scheduler.Run(ctx, s.Logger.Fork(fmt.Sprintf("task %T", clientsStatusCheckTask)), clientsStatusCheckTask, s.config.Server.CheckClientsConnectionInterval)
+	go scheduler.Run(ctx, s.Fork(fmt.Sprintf("task %T", clientsStatusCheckTask)), clientsStatusCheckTask, s.config.Server.CheckClientsConnectionInterval)
 	s.Infof("Task to check the clients connection status will run with interval %v", s.config.Server.CheckClientsConnectionInterval)
 
 	if s.config.Monitoring.Enabled {
@@ -349,25 +349,25 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 
 		monitoringCleanupTask := monitoring.NewCleanupTask(s.Logger, s.monitoringService, cleaningPeriod)
-		go scheduler.Run(ctx, s.Logger.Fork(fmt.Sprintf("task %T", monitoringCleanupTask)), monitoringCleanupTask, cleanupMeasurementsInterval)
+		go scheduler.Run(ctx, s.Fork(fmt.Sprintf("task %T", monitoringCleanupTask)), monitoringCleanupTask, cleanupMeasurementsInterval)
 		s.Infof("Task to cleanup measurements will run with interval %v", cleanupMeasurementsInterval)
 	} else {
 		s.Infof("Measurement disabled")
 	}
 
 	sessionsCleanupTask := session.NewCleanupTask(s.apiListener.apiSessions)
-	go scheduler.Run(ctx, s.Logger.Fork(fmt.Sprintf("task %T", sessionsCleanupTask)), sessionsCleanupTask, cleanupAPISessionsInterval)
+	go scheduler.Run(ctx, s.Fork(fmt.Sprintf("task %T", sessionsCleanupTask)), sessionsCleanupTask, cleanupAPISessionsInterval)
 	s.Infof("Task to cleanup expired api sessions will run with interval %v", cleanupAPISessionsInterval)
 
 	jobsCleanupTask := jobs.NewCleanupTask(s.jobProvider, s.config.Server.JobsMaxResults)
-	go scheduler.Run(ctx, s.Logger.Fork(fmt.Sprintf("task %T", jobsCleanupTask)), jobsCleanupTask, cleanupJobsInterval)
+	go scheduler.Run(ctx, s.Fork(fmt.Sprintf("task %T", jobsCleanupTask)), jobsCleanupTask, cleanupJobsInterval)
 	s.Infof("Task to cleanup jobs will run with interval %v", cleanupJobsInterval)
 
 	// Only on debug mode, log the number of running go routines
 	if s.config.Logging.LogLevel == logger.LogLevelDebug {
 		go func() {
 			for {
-				s.Logger.Debugf("Number of running go routines: %d", runtime.NumGoroutine())
+				s.Debugf("Number of running go routines: %d", runtime.NumGoroutine())
 				time.Sleep(LogNumGoRoutinesInterval)
 			}
 		}()
@@ -392,7 +392,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 // Start is responsible for kicking off the http server
 func (s *Server) Start(ctx context.Context) error {
-	s.Logger.Infof("will start server on %s", s.config.Server.ListenAddress)
+	s.Infof("will start server on %s", s.config.Server.ListenAddress)
 	err := s.clientListener.Start(ctx, s.config.Server.ListenAddress)
 	if err != nil {
 		return err
@@ -422,7 +422,7 @@ func (s *Server) Wait() error {
 }
 
 func (s *Server) Close() error {
-	s.Logger.Debugf("closing server")
+	s.Debugf("closing server")
 	wg := &errgroup.Group{}
 
 	wg.Go(s.clientListener.Close)
@@ -455,7 +455,7 @@ func (s *Server) Close() error {
 
 	err := wg.Wait()
 	if err != nil {
-		s.Logger.Errorf("error closing server: %v", err)
+		s.Errorf("error closing server: %v", err)
 	}
 
 	return err

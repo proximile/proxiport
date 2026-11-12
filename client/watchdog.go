@@ -3,7 +3,6 @@ package chclient
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,7 +16,7 @@ const (
 	WatchdogStateConnected    = "connected"
 	WatchdogStateInit         = "initialized"
 
-	// SdNotifyWatchdog tells the service manager to update the watchdog
+	// sdNotifyWatchdog tells the service manager to update the watchdog
 	// timestamp for the service.
 	sdNotifyWatchdog = "WATCHDOG=1"
 )
@@ -76,7 +75,7 @@ func (w *Watchdog) update(state string, msg string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal watchdog state: %s", err)
 	}
-	err = ioutil.WriteFile(w.stateFile, j, 0644) //nolint:gosec
+	err = os.WriteFile(w.stateFile, j, 0644) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to write watchdog state file %s: %s", w.stateFile, err)
 	}
