@@ -421,8 +421,8 @@ The Linux installer (`sudo sh proxiport-installer.sh -h` lists these too):
 | `-a <user>` | Run the agent as `<user>` instead of `proxiport-agent`, created if missing. Its directories follow the name: `/var/lib/<user>` and `/var/log/<user>`. |
 | `-g <tag>` | Add a tag to the client. |
 | `-d` | Identify the client by a random UUID instead of `/etc/machine-id`. |
-| `-z <url>` | Install the file at this URL instead of the GitHub release. **It is not checked against the signed checksums.** The name must end in `_linux_<arch>.tar.gz`, `.deb` or `.rpm`. On a host with `rpm` and `/etc/yum.repos.d` (RHEL and CentOS 6 and 7 excepted), or with `apt-get` on Debian buster to bookworm or Ubuntu bionic to jammy, the URL must be the `.rpm` or `.deb`; on any other host, or with `-p`, the `.tar.gz`. |
-| `-p` | With `-z`, take a `.tar.gz` on every host. Without `-z` it changes nothing: the installer always installs the release tarball. |
+| `-z <url>` | Install the file at this URL instead of the GitHub release. **It is not checked against the signed checksums.** The name must end in `_linux_<arch>.tar.gz`, `.deb` or `.rpm`. A `.tar.gz` works on every host. A `.deb` needs `apt-get` and an `.rpm` needs `rpm` (not on RHEL or CentOS 6 and 7); without the tool the installer stops before it downloads anything. |
+| `-p` | No effect. It is accepted so that existing command lines keep working. |
 | `-k` | If `cosign` is not installed and the pinned cosign cannot be downloaded (no build for this CPU, no route to GitHub, under 150 MB free in `/var/tmp`), go on with the SHA-256 check alone instead of stopping. That check catches a damaged download, not a release replaced together with its `checksums.txt`. |
 | `-l` | Install on a host with SELinux enforcing. The installer does not write SELinux policy; without `-l` it stops on such a host. |
 | `-t` | No effect. The installer's help calls it the unstable channel, but there are no unstable builds and the latest release is installed. |
