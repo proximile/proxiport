@@ -103,6 +103,11 @@ var serverHelp = `
     This is where the proxiport clients connect to.
     Defaults: "0.0.0.0:8080"
 
+    --url, The URL clients use to reach this server, if it differs from --addr,
+    for example behind a reverse proxy or a port forwarding. The API returns it and
+    the pairing script builds the client configuration from it.
+    Defaults to http://{addr}
+
     --use-ports, Defines port numbers or ranges of server ports,
     separated with comma that would be used for automatic and manual port assignment.
     Creating reverse tunnels will fail if the requested server port is not listed here.
@@ -177,7 +182,8 @@ var serverHelp = `
     ]
 
     --api-auth, Defines <user>:<password> authentication pair for accessing API
-    e.g. "admin:1234". Defaults to empty string: authorization not required.
+    e.g. "admin:1234". When the API is enabled, one of --api-auth, --api-authfile
+    or --api-auth-user-table is required.
 
     --api-auth-user-table, An optional arg to specify database table to use for API auth users.
 
@@ -202,15 +208,11 @@ var serverHelp = `
     --db-name, An optional arg to specify name for mysql database or file for sqlite.
 
     --data-dir, An optional arg to define a local directory path to store internal data.
-    By default, "/var/lib/proxiportd" is used on Linux, 'C:\ProgramData\proxiportd' is used on Windows.
+    By default, "/var/lib/proxiport" is used on Linux, 'C:\ProgramData\proxiport' is used on Windows.
     If the directory doesn't exist, it will be created. On Linux you must create this directory
     because an unprivileged user don't have the right to create a directory in /var/lib.
     Ideally this directory is the homedir of the proxiport user and has been created along with the user.
-    Example: useradd -r -d /var/lib/proxiportd -m -s /bin/false -U -c "System user for proxiport client and server" proxiport
-
-    --cleanup-clients-interval, An optional
-    arg to define an interval to clean up internal storage from obsolete disconnected clients.
-    By default, '1m' is used. It can contain "h"(hours), "m"(minutes), "s"(seconds).
+    Example: useradd -r -d /var/lib/proxiport -m -s /bin/false -U -c "ProxiPort server user" proxiport
 
     --check-port-timeout, An optional arg to define a timeout to check whether a remote destination of a requested
     new tunnel is available, i.e. whether a given remote port is open on a client machine. By default, "2s" is used.
@@ -225,7 +227,7 @@ var serverHelp = `
     By default is set to 10240(10Kb).
 
     --max-filepush-bytes, An optional arg to define a limit for the file size that can be uploaded to server.
-    By default is set to 10000000(10Mb).
+    By default is set to 10485760(10Mb).
 
     --max-request-bytes-client, An optional arg to define a limit for data that can be sent by proxiport clients.
     By default is set to 524288(512Kb).
@@ -246,7 +248,15 @@ var serverHelp = `
     configuration will be loaded from the file. Note: command arguments and env variables will override them.
     Config file should be in TOML format. You can find an example "proxiportd.example.conf" in the release archive.
 
-    --monitoring-data-storage-days, The number of days, client monitoring data is stored on server (defaults to 30)
+    --monitoring-enabled, Store the monitoring data that clients send.
+    Use --monitoring-enabled=false to switch monitoring off for every client.
+    Defaults: true
+
+    --monitoring-data-storage-duration, How long client monitoring data is kept on the server,
+    as a number followed by "h"(hours) or "d"(days), e.g. "36h". Older data is purged.
+    Defaults to "7d"
+
+    --monitoring-data-storage-days, Deprecated. Use --monitoring-data-storage-duration.
 
     --tunnel-proxy-cert-file, An optional arg to specify certificate file for http tunnel proxy.
     Https tunnel proxy can be activated if both cert and key file are set.
@@ -319,7 +329,6 @@ func init() {
 	lFlags.StringSlice("use-ports", nil, "")
 	lFlags.StringSliceP("exclude-ports", "e", nil, "")
 	lFlags.String("data-dir", "", "")
-	lFlags.Duration("save-clients-interval", 0, "")
 	lFlags.Int64("max-request-bytes", 0, "")
 	lFlags.Int64("max-filepush-bytes", 0, "")
 	lFlags.Int64("max-request-bytes-client", 0, "")
@@ -329,6 +338,8 @@ func init() {
 	lFlags.Bool("equate-clientauthid-clientid", false, "")
 	lFlags.Int("run-remote-cmd-timeout-sec", 0, "")
 	lFlags.Bool("allow-root", false, "")
+	lFlags.Bool("monitoring-enabled", false, "")
+	lFlags.String("monitoring-data-storage-duration", "", "")
 	lFlags.Int64("monitoring-data-storage-days", 0, "")
 	lFlags.String("tunnel-proxy-cert-file", "", "")
 	lFlags.String("tunnel-proxy-key-file", "", "")
@@ -425,56 +436,74 @@ func init() {
 	viperCfg.SetDefault("notifications.notification_script_dir", "/usr/local/lib/proxiport/notification_scripts")
 }
 
-func bindPFlags() {
-	pFlags := RootCmd.PersistentFlags()
-	// map config fields to CLI args:
-	// _ is used to ignore errors to pass linter check
-	_ = viperCfg.BindPFlag("server.address", pFlags.Lookup("addr"))
-	_ = viperCfg.BindPFlag("server.url", pFlags.Lookup("url"))
-	_ = viperCfg.BindPFlag("server.key_seed", pFlags.Lookup("key"))
-	_ = viperCfg.BindPFlag("server.auth", pFlags.Lookup("auth"))
-	_ = viperCfg.BindPFlag("server.auth_file", pFlags.Lookup("authfile"))
-	_ = viperCfg.BindPFlag("server.auth_table", pFlags.Lookup("auth-table"))
-	_ = viperCfg.BindPFlag("server.auth_multiuse_creds", pFlags.Lookup("auth-multiuse-creds"))
-	_ = viperCfg.BindPFlag("server.equate_clientauthid_clientid", pFlags.Lookup("equate-clientauthid-clientid"))
-	_ = viperCfg.BindPFlag("server.auth_write", pFlags.Lookup("auth-write"))
-	_ = viperCfg.BindPFlag("server.proxy", pFlags.Lookup("proxy"))
-	_ = viperCfg.BindPFlag("server.used_ports", pFlags.Lookup("use-ports"))
-	_ = viperCfg.BindPFlag("server.excluded_ports", pFlags.Lookup("exclude-ports"))
-	_ = viperCfg.BindPFlag("server.data_dir", pFlags.Lookup("data-dir"))
-	_ = viperCfg.BindPFlag("server.max_request_bytes_client", pFlags.Lookup("max-request-bytes-client"))
-	_ = viperCfg.BindPFlag("server.check_port_timeout", pFlags.Lookup("check-port-timeout"))
-	_ = viperCfg.BindPFlag("server.run_remote_cmd_timeout_sec", pFlags.Lookup("run-remote-cmd-timeout-sec"))
-	_ = viperCfg.BindPFlag("server.allow_root", pFlags.Lookup("allow-root"))
-	_ = viperCfg.BindPFlag("server.tunnel_proxy_cert_file", pFlags.Lookup("tunnel-proxy-cert-file"))
-	_ = viperCfg.BindPFlag("server.tunnel_proxy_key_file", pFlags.Lookup("tunnel-proxy-key-file"))
-	_ = viperCfg.BindPFlag("server.novnc_root", pFlags.Lookup("novnc-root"))
-	_ = viperCfg.BindPFlag("server.guacd_address", pFlags.Lookup("guacd-address"))
+// flagBindings maps each config setting to the command-line flag that
+// overrides it. Every flag the server defines is listed here, apart from the
+// few that act directly (--config, --service, --service-user).
+var flagBindings = []struct{ setting, flag string }{
+	{"server.address", "addr"},
+	{"server.url", "url"},
+	{"server.key_seed", "key"},
+	{"server.auth", "auth"},
+	{"server.auth_file", "authfile"},
+	{"server.auth_table", "auth-table"},
+	{"server.auth_multiuse_creds", "auth-multiuse-creds"},
+	{"server.equate_clientauthid_clientid", "equate-clientauthid-clientid"},
+	{"server.auth_write", "auth-write"},
+	{"server.proxy", "proxy"},
+	{"server.used_ports", "use-ports"},
+	{"server.excluded_ports", "exclude-ports"},
+	{"server.data_dir", "data-dir"},
+	{"server.max_request_bytes_client", "max-request-bytes-client"},
+	{"server.check_port_timeout", "check-port-timeout"},
+	{"server.run_remote_cmd_timeout_sec", "run-remote-cmd-timeout-sec"},
+	{"server.allow_root", "allow-root"},
+	{"server.tunnel_proxy_cert_file", "tunnel-proxy-cert-file"},
+	{"server.tunnel_proxy_key_file", "tunnel-proxy-key-file"},
+	{"server.novnc_root", "novnc-root"},
+	{"server.guacd_address", "guacd-address"},
 
-	_ = viperCfg.BindPFlag("logging.log_file", pFlags.Lookup("log-file"))
-	_ = viperCfg.BindPFlag("logging.log_level", pFlags.Lookup("log-level"))
+	{"logging.log_file", "log-file"},
+	{"logging.log_level", "log-level"},
 
-	_ = viperCfg.BindPFlag("api.address", pFlags.Lookup("api-addr"))
-	_ = viperCfg.BindPFlag("api.auth", pFlags.Lookup("api-auth"))
-	_ = viperCfg.BindPFlag("api.auth_file", pFlags.Lookup("api-authfile"))
-	_ = viperCfg.BindPFlag("api.auth_user_table", pFlags.Lookup("api-auth-user-table"))
-	_ = viperCfg.BindPFlag("api.auth_group_table", pFlags.Lookup("api-auth-group-table"))
-	_ = viperCfg.BindPFlag("api.jwt_secret", pFlags.Lookup("api-jwt-secret"))
-	_ = viperCfg.BindPFlag("api.doc_root", pFlags.Lookup("api-doc-root"))
-	_ = viperCfg.BindPFlag("api.cert_file", pFlags.Lookup("api-cert-file"))
-	_ = viperCfg.BindPFlag("api.key_file", pFlags.Lookup("api-key-file"))
-	_ = viperCfg.BindPFlag("api.access_log_file", pFlags.Lookup("api-access-log-file"))
-	_ = viperCfg.BindPFlag("api.max_request_bytes", pFlags.Lookup("max-request-bytes"))
-	_ = viperCfg.BindPFlag("api.max_filepush_size", pFlags.Lookup("max-filepush-bytes"))
-	_ = viperCfg.BindPFlag("database.db_type", pFlags.Lookup("db-type"))
-	_ = viperCfg.BindPFlag("database.db_name", pFlags.Lookup("db-name"))
-	_ = viperCfg.BindPFlag("database.db_host", pFlags.Lookup("db-host"))
-	_ = viperCfg.BindPFlag("database.db_user", pFlags.Lookup("db-user"))
-	_ = viperCfg.BindPFlag("database.db_password", pFlags.Lookup("db-password"))
+	{"api.address", "api-addr"},
+	{"api.auth", "api-auth"},
+	{"api.auth_file", "api-authfile"},
+	{"api.auth_user_table", "api-auth-user-table"},
+	{"api.auth_group_table", "api-auth-group-table"},
+	{"api.jwt_secret", "api-jwt-secret"},
+	{"api.doc_root", "api-doc-root"},
+	{"api.cert_file", "api-cert-file"},
+	{"api.key_file", "api-key-file"},
+	{"api.access_log_file", "api-access-log-file"},
+	{"api.max_request_bytes", "max-request-bytes"},
+	{"api.max_filepush_size", "max-filepush-bytes"},
 
-	_ = viperCfg.BindPFlag("monitoring.data_storage_duration", pFlags.Lookup("monitoring-data-storage-duration"))
-	_ = viperCfg.BindPFlag("monitoring.enabled", pFlags.Lookup("monitoring-enabled"))
-	_ = viperCfg.BindPFlag("monitoring.data_storage_days", pFlags.Lookup("monitoring-data-storage-days"))
+	{"database.db_type", "db-type"},
+	{"database.db_name", "db-name"},
+	{"database.db_host", "db-host"},
+	{"database.db_user", "db-user"},
+	{"database.db_password", "db-password"},
+
+	{"monitoring.data_storage_duration", "monitoring-data-storage-duration"},
+	{"monitoring.enabled", "monitoring-enabled"},
+	{"monitoring.data_storage_days", "monitoring-data-storage-days"},
+}
+
+// bindPFlags makes the command-line flags override the config file. The flags
+// are defined on the root command's local flag set, so that is where they are
+// looked up; a binding that names an undefined flag is an error, not a no-op.
+func bindPFlags() error {
+	flags := RootCmd.Flags()
+	for _, b := range flagBindings {
+		f := flags.Lookup(b.flag)
+		if f == nil {
+			return fmt.Errorf("flag --%s is bound to %s but not defined", b.flag, b.setting)
+		}
+		if err := viperCfg.BindPFlag(b.setting, f); err != nil {
+			return fmt.Errorf("bind --%s to %s: %w", b.flag, b.setting, err)
+		}
+	}
+	return nil
 }
 
 func main() {
@@ -525,7 +554,9 @@ func runMain(*cobra.Command, []string) {
 	}
 
 	// Bind command line arguments late, so they're not included in validation for service install
-	bindPFlags()
+	if err := bindPFlags(); err != nil {
+		log.Fatal(err)
+	}
 
 	err := decodeAndValidateConfig(&mLog)
 	if err != nil {

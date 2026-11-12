@@ -88,7 +88,7 @@ post:
  summary: Execute a command by the proxiport client
  operationId: ClientCommandsPost
  description: >-
- NOTE: if command limitation is enabled by an proxiport client then a full path
+ NOTE: if command limitation is enabled by a proxiport client then a full path
  command can be required to use. parameters:
  - name: client_id
  in: path
@@ -107,7 +107,7 @@ post:
  type: string
  description: >-
  remote command to execute by the proxiport client. NOTE: if command
- limitation is enabled by an proxiport client then a full path
+ limitation is enabled by a proxiport client then a full path
  command can be required to use. interpreter:
  type: string
  description: >-

@@ -20,6 +20,6 @@
    <String Id="FeatureMainProgramTitle">Main program</String>
 
    <String Id="ServiceDisplayName">ProxiPort client</String>
-   <String Id="ServiceDescription">Connects the system to an ProxiPort server for remote access and remote management</String>
+   <String Id="ServiceDescription">Connects the system to a ProxiPort server for remote access and remote management</String>
 
 </WixLocalization>
