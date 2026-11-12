@@ -15,6 +15,8 @@ type DbProvider interface {
 	GetAll(ctx context.Context, username string) ([]*APIToken, error)
 	Save(ctx context.Context, tokenLine *APIToken) error
 	Delete(ctx context.Context, username, prefix string) error
+	DeleteAllByUser(ctx context.Context, username string) error
+	RenameUser(ctx context.Context, from, to string) error
 	io.Closer
 }
 
@@ -76,6 +78,7 @@ func checkNameExist(ctx context.Context, db DbProvider, username, name string) e
 			return err
 		}
 		if item != nil {
+			//nolint:staticcheck // ST1005: API clients are shown this text as it is
 			return fmt.Errorf("A token with the same name already exists")
 		}
 	}
@@ -92,6 +95,16 @@ func (m *Manager) Delete(ctx context.Context, username, prefix string) error {
 	}
 
 	return nil
+}
+
+// DeleteAllByUser removes every token stored for the username.
+func (m *Manager) DeleteAllByUser(ctx context.Context, username string) error {
+	return m.db.DeleteAllByUser(ctx, username)
+}
+
+// RenameUser moves every token stored for one username to another.
+func (m *Manager) RenameUser(ctx context.Context, from, to string) error {
+	return m.db.RenameUser(ctx, from, to)
 }
 
 func (m *Manager) Close() error {

@@ -69,7 +69,7 @@ func TestGet(t *testing.T) {
 	db, err := sqlite.New(":memory:", api_token.AssetNames(), api_token.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 
 	ctx := context.Background()
 
@@ -93,7 +93,7 @@ func TestList(t *testing.T) {
 	db, err := sqlite.New(":memory:", api_token.AssetNames(), api_token.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	t.Cleanup(func() { dbProv.Close() })
+	t.Cleanup(func() { _ = dbProv.Close() })
 
 	err = addDemoData(dbProv.db)
 	require.NoError(t, err)
@@ -113,7 +113,7 @@ func TestCreate(t *testing.T) {
 	db, err := sqlite.New(":memory:", api_token.AssetNames(), api_token.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 
 	require.NoError(t, err)
 
@@ -142,7 +142,7 @@ func TestUpdate(t *testing.T) {
 	db, err := sqlite.New(":memory:", api_token.AssetNames(), api_token.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 
 	require.NoError(t, err)
 
@@ -176,7 +176,7 @@ func TestUpdateOneAtATimeName(t *testing.T) {
 	db, err := sqlite.New(":memory:", api_token.AssetNames(), api_token.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 
 	require.NoError(t, err)
 
@@ -210,7 +210,7 @@ func TestUpdateOneAtATimeExpiresAt(t *testing.T) {
 	db, err := sqlite.New(":memory:", api_token.AssetNames(), api_token.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 
 	require.NoError(t, err)
 
@@ -244,7 +244,7 @@ func TestDelete(t *testing.T) {
 	db, err := sqlite.New(":memory:", api_token.AssetNames(), api_token.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 
 	ctx := context.Background()
 
@@ -299,4 +299,58 @@ func addDemoData(db *sqlx.DB) error {
 	}
 
 	return nil
+}
+
+func TestDeleteAllByUser(t *testing.T) {
+	db, err := sqlite.New(":memory:", api_token.AssetNames(), api_token.Asset, DataSourceOptions)
+	require.NoError(t, err)
+	dbProv := NewSqliteProvider(db)
+	defer func() { _ = dbProv.Close() }()
+
+	ctx := context.Background()
+	require.NoError(t, addDemoData(dbProv.db))
+
+	// username4 holds two tokens.
+	require.NoError(t, dbProv.DeleteAllByUser(ctx, "username4"))
+
+	left, err := dbProv.GetAll(ctx, "username4")
+	require.NoError(t, err)
+	assert.Empty(t, left)
+
+	for _, other := range []string{"username1", "username2", "username3"} {
+		kept, err := dbProv.GetAll(ctx, other)
+		require.NoError(t, err)
+		assert.Len(t, kept, 1, "the tokens of %s must be untouched", other)
+	}
+
+	// A user without tokens is not an error.
+	require.NoError(t, dbProv.DeleteAllByUser(ctx, "nobody"))
+}
+
+func TestRenameUser(t *testing.T) {
+	db, err := sqlite.New(":memory:", api_token.AssetNames(), api_token.Asset, DataSourceOptions)
+	require.NoError(t, err)
+	dbProv := NewSqliteProvider(db)
+	defer func() { _ = dbProv.Close() }()
+
+	ctx := context.Background()
+	require.NoError(t, addDemoData(dbProv.db))
+
+	require.NoError(t, dbProv.RenameUser(ctx, "username4", "renamed"))
+
+	left, err := dbProv.GetAll(ctx, "username4")
+	require.NoError(t, err)
+	assert.Empty(t, left)
+
+	moved, err := dbProv.GetAll(ctx, "renamed")
+	require.NoError(t, err)
+	require.Len(t, moved, 2)
+
+	token, err := dbProv.Get(ctx, "renamed", "prefix41")
+	require.NoError(t, err)
+	require.NotNil(t, token)
+	assert.Equal(t, "onelongtoken41", token.Token)
+
+	// A user without tokens is not an error.
+	require.NoError(t, dbProv.RenameUser(ctx, "nobody", "somebody"))
 }

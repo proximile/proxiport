@@ -93,6 +93,12 @@ stops authenticating on the next request. The token is a random secret
 stored as a bcrypt hash and checked against the database on every
 request, so once its row is deleted it no longer matches.
 
+Deleting a user through the API or the web UI deletes that user's API
+tokens and ends their sessions. Renaming a user moves their tokens to the
+new name and ends their sessions, so they sign in again. Before a new
+user takes a name, anything still stored under it is removed: a new user
+never inherits a token from an earlier user of the same name.
+
 ## User stores
 
 Exactly one user store is active at a time. Combining the three modes
@@ -464,6 +470,10 @@ sudo -u proxiport proxiportd user change -u alice -p \
 
 Run it as the `proxiport` system user, not root, or the JSON file's
 permissions will end up unreadable by the daemon.
+
+`proxiportd user delete` also deletes the user's API tokens and stored
+sessions. It cannot reach the sessions a running daemon holds in memory:
+those end when they expire or when the daemon restarts.
 
 With the JSON file store, the running daemon keeps its own copy of the
 user list, so it does not see the change until you reload it:

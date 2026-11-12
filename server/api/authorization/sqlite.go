@@ -121,6 +121,28 @@ func (p *SqliteProvider) Delete(ctx context.Context, username, prefix string) er
 	return nil
 }
 
+// DeleteAllByUser removes every token stored for the username. A username
+// without tokens is not an error.
+func (p *SqliteProvider) DeleteAllByUser(ctx context.Context, username string) error {
+	_, err := p.db.ExecContext(ctx, "DELETE FROM api_tokens WHERE username = ?", username)
+	if err != nil {
+		return fmt.Errorf("unable to delete the api tokens of a user: %w", err)
+	}
+
+	return nil
+}
+
+// RenameUser moves every token stored for one username to another, so that a
+// renamed user keeps their tokens. The new name must hold no tokens.
+func (p *SqliteProvider) RenameUser(ctx context.Context, from, to string) error {
+	_, err := p.db.ExecContext(ctx, "UPDATE api_tokens SET username = ? WHERE username = ?", to, from)
+	if err != nil {
+		return fmt.Errorf("unable to move the api tokens of a renamed user: %w", err)
+	}
+
+	return nil
+}
+
 func (p *SqliteProvider) Close() error {
 	if p.db != nil {
 		return p.db.Close()
