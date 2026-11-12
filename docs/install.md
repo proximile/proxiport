@@ -399,11 +399,12 @@ To bring an agent up over Tor or a VPN from the start, the installer takes
 `-o` and `-e`; see [Installing with the pairing
 script](anonymous-transport.md#installing-with-the-pairing-script).
 
-The installer checks the agent package against the release's signed
-checksums before it installs anything, as described in
-[Verify a release](#verify-a-release). If `cosign` is not installed it
+The installer downloads the agent's release tarball and checks it against
+the release's signed checksums before it installs anything, as described
+in [Verify a release](#verify-a-release). If `cosign` is not installed it
 downloads a pinned cosign release for the check (about 150 MB) and
-deletes it afterwards.
+deletes it afterwards. A file given with `-z` is the exception: it is
+installed with neither check, so verify it yourself first.
 
 #### Installer switches
 
@@ -420,11 +421,11 @@ The Linux installer (`sudo sh proxiport-installer.sh -h` lists these too):
 | `-a <user>` | Run the agent as `<user>` instead of `proxiport-agent`, created if missing. Its directories follow the name: `/var/lib/<user>` and `/var/log/<user>`. |
 | `-g <tag>` | Add a tag to the client. |
 | `-d` | Identify the client by a random UUID instead of `/etc/machine-id`. |
-| `-p` | Install from the tarball instead of the `.deb` or `.rpm`. |
-| `-z <url>` | Install a package from this URL instead of the GitHub release. |
+| `-z <url>` | Install the file at this URL instead of the GitHub release. **It is not checked against the signed checksums.** The name must end in `_linux_<arch>.tar.gz`, `.deb` or `.rpm`. On a host with `rpm` and `/etc/yum.repos.d` (RHEL and CentOS 6 and 7 excepted), or with `apt-get` on Debian buster to bookworm or Ubuntu bionic to jammy, the URL must be the `.rpm` or `.deb`; on any other host, or with `-p`, the `.tar.gz`. |
+| `-p` | With `-z`, take a `.tar.gz` on every host. Without `-z` it changes nothing: the installer always installs the release tarball. |
 | `-k` | If `cosign` is not installed and the pinned cosign cannot be downloaded (no build for this CPU, no route to GitHub, under 150 MB free in `/var/tmp`), go on with the SHA-256 check alone instead of stopping. That check catches a damaged download, not a release replaced together with its `checksums.txt`. |
 | `-l` | Install on a host with SELinux enforcing. The installer does not write SELinux policy; without `-l` it stops on such a host. |
-| `-t` | Install the latest unstable build instead of the latest release. Not for production. |
+| `-t` | No effect. The installer's help calls it the unstable channel, but there are no unstable builds and the latest release is installed. |
 | `-f` | Overwrite existing files and configuration. |
 | `-u` | Uninstall the agent, its configuration and its logs. |
 
@@ -442,9 +443,11 @@ powershell -ExecutionPolicy Bypass -File .\proxiport-installer.ps1
 
 It installs the agent under `C:\Program Files\proxiport\` as a service
 running as the local system account, and takes `-x` (remote commands and
-scripts), `-r` (file reception), `-g <tag>`, `-t`, `-k` and `-d` (write
-the config and exit without installing the service). It has no Tor or
-proxy switches yet.
+scripts), `-r` (file reception), `-g <tag>`, `-k` and `-d` (write
+the config and exit without installing the service). `-pkgUrl <url>`
+installs a `windows_x86_64.zip` from an `https://` URL instead of the
+GitHub release, without the signature and checksum check. `-t` is
+accepted and has no effect. It has no Tor or proxy switches yet.
 
 #### Updating an agent
 
@@ -461,8 +464,10 @@ agent already has full sudo rights, it asks whether to grant them, and if
 `proxiport.conf` has no `[remote-scripts]` section it asks whether to
 enable scripts. Answer in advance to run it without a terminal: `-s` or
 `-n` (grant full sudo, or not), `-x` or `-d` (enable scripts, or not),
-for example `sudo sh proxiport-update.sh -n -d`. It also takes `-k`,
-`-z <url>` and `-u`. On Windows, fetch
+for example `sudo sh proxiport-update.sh -n -d`. It also takes `-k`
+and `-z <url>`, which installs a `.deb` or `.rpm` from that URL with
+neither check. `-u` does not update: it uninstalls the agent and removes
+its configuration and logs. On Windows, fetch
 `https://pairing.proxiport.net/update` with `iwr` and run it the same
 way as the installer.
 
