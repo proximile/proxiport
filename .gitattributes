@@ -1,0 +1,3 @@
+# Count the third-party stylesheet the tunnel proxy embeds as vendored code
+# in the repository language statistics.
+server/clients/clienttunnel/css/semantic.css linguist-vendored

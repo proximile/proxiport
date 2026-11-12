@@ -11,7 +11,7 @@ here conflicts with `NOTICE`, the `NOTICE` file is authoritative.
 | 2022 | rport | RealVNC Limited (acquired) | MIT | continued FOSS development |
 | Sep 2023 | rport | RealVNC Limited | proprietary | source closed; subsequent versions are not FOSS |
 | 2024 | openrport | openrport authors | MIT | community fork of the last MIT rport tree |
-| Jun 2025 | openrport | (effectively unmaintained) | MIT | last commit early-mid 2025; single-author |
+| Jun 2025 | openrport | (effectively unmaintained) | MIT | no release since 0.9.14 (Nov 2023); only occasional commits since mid-2025 |
 | 2026 | **ProxiPort** | Proximile LLC | AGPL-3.0-or-later | this project |
 
 ProxiPort imports the openrport Go server and agent tree at the

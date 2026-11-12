@@ -13,7 +13,9 @@ over an outbound WebSocket, so it works behind NAT without inbound
 firewall rules.
 
 This page covers a single-server install on Linux and a single Linux
-agent. For Windows and macOS agents, see
+agent. Windows agents can use the pairing installer too (see
+[Installer switches](#installer-switches)); for macOS agents, or Windows
+without pairing, see
 [Manual install — Windows and macOS](#manual-install-windows-and-macos).
 
 ## Server
@@ -43,7 +45,9 @@ ships the server for `linux/amd64` and `linux/arm64` in three formats:
 
 Asset filenames carry the version; the snippets below resolve the
 latest tag from the GitHub API before downloading. Substitute `arm64`
-for `x86_64` on aarch64 hosts.
+for `x86_64` on aarch64 hosts. Check each file against the release's
+signed checksums before you install it; see
+[Verify a release](#verify-a-release).
 
 #### Debian / Ubuntu
 
@@ -59,7 +63,8 @@ sudo dpkg -i "proxiportd_${VER#v}_linux_x86_64.deb"
 ```sh
 VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
         | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
-sudo rpm -ivh "https://github.com/proximile/proxiport/releases/download/${VER}/proxiportd_${VER#v}_linux_x86_64.rpm"
+curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxiportd_${VER#v}_linux_x86_64.rpm"
+sudo rpm -ivh "proxiportd_${VER#v}_linux_x86_64.rpm"
 ```
 
 #### Tarball (other distributions)
@@ -384,13 +389,82 @@ service. This means pairing works from any deployment's own hostname, and
 your server needs outbound network access to `pairing_url` (the
 `pairing.proxiport.net` default, or your own instance). Set `pairing_url = ""`
 in the `[server]` section to turn pairing off. The **Add credential**
-dialog on **Settings → Client Access** then closes once the credential
-is created and skips the pairing step, and the server answers
+dialog on **Settings → Client Access** then skips the pairing step: once
+the credential is created it shows the new agent's `[client]` settings,
+password included, with a copy button, and closes when you choose
+**Done**. The password is not shown again. The server answers
 `POST /api/v1/pairing` with `409 ERR_CODE_PAIRING_DISABLED`.
 
 To bring an agent up over Tor or a VPN from the start, the installer takes
 `-o` and `-e`; see [Installing with the pairing
 script](anonymous-transport.md#installing-with-the-pairing-script).
+
+The installer checks the agent package against the release's signed
+checksums before it installs anything, as described in
+[Verify a release](#verify-a-release). If `cosign` is not installed it
+downloads a pinned cosign release for the check (about 150 MB) and
+deletes it afterwards.
+
+#### Installer switches
+
+The Linux installer (`sudo sh proxiport-installer.sh -h` lists these too):
+
+| Switch | Effect |
+| --- | --- |
+| `-x` | Enable remote commands and scripts with **no restriction**: the command allow list becomes `['.*']` and the deny list is emptied. Without `-x`, remote commands are disabled. To allow only some commands, leave `-x` off and edit `[remote-commands]` afterwards (see [Command execution](command-execution.md)). |
+| `-s` | Write `/etc/sudoers.d/proxiport-all-cmd`, which gives the agent's account **passwordless sudo for every command**. Commands sent with sudo then run as root. |
+| `-r` | Enable file reception: the server can push files to this host. |
+| `-b` | With `-r`, write `/etc/sudoers.d/proxiport-filereception`, which lets the agent's account run `chown` and `mv` as root on staged pushes. In effect that is write access to the whole filesystem; the agent's own `protected` list is the only limit. |
+| `-o` | Reach the server through the local tor daemon. See [Anonymous transport](anonymous-transport.md#installing-with-the-pairing-script). |
+| `-e <entry>` | Add an entry to the agent's egress chain. Repeatable; `direct` must be last. |
+| `-a <user>` | Run the agent as `<user>` instead of `proxiport-agent`, created if missing. Its directories follow the name: `/var/lib/<user>` and `/var/log/<user>`. |
+| `-g <tag>` | Add a tag to the client. |
+| `-d` | Identify the client by a random UUID instead of `/etc/machine-id`. |
+| `-p` | Install from the tarball instead of the `.deb` or `.rpm`. |
+| `-z <url>` | Install a package from this URL instead of the GitHub release. |
+| `-k` | If `cosign` is not installed and the pinned cosign cannot be downloaded (no build for this CPU, no route to GitHub, under 150 MB free in `/var/tmp`), go on with the SHA-256 check alone instead of stopping. That check catches a damaged download, not a release replaced together with its `checksums.txt`. |
+| `-l` | Install on a host with SELinux enforcing. The installer does not write SELinux policy; without `-l` it stops on such a host. |
+| `-t` | Install the latest unstable build instead of the latest release. Not for production. |
+| `-f` | Overwrite existing files and configuration. |
+| `-u` | Uninstall the agent, its configuration and its logs. |
+
+`-s` and `-b` grant root. Prefer narrow sudoers rules written by hand:
+see [Command execution](command-execution.md) and
+[file reception](tunnel-hosting.md#privileged-writes).
+
+For a Windows agent, the pairing dialog also shows a PowerShell command.
+Run it in an elevated PowerShell:
+
+```powershell
+iwr https://pairing.proxiport.net/<code> -OutFile proxiport-installer.ps1
+powershell -ExecutionPolicy Bypass -File .\proxiport-installer.ps1
+```
+
+It installs the agent under `C:\Program Files\proxiport\` as a service
+running as the local system account, and takes `-x` (remote commands and
+scripts), `-r` (file reception), `-g <tag>`, `-t`, `-k` and `-d` (write
+the config and exit without installing the service). It has no Tor or
+proxy switches yet.
+
+#### Updating an agent
+
+The pairing service also serves an updater. It needs no pairing code:
+
+```sh
+curl https://pairing.proxiport.net/update -o proxiport-update.sh
+sudo sh proxiport-update.sh
+```
+
+It downloads the latest agent release, checks it the same way as the
+installer, replaces the binary and restarts the service. Unless the
+agent already has full sudo rights, it asks whether to grant them, and if
+`proxiport.conf` has no `[remote-scripts]` section it asks whether to
+enable scripts. Answer in advance to run it without a terminal: `-s` or
+`-n` (grant full sudo, or not), `-x` or `-d` (enable scripts, or not),
+for example `sudo sh proxiport-update.sh -n -d`. It also takes `-k`,
+`-z <url>` and `-u`. On Windows, fetch
+`https://pairing.proxiport.net/update` with `iwr` and run it the same
+way as the installer.
 
 The agent ships in the same three package formats as the server, plus
 tarballs for a wider platform list: Linux (amd64, arm64, i386, armv6,
@@ -401,6 +475,9 @@ OpenBSD (amd64, arm64, i386) and NetBSD (amd64, arm64). `.deb` and
 `.rpm` are published for every Linux variant.
 
 #### Manual install — Debian / Ubuntu
+
+Check the file before you install it; see
+[Verify a release](#verify-a-release).
 
 ```sh
 VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
@@ -414,7 +491,8 @@ sudo dpkg -i "proxiport_${VER#v}_linux_x86_64.deb"
 ```sh
 VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
         | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
-sudo rpm -ivh "https://github.com/proximile/proxiport/releases/download/${VER}/proxiport_${VER#v}_linux_x86_64.rpm"
+curl -LO "https://github.com/proximile/proxiport/releases/download/${VER}/proxiport_${VER#v}_linux_x86_64.rpm"
+sudo rpm -ivh "proxiport_${VER#v}_linux_x86_64.rpm"
 ```
 
 #### Manual install — tarball (other platforms)
@@ -511,9 +589,53 @@ Refresh the SPA. The new agent shows up in the inventory.
 
 ![The Inventory page with connected agents; your new agent appears as a row here.](screenshots/01-inventory-dashboard.png)
 
+## Verify a release
+
+Every release publishes `checksums.txt`, a SHA-256 line for each file,
+and a Sigstore signature over it (`checksums.txt.sig`, with the signing
+certificate in `checksums.txt.pem`). The signature shows that the
+project's release workflow produced `checksums.txt` for a version tag.
+The checksum then ties your download to that list. The pairing
+installer and updater do both checks for you; do them yourself for a
+manual install.
+
+With [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
+installed, in the directory that holds the downloaded file:
+
+```sh
+VER=$(curl -fsSL https://api.github.com/repos/proximile/proxiport/releases/latest \
+        | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
+BASE="https://github.com/proximile/proxiport/releases/download/${VER}"
+curl -fLO "$BASE/checksums.txt" -fLO "$BASE/checksums.txt.sig" -fLO "$BASE/checksums.txt.pem"
+
+cosign verify-blob \
+  --certificate checksums.txt.pem --signature checksums.txt.sig \
+  --certificate-identity-regexp '^https://github\.com/proximile/proxiport/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+
+FILE="proxiportd_${VER#v}_linux_x86_64.deb"     # the file you downloaded
+grep "  ${FILE}\$" checksums.txt | sha256sum -c -
+```
+
+`cosign` prints `Verified OK` and `sha256sum` prints `<file>: OK`. Stop
+if either fails, or if `grep` finds no line for the file. cosign 3
+warns that `--certificate` and `--signature` are deprecated; the check
+still runs and these release files need them. Keep the
+identity expression exactly as written: it is anchored at both ends, so
+a signature from any other repository, workflow or ref does not match.
+On macOS, use `shasum -a 256 -c -` in place of `sha256sum -c -`. On
+Windows, compare `(Get-FileHash <file> -Algorithm SHA256).Hash` with the
+file's line in `checksums.txt`.
+
+A checksum check without the signature check only catches a damaged
+download. Someone who can replace a release file can replace
+`checksums.txt` with it.
+
 ## Upgrading
 
-Install the new package over the old one. The binaries, the unit files
+Install the new package over the old one; check it first as in
+[Verify a release](#verify-a-release). The binaries, the unit files
 and the bundled SPA are replaced. Your databases and the other server
 state in `/var/lib/proxiport` are not moved, and your settings are
 kept. The package changes only these things, and only where they still
