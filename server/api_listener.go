@@ -221,6 +221,8 @@ func NewAPIListener(
 	if err != nil {
 		return nil, fmt.Errorf("failed init api users service: %w", err)
 	}
+	// A user's API tokens are deleted with the user and follow a rename.
+	userService.AddCredentialStore(tokenManager)
 
 	var HTTPServerOptions []chshare.ServerOption
 	if config.API.CertFile != "" && config.API.KeyFile != "" {
@@ -336,6 +338,8 @@ func NewAPIListener(
 	if err != nil {
 		return nil, err
 	}
+	// A user's sessions end when the user is deleted or renamed.
+	userService.AddCredentialStore(a.apiSessions)
 
 	a.initRouter()
 

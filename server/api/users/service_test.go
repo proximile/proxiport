@@ -1,6 +1,7 @@
 package users
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -551,4 +552,105 @@ func TestCheckPermission(t *testing.T) {
 			}
 		})
 	}
+}
+
+// credentialStoreSpy records what the service asks a credential store to do.
+type credentialStoreSpy struct {
+	calls []string
+	err   error
+}
+
+func (s *credentialStoreSpy) DeleteAllByUser(_ context.Context, username string) error {
+	s.calls = append(s.calls, "delete "+username)
+	return s.err
+}
+
+// credentialMoverSpy is a store whose entries can follow a renamed user.
+type credentialMoverSpy struct {
+	credentialStoreSpy
+}
+
+func (s *credentialMoverSpy) RenameUser(_ context.Context, from, to string) error {
+	s.calls = append(s.calls, "rename "+from+" to "+to)
+	return s.err
+}
+
+func newServiceWithStores(provider Provider) (*APIService, *credentialStoreSpy, *credentialMoverSpy) {
+	sessions := &credentialStoreSpy{}
+	tokens := &credentialMoverSpy{}
+	service := &APIService{Provider: provider, PasswordZxcvbnMinscore: -1}
+	service.AddCredentialStore(sessions)
+	service.AddCredentialStore(tokens)
+	return service, sessions, tokens
+}
+
+// A new user must not inherit what an earlier user of the same name left in
+// the credential stores.
+func TestAddUserClearsLeftoverCredentials(t *testing.T) {
+	service, sessions, tokens := newServiceWithStores(&ProviderMock{})
+
+	require.NoError(t, service.Change(&User{Username: "user1", Password: "pass1"}, ""))
+
+	assert.Equal(t, []string{"delete user1"}, sessions.calls)
+	assert.Equal(t, []string{"delete user1"}, tokens.calls)
+}
+
+func TestAddUserStopsWhenCredentialsCannotBeCleared(t *testing.T) {
+	provider := &ProviderMock{}
+	service, sessions, _ := newServiceWithStores(provider)
+	sessions.err = errors.New("store is broken")
+
+	err := service.Change(&User{Username: "user1", Password: "pass1"}, "")
+
+	require.ErrorContains(t, err, "store is broken")
+	assert.Empty(t, provider.UsersToAdd, "the user must not be created over credentials that could not be cleared")
+}
+
+// On a rename the new name is cleared first, then tokens follow the user and
+// sessions under the old name end.
+func TestRenameUserMovesOrClearsCredentials(t *testing.T) {
+	provider := &ProviderMock{UsersToGive: []*User{{Username: "old"}}}
+	service, sessions, tokens := newServiceWithStores(provider)
+
+	require.NoError(t, service.Change(&User{Username: "new"}, "old"))
+
+	assert.Equal(t, "old", provider.UsernameToUpdate)
+	assert.Equal(t, []string{"delete new", "delete old"}, sessions.calls)
+	assert.Equal(t, []string{"delete new", "rename old to new"}, tokens.calls)
+}
+
+func TestUpdateUserWithoutRenameLeavesCredentials(t *testing.T) {
+	provider := &ProviderMock{UsersToGive: []*User{{Username: "user1"}}}
+	service, sessions, tokens := newServiceWithStores(provider)
+
+	require.NoError(t, service.Change(&User{Password: "pass2"}, "user1"))
+	require.NoError(t, service.Change(&User{Username: "user1", Password: "pass3"}, "user1"))
+
+	assert.Empty(t, sessions.calls)
+	assert.Empty(t, tokens.calls)
+}
+
+func TestDeleteUserClearsCredentials(t *testing.T) {
+	service, sessions, tokens := newServiceWithStores(&ProviderMock{UsersToGive: []*User{{Username: "user1"}}})
+
+	require.NoError(t, service.Delete("user1"))
+
+	assert.Equal(t, []string{"delete user1"}, sessions.calls)
+	assert.Equal(t, []string{"delete user1"}, tokens.calls)
+}
+
+// A provider that refuses the deletion keeps the user, so the user keeps their
+// tokens and sessions.
+func TestRefusedDeleteLeavesCredentials(t *testing.T) {
+	provider := &ProviderMock{
+		UsersToGive:         []*User{{Username: "user1"}},
+		ErrorToGiveOnDelete: errors.New("failed to delete"),
+	}
+	service, sessions, tokens := newServiceWithStores(provider)
+
+	require.EqualError(t, service.Delete("user1"), "failed to delete")
+	require.Error(t, service.Delete("unknown_user"))
+
+	assert.Empty(t, sessions.calls)
+	assert.Empty(t, tokens.calls)
 }

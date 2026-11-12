@@ -33,6 +33,23 @@ type Provider interface {
 	Delete(usernameToDelete string) error
 }
 
+// CredentialStore keeps credentials by username outside the user provider: API
+// tokens and API sessions. The service clears every store when a username stops
+// denoting the user it did, and again before a new user takes a name. Without
+// that, a token issued to a deleted user authenticated whoever was next given
+// the same username, with that user's permissions.
+type CredentialStore interface {
+	// DeleteAllByUser removes everything stored for the username. A username
+	// with nothing stored is not an error.
+	DeleteAllByUser(ctx context.Context, username string) error
+}
+
+// CredentialMover is a CredentialStore whose entries follow a renamed user
+// instead of being removed.
+type CredentialMover interface {
+	RenameUser(ctx context.Context, from, to string) error
+}
+
 type APIService struct {
 	DeliverySrv            message.Service
 	Provider               Provider
@@ -40,6 +57,41 @@ type APIService struct {
 	TotPOn                 bool
 	PasswordMinLength      int
 	PasswordZxcvbnMinscore int
+
+	credentialStores []CredentialStore
+}
+
+// AddCredentialStore registers a store to be kept in step with user creation,
+// renaming and deletion.
+func (as *APIService) AddCredentialStore(store CredentialStore) {
+	as.credentialStores = append(as.credentialStores, store)
+}
+
+// clearCredentials removes everything the stores hold for the username.
+func (as *APIService) clearCredentials(username string) error {
+	for _, store := range as.credentialStores {
+		if err := store.DeleteAllByUser(context.Background(), username); err != nil {
+			return fmt.Errorf("failed to remove the credentials stored for user %q: %w", username, err)
+		}
+	}
+	return nil
+}
+
+// moveCredentials takes what the stores hold for a renamed user to the new
+// name where a store can do that, and removes it where it cannot.
+func (as *APIService) moveCredentials(from, to string) error {
+	for _, store := range as.credentialStores {
+		var err error
+		if mover, ok := store.(CredentialMover); ok {
+			err = mover.RenameUser(context.Background(), from, to)
+		} else {
+			err = store.DeleteAllByUser(context.Background(), from)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to update the credentials stored for renamed user %q: %w", from, err)
+		}
+	}
+	return nil
 }
 
 func NewAPIService(provider Provider, twoFAOn bool, passwordMinLength int, PasswordZxcvbnMinscore int) *APIService {
@@ -346,6 +398,11 @@ func (as *APIService) addUser(dataToChange *User) error {
 		}
 	}
 
+	// Whatever is still stored under this name belonged to someone else.
+	if err := as.clearCredentials(dataToChange.Username); err != nil {
+		return err
+	}
+
 	err = as.Provider.Add(dataToChange)
 	if err != nil {
 		return err
@@ -368,7 +425,8 @@ func (as *APIService) updateUser(dataToChange *User, usernameToFind string) erro
 		}
 	}
 
-	if dataToChange.Username != "" && dataToChange.Username != usernameToFind {
+	renamed := dataToChange.Username != "" && dataToChange.Username != usernameToFind
+	if renamed {
 		existingUser, err := as.Provider.GetByUsername(dataToChange.Username)
 		if err != nil {
 			return err
@@ -379,13 +437,20 @@ func (as *APIService) updateUser(dataToChange *User, usernameToFind string) erro
 				HTTPStatus: http.StatusBadRequest,
 			}
 		}
+		// Whatever is still stored under the new name belonged to someone else.
+		if err := as.clearCredentials(dataToChange.Username); err != nil {
+			return err
+		}
 	}
 
 	err = as.Provider.Update(dataToChange, usernameToFind)
 	if err != nil {
 		return err
 	}
-	// TODO: if a username changes needs to update username in api tokens table also
+
+	if renamed {
+		return as.moveCredentials(usernameToFind, dataToChange.Username)
+	}
 
 	return nil
 }
@@ -395,7 +460,6 @@ func (as *APIService) Delete(usernameToDelete string) error {
 	if err != nil {
 		return err
 	}
-	// TODO: deleting a user needs to delete all his api tokens
 
 	if user == nil {
 		return errors2.APIError{
@@ -404,7 +468,13 @@ func (as *APIService) Delete(usernameToDelete string) error {
 		}
 	}
 
-	return as.Provider.Delete(usernameToDelete)
+	if err := as.Provider.Delete(usernameToDelete); err != nil {
+		return err
+	}
+
+	// After the user, not before: a provider that refuses the deletion must
+	// leave the user's tokens and sessions alone.
+	return as.clearCredentials(usernameToDelete)
 }
 
 func GenerateTokenHash(newTokenClear string) (string, error) {
