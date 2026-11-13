@@ -167,6 +167,19 @@ agent for `ban_time` with a few made-up credentials. Failed logins
 through the onion are still throttled per client auth ID by
 `client_login_wait`.
 
+The same holds for the API and the web UI if you publish their port
+through an onion service as well: all callers arrive from `127.0.0.1`.
+The API then counts failed logins per user name rather than per address
+(see
+[login throttling](api-authentication.md#login-throttling-and-second-factor-limits)),
+so nobody can lock out everyone else, but a caller who knows a user
+name can still keep that name from signing in through the onion. If the
+onion is meant for a known set of operators, turn on Tor's client
+authorization for it (an `authorized_clients` directory in the
+`HiddenServiceDir`). Client authorization covers the whole onion
+address, so use a separate onion service for the API if agents should
+not need a key.
+
 ## Running over a VPN
 
 There are two shapes, and they are not equivalent.

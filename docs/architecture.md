@@ -221,4 +221,5 @@ feed a ban list keyed on the source IP plus username, with a 2-second
 penalty (`[api] user_login_wait`) after a failed attempt, which is
 what produces the `429 too many requests` response under brute force
 or session-expiry cascades. A separate per-IP ban list
-(`[api] max_failed_login` / `ban_time`) also counts failed attempts.
+(`[api] max_failed_login` / `ban_time`) also counts failed attempts;
+for callers with a loopback address it counts per user name instead.

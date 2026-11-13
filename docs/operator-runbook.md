@@ -576,7 +576,11 @@ names the setting to turn on (`totp_enabled = true` in
   (default 600). The SPA stops sending API calls once its token is
   gone; if you write your own client, stop retrying on the first `401`
   and re-authenticate, so a burst of rejected calls does not lock out
-  your own address.
+  your own address. Callers that reach the API from a loopback address
+  (through an onion service, or a same-host reverse proxy that is not
+  in `trusted_proxies`) are counted per user name instead of per
+  address; see
+  [login throttling](api-authentication.md#login-throttling-and-second-factor-limits).
 - **Agent refuses to connect with "fingerprint mismatch".** Either
   the server's `key_seed` changed or the agent's
   `fingerprint = "..."` value is stale. Compare the fingerprint

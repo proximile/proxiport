@@ -12,7 +12,7 @@ func (al *APIListener) handleDeleteLogout(w http.ResponseWriter, req *http.Reque
 	tokenStr, tokenProvided := bearer.GetBearerToken(req)
 	if tokenStr == "" || !tokenProvided {
 		// ban IP if it sends a lot of bad requests
-		if !al.handleBannedIPs(req, false) {
+		if !al.handleBannedIPs(req, false, "") {
 			return
 		}
 		al.jsonErrorResponse(w, http.StatusBadRequest, fmt.Errorf("authorization Bearer token required"))
@@ -45,7 +45,8 @@ func (al *APIListener) handleDeleteLogout(w http.ResponseWriter, req *http.Reque
 		al.jsonErrorResponse(w, http.StatusInternalServerError, err)
 		return
 	}
-	if !al.handleBannedIPs(req, valid) {
+	// A rejected token names nobody whose password could be guessed.
+	if !al.handleBannedIPs(req, valid, "") {
 		return
 	}
 	if !valid {
