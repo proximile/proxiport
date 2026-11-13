@@ -248,6 +248,20 @@ TLS 1.2 for legacy clients:
 Anything older than 1.2 is hard-rejected. ProxiPort does not implement
 SSLv3 / TLS 1.0 / TLS 1.1 fallbacks and will not.
 
+## Key exchange
+
+The server does not set a list of key-exchange groups of its own. It
+uses the defaults of the Go release it was built with, which offer the
+hybrid post-quantum group `X25519MLKEM768` first, then X25519 and the
+NIST curves P-256, P-384 and P-521. A client that supports the hybrid
+group gets it; older clients negotiate one of the others. This applies
+to the API and web UI listener and to the built-in tunnel proxy. To see
+what a connection negotiated, with OpenSSL 3.5 or later:
+
+```bash
+echo | openssl s_client -connect proxiport.example.com:443 2>/dev/null | grep -i 'group'
+```
+
 ## Verifying the setup
 
 ```bash
