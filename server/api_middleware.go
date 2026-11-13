@@ -222,6 +222,11 @@ func (al *APIListener) updateTokenAccess(ctx context.Context, token string, acce
 		return nil
 	}
 
+	// Never record one token's use on a session that is not its own.
+	if !bearer.SessionMatchesToken(sessionInfo, tokenCtx.AppClaims) {
+		return nil
+	}
+
 	sessionInfo.LastAccessAt = accessTime
 	sessionInfo.UserAgent = userAgent
 	sessionInfo.IPAddress = remoteAddress

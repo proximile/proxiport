@@ -2,11 +2,12 @@ package bearer
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -91,12 +92,20 @@ func CreateAuthToken(
 
 	expiresAt := time.Now().Add(lifetime)
 
+	// The token's id is stored with its session and checked on every use,
+	// which ties the token to this one session: see SessionMatchesToken.
+	tokenID, err := newTokenID()
+	if err != nil {
+		return "", err
+	}
+
 	newSession := session.APISession{
 		ExpiresAt:    expiresAt,
 		Username:     username,
 		LastAccessAt: time.Now(),
 		UserAgent:    userAgent,
 		IPAddress:    remoteAddress,
+		TokenID:      tokenID,
 	}
 	sessionID, err := sessionUpdater.Save(ctx, newSession)
 	if err != nil {
@@ -107,7 +116,7 @@ func CreateAuthToken(
 		Username:  username,
 		SessionID: sessionID,
 		StandardClaims: jwt.StandardClaims{
-			Id: strconv.FormatUint(rand.Uint64(), 10),
+			Id: tokenID,
 			// A real expiry in the token itself, so it is self-limiting even if
 			// the server-side session check is ever bypassed. Equals the minted
 			// lifetime (already capped at DefaultMaxTokenLifetime), giving an
@@ -125,6 +134,35 @@ func CreateAuthToken(
 	}
 
 	return tokenStr, nil
+}
+
+// newTokenID returns 128 random bits in hex.
+func newTokenID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate a token id: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// SessionMatchesToken reports whether a stored session is the one a token
+// was issued for: same user, same token id.
+//
+// The session id in a token is not enough to find its session. A session row
+// is deleted on logout, on a password change and when an administrator ends
+// it, and a later login can then be stored under an id the token still
+// names; a token that was revoked would be accepted again, as its own user,
+// against whoever's session that now is. The user name closes that across
+// users. The token id, which only the server and the token's holder know,
+// closes it for a later session of the same user.
+func SessionMatchesToken(sessionInfo session.APISession, claims *AppTokenClaims) bool {
+	if claims == nil || claims.Username == "" || sessionInfo.Username != claims.Username {
+		return false
+	}
+	if sessionInfo.TokenID == "" || claims.Id == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(sessionInfo.TokenID), []byte(claims.Id)) == 1
 }
 
 func IncreaseSessionLifetime(
@@ -223,6 +261,15 @@ func ValidateBearerToken(
 			tokCtx.AppClaims.Username,
 		)
 		return false, session.APISession{}, err
+	}
+
+	if !SessionMatchesToken(sessionInfo, tokCtx.AppClaims) {
+		l.Errorf(
+			"Token of %s does not belong to login session %d",
+			tokCtx.AppClaims.Username,
+			tokCtx.AppClaims.SessionID,
+		)
+		return false, session.APISession{}, nil
 	}
 
 	isValidByExpirationTime := sessionInfo.ExpiresAt.After(time.Now())

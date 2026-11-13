@@ -55,6 +55,15 @@ func (p *Cache) Save(ctx context.Context, session APISession) (sessionID int64, 
 	// make sure the session id is included in the cache version.
 	session.SessionID = sessionID
 
+	// The storage never changes a session's token id on an update, so the
+	// cached copy must not lose it either when a caller saves a session it
+	// built itself rather than one it read from here.
+	if session.TokenID == "" {
+		if found, existing, _ := p.getFromCache(sessionID); found {
+			session.TokenID = existing.TokenID
+		}
+	}
+
 	p.cache.Set(formatID(sessionID), session, time.Until(session.ExpiresAt))
 
 	return sessionID, nil
