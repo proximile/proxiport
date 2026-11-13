@@ -1,15 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { page } from '$app/stores';
-  import { apiGet, apiGetPage, apiPost, apiPut, apiDelete, asList, ApiException } from '$lib/api';
-  import type { Schedule, Client, ClientGroup } from '$lib/types';
-  import { fmtDate } from '$lib/format';
-  import { base64ToUtf8 } from '$lib/encoding';
-  import { formFromSchedule, lastRun, scheduleBody, scheduleFormError, type ScheduleForm } from '$lib/schedules';
-  import { pushToast } from '$lib/stores';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { page } from '$app/state';
+  import { apiGet, apiGetPage, apiPost, apiPut, apiDelete, asList, ApiException } from '#lib/api.ts';
+  import type { Schedule, Client, ClientGroup } from '#lib/types.ts';
+  import { fmtDate } from '#lib/format.ts';
+  import { base64ToUtf8 } from '#lib/encoding.ts';
+  import { formFromSchedule, lastRun, scheduleBody, scheduleFormError, type ScheduleForm } from '#lib/schedules.ts';
+  import { pushToast } from '#lib/stores.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
 
   const PAGE_SIZE = 100;
 
@@ -93,7 +93,7 @@
   onMount(async () => {
     await load();
     // Deep links from a client's Schedules tab.
-    const q = $page.url.searchParams;
+    const q = page.url.searchParams;
     const editId = q.get('edit');
     const forClient = q.get('client');
     if (editId) await startEdit(editId);

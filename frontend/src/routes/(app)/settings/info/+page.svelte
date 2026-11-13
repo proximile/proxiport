@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiGet } from '$lib/api';
-  import type { ServerStatus } from '$lib/types';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import KV from '$lib/components/KV.svelte';
+  import { apiGet } from '#lib/api.ts';
+  import type { ServerStatus } from '#lib/types.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import KV from '#lib/components/KV.svelte';
 
   let status: ServerStatus | null = $state(null);
   let provider: any = $state(null);

@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { page } from '$app/stores';
-  import { apiGet, apiGetPage } from '$lib/api';
-  import type { Client, Schedule } from '$lib/types';
-  import { fmtDate } from '$lib/format';
-  import { lastRun, scheduleReach } from '$lib/schedules';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import Spinner from '$lib/components/Spinner.svelte';
+  import { page } from '$app/state';
+  import { apiGet, apiGetPage } from '#lib/api.ts';
+  import type { Client, Schedule } from '#lib/types.ts';
+  import { fmtDate } from '#lib/format.ts';
+  import { lastRun, scheduleReach } from '#lib/schedules.ts';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import Spinner from '#lib/components/Spinner.svelte';
 
   const PAGE_SIZE = 100;
 
@@ -46,15 +46,15 @@
   }
 
   $effect(() => {
-    const id = $page.params.id;
+    const id = page.params.id;
     if (id) load(id);
   });
 </script>
 
 <div class="space-y-4">
   <div class="flex items-center justify-end gap-2">
-    <a class="btn btn-primary" href={`/commands/schedules?new=1&client=${encodeURIComponent($page.params.id ?? '')}`}>New schedule</a>
-    <button class="btn btn-ghost" onclick={() => $page.params.id && load($page.params.id)}>Refresh</button>
+    <a class="btn btn-primary" href={`/commands/schedules?new=1&client=${encodeURIComponent(page.params.id ?? '')}`}>New schedule</a>
+    <button class="btn btn-ghost" onclick={() => page.params.id && load(page.params.id)}>Refresh</button>
   </div>
   <ErrorBox message={error} />
   {#if note}<div class="text-xs text-amber-300">{note}</div>{/if}

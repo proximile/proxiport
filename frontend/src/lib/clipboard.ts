@@ -1,4 +1,4 @@
-import { pushToast } from '$lib/stores';
+import { pushToast } from '#lib/stores.ts';
 
 /**
  * Copy text to the clipboard and toast the result. Falls back to a hidden

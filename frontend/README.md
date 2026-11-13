@@ -1,7 +1,7 @@
 # ProxiPort frontend
 
 The OSS web UI for ProxiPort. Originally written for ProxiPort, no
-upstream history. SvelteKit 2 + Svelte 5 + TypeScript + Tailwind 4.
+upstream history. SvelteKit 3 + Svelte 5 + TypeScript + Tailwind 4.
 Licensed under AGPL-3.0-or-later along with the rest of the project
 (see `../LICENSE`).
 
@@ -30,6 +30,11 @@ network can reach it and, through its `/api` proxy, the backend. Run
 Static SPA via `@sveltejs/adapter-static` with `fallback: 'index.html'`.
 Build output is plain HTML/JS/CSS that gets served from the ProxiPort
 server's `doc_root` directory.
+
+SvelteKit is configured in `vite.config.ts`, through the options of the
+`sveltekit()` plugin. Code under `src/lib/` is imported as `#lib/...`
+with the file extension (`#lib/api.ts`, `#lib/components/KV.svelte`);
+the alias is the `imports` entry in `package.json`.
 
 - `src/lib/api.ts` — tiny fetch wrapper that injects the JWT, surfaces
   errors as throws, and clears the session token on 401 (except on the

@@ -1,11 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { page } from '$app/stores';
-  import { apiGet } from '$lib/api';
-  import { getClientContext } from '$lib/clientContext';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import Spinner from '$lib/components/Spinner.svelte';
+  import { page } from '$app/state';
+  import { apiGet } from '#lib/api.ts';
+  import { getClientContext } from '#lib/clientContext.ts';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import Spinner from '#lib/components/Spinner.svelte';
 
   type Attributes = { tags?: string[] | null; labels?: Record<string, string> | null };
 
@@ -34,7 +34,7 @@
   }
 
   $effect(() => {
-    const id = $page.params.id;
+    const id = page.params.id;
     if (id) untrack(() => load(id));
   });
 

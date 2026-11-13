@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { sidebarCollapsed, sidebarMobileOpen } from '../stores';
 
   // `mobile` is true below the md breakpoint, where the sidebar is an
@@ -138,14 +138,14 @@
           <li>
             <a
               href={item.href}
-              aria-current={active(item, $page.url.pathname) ? 'page' : undefined}
+              aria-current={active(item, page.url.pathname) ? 'page' : undefined}
               aria-label={collapsed ? item.label : undefined}
               onclick={() => sidebarMobileOpen.set(false)}
               class="flex items-center gap-3 px-3 py-2 mx-2 my-0.5 rounded-md text-sm transition-colors"
-              class:bg-pp-surface-2={active(item, $page.url.pathname)}
-              class:text-indigo-300={active(item, $page.url.pathname)}
-              class:text-slate-300={!active(item, $page.url.pathname)}
-              class:hover:bg-pp-surface-2={!active(item, $page.url.pathname)}
+              class:bg-pp-surface-2={active(item, page.url.pathname)}
+              class:text-indigo-300={active(item, page.url.pathname)}
+              class:text-slate-300={!active(item, page.url.pathname)}
+              class:hover:bg-pp-surface-2={!active(item, page.url.pathname)}
               title={collapsed ? item.label : ''}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-shrink-0">

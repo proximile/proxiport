@@ -1,5 +1,5 @@
 <script lang="ts">
-  import AuditTable from '$lib/components/AuditTable.svelte';
+  import AuditTable from '#lib/components/AuditTable.svelte';
 </script>
 
 <div class="p-6 space-y-4">

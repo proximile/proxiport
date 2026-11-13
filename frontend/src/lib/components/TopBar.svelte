@@ -46,7 +46,7 @@
 
   async function doLogout() {
     await logout();
-    goto('/auth', { replaceState: true });
+    goto('/auth', { replace: true });
   }
 </script>
 

@@ -1,14 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiGet, apiDelete } from '$lib/api';
-  import type { Tunnel, Client } from '$lib/types';
-  import { fmtRelative } from '$lib/format';
-  import { tunnelPublicUrl, fmtIdle } from '$lib/clientData';
-  import { pushToast } from '$lib/stores';
-  import { copyToClipboard, sshCommandFor } from '$lib/clipboard';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import Spinner from '$lib/components/Spinner.svelte';
+  import { apiGet, apiDelete } from '#lib/api.ts';
+  import type { Tunnel, Client } from '#lib/types.ts';
+  import { fmtRelative } from '#lib/format.ts';
+  import { tunnelPublicUrl, fmtIdle } from '#lib/clientData.ts';
+  import { pushToast } from '#lib/stores.ts';
+  import { copyToClipboard, sshCommandFor } from '#lib/clipboard.ts';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import Spinner from '#lib/components/Spinner.svelte';
 
   type Row = Tunnel & { client_name?: string };
   let rows: Row[] = $state([]);

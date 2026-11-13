@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { vaultStatus, vaultStatusError } from '$lib/stores';
-  import { refreshVaultStatus } from '$lib/api';
+  import { vaultStatus, vaultStatusError } from '#lib/stores.ts';
+  import { refreshVaultStatus } from '#lib/api.ts';
   import Spinner from './Spinner.svelte';
   let { what = 'this section', plural = false }: { what?: string; plural?: boolean } = $props();
 

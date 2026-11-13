@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiGet, apiPost, apiDelete, ApiException } from '$lib/api';
-  import type { User } from '$lib/types';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import KV from '$lib/components/KV.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import { pushToast } from '$lib/stores';
+  import { apiGet, apiPost, apiDelete, ApiException } from '#lib/api.ts';
+  import type { User } from '#lib/types.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import KV from '#lib/components/KV.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import { pushToast } from '#lib/stores.ts';
 
   let me: User | null = $state(null);
   let loading = $state(true);

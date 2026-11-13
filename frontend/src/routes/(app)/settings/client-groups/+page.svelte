@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiGet } from '$lib/api';
-  import type { ClientGroup } from '$lib/types';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { apiGet } from '#lib/api.ts';
+  import type { ClientGroup } from '#lib/types.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
 
   let rows: ClientGroup[] = $state([]);
   let loading = $state(true);

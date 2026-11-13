@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { apiGetList } from '$lib/api';
-  import type { Client } from '$lib/types';
-  import { fmtRelative, fmtBytes } from '$lib/format';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { apiGetList } from '#lib/api.ts';
+  import type { Client } from '#lib/types.ts';
+  import { fmtRelative, fmtBytes } from '#lib/format.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
 
   function rowClick(c: Client, e: MouseEvent) {
     // let nested anchors/buttons handle their own clicks

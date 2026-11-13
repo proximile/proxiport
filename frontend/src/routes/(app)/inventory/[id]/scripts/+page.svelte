@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { page } from '$app/stores';
-  import { apiPost, apiGet, apiErrorText } from '$lib/api';
-  import type { Job } from '$lib/types';
-  import { finishedJobOutput, isJobFinished, parseTimeoutSec, pollDeadlineMs } from '$lib/jobs';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import { utf8ToBase64 } from '$lib/encoding';
+  import { page } from '$app/state';
+  import { apiPost, apiGet, apiErrorText } from '#lib/api.ts';
+  import type { Job } from '#lib/types.ts';
+  import { finishedJobOutput, isJobFinished, parseTimeoutSec, pollDeadlineMs } from '#lib/jobs.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import { utf8ToBase64 } from '#lib/encoding.ts';
 
   let script = $state('#!/bin/bash\nset -e\nuname -a\n');
   let interpreter = $state('/bin/bash');
@@ -41,7 +41,7 @@
     running = true;
     error = '';
     stream = [];
-    const id = $page.params.id;
+    const id = page.params.id;
     try {
       const payload: any = {
         script: utf8ToBase64(script),
@@ -60,7 +60,7 @@
   }
 
   async function pollResult(jid: string, timeoutSec: number) {
-    const id = $page.params.id;
+    const id = page.params.id;
     const deadline = Date.now() + pollDeadlineMs(timeoutSec);
     while (running && !destroyed) {
       await new Promise((r) => setTimeout(r, 800));

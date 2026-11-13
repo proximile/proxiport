@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiGet, apiPut, apiDelete, ApiException } from '$lib/api';
-  import type { Group, ServerStatus } from '$lib/types';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import { pushToast } from '$lib/stores';
+  import { apiGet, apiPut, apiDelete, ApiException } from '#lib/api.ts';
+  import type { Group, ServerStatus } from '#lib/types.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import { pushToast } from '#lib/stores.ts';
 
   const ADMIN_GROUP = 'Administrators';
   const PERM_KEYS = ['tunnels', 'commands', 'scripts', 'scheduler', 'monitoring', 'auditlog', 'uploads', 'vault'];

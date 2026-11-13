@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { apiGet, apiPost, apiDelete, ApiException } from '$lib/api';
-  import type { ClientAuthEntry } from '$lib/types';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { apiGet, apiPost, apiDelete, ApiException } from '#lib/api.ts';
+  import type { ClientAuthEntry } from '#lib/types.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
   import {
     appendFlags,
     egressFlags,
@@ -12,9 +12,9 @@
     proxyError,
     proxyIsTor,
     withFetchProxy
-  } from '$lib/pairingFlags';
-  import { copyToClipboard } from '$lib/clipboard';
-  import { modal, focusInitial } from '$lib/dialog';
+  } from '#lib/pairingFlags.ts';
+  import { copyToClipboard } from '#lib/clipboard.ts';
+  import { modal, focusInitial } from '#lib/dialog.ts';
 
   let rows: ClientAuthEntry[] = $state([]);
   let loading = $state(true);
@@ -302,7 +302,7 @@
 
   // Compose the installer-flag string from the checkboxes. The pairing
   // service returns the un-flagged base form; flag selection is a
-  // client-side concern ($lib/pairingFlags does the splicing).
+  // client-side concern (#lib/pairingFlags.ts does the splicing).
   let installerOpts = $derived({ x: optX, s: optS, r: optR, b: optB });
   let egress = $derived({ tor: optTor, proxy: optProxy, direct: optDirect });
   let torDup = $derived(proxyIsTor(egress));

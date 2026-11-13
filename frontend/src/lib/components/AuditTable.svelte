@@ -1,11 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { apiGet, apiGetPage, asList } from '$lib/api';
-  import type { AuditEntry, Client } from '$lib/types';
-  import { fmtDate } from '$lib/format';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { apiGet, apiGetPage, asList } from '#lib/api.ts';
+  import type { AuditEntry, Client } from '#lib/types.ts';
+  import { fmtDate } from '#lib/format.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
 
   // With a clientId the table shows only that client's entries and drops the
   // Client column.

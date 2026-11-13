@@ -1,5 +1,5 @@
 <script lang="ts">
-  import EmptyState from '$lib/components/EmptyState.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
 </script>
 
 <div class="p-6 space-y-4">
