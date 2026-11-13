@@ -9,10 +9,14 @@ func TLSConfig(configTLSMin string) *tls.Config {
 		tlsMin = tls.VersionTLS12
 	}
 
+	// CurvePreferences is left unset on purpose: Go's default list of
+	// key-exchange groups is kept current with the standard library and
+	// puts the hybrid post-quantum group (X25519MLKEM768) first. A list set
+	// here would freeze the choice at whatever was written down; the one
+	// that used to be here allowed only the three NIST curves.
 	// #nosec G402 -- disables G402: TLS MinVersion too low. (gosec)
 	var TLSConfig = &tls.Config{
 		MinVersion:               tlsMin,
-		CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
 		PreferServerCipherSuites: true,
 	}
 	return TLSConfig
