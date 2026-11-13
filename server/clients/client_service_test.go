@@ -247,8 +247,8 @@ func TestStartClientRejectsDifferentCredential(t *testing.T) {
 		}
 	}
 
-	// Per-client-credential deployment: a different credential claiming the
-	// already-registered client id must be rejected (identity/history takeover).
+	// A different credential claiming the already-registered client id must
+	// be rejected (identity/history takeover).
 	_, err := newCS().StartClient(
 		context.Background(), "credential-B", "bound-client", connMock, false,
 		&chshare.ConnectionRequest{Name: "hijack", Version: "0.7.0"}, testLog)
@@ -260,10 +260,14 @@ func TestStartClientRejectsDifferentCredential(t *testing.T) {
 		&chshare.ConnectionRequest{Name: "legit", Version: "0.7.0"}, testLog)
 	assert.NoError(t, err)
 
-	// Multiuse-credential deployment: clients share a credential by design, so
-	// the binding does not apply and a different credential is accepted.
+	// The same holds where credentials may be shared between agents: sharing
+	// a credential does not let another one claim the id.
 	_, err = newCS().StartClient(
 		context.Background(), "credential-B", "bound-client", connMock, true,
+		&chshare.ConnectionRequest{Name: "multiuse", Version: "0.7.0"}, testLog)
+	assert.Error(t, err)
+	_, err = newCS().StartClient(
+		context.Background(), "credential-A", "bound-client", connMock, true,
 		&chshare.ConnectionRequest{Name: "multiuse", Version: "0.7.0"}, testLog)
 	assert.NoError(t, err)
 }
