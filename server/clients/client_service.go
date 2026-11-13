@@ -312,6 +312,11 @@ func (s *ClientServiceProvider) StartClient(
 		return nil, fmt.Errorf("failed to get client by id %q", clientID)
 	}
 
+	// What the agent asks for. The fields that only the server may set are
+	// cleared here, once, and only on these: the tunnels the server
+	// re-establishes below come from its own record and keep them.
+	remotes := sanitizeAgentRemotes(req.Remotes)
+
 	// if found existing client
 	if client != nil {
 		clog.Debugf("found existing client %s", clientID)
@@ -341,7 +346,8 @@ func (s *ClientServiceProvider) StartClient(
 			return nil, fmt.Errorf("client id %q is already registered to a different credential", clientID)
 		}
 
-		oldTunnels := getTunnelsToReestablish(getRemotes(client.GetTunnels()), req.Remotes)
+		existingTunnels := getRemotes(client.GetTunnels())
+		oldTunnels := getTunnelsToReestablish(existingTunnels, remotes)
 
 		// The version only decides whether to ask the client about its
 		// tunnel_allowed policy before its stored tunnels are re-established.
@@ -366,10 +372,15 @@ func (s *ClientServiceProvider) StartClient(
 			}
 		}
 
-		clog.Infof("tunnels to create %d: %v", len(req.Remotes), req.Remotes)
+		// An agent that asks for a remote the server already holds as a
+		// tunnel made through the API gets that tunnel back as it was, not a
+		// copy without its credential, owner and URL.
+		remotes = keepServerSideTunnels(remotes, existingTunnels)
+
+		clog.Infof("tunnels to create %d: %v", len(remotes), remotes)
 		if len(oldTunnels) > 0 {
 			clog.Infof("old tunnels to re-establish %d: %v", len(oldTunnels), oldTunnels)
-			req.Remotes = append(req.Remotes, oldTunnels...)
+			remotes = append(remotes, oldTunnels...)
 		}
 
 		// A new physical connection is taking over this client id. Whether or not
@@ -403,7 +414,7 @@ func (s *ClientServiceProvider) StartClient(
 	s.UpdateClientStatus()
 
 	if !client.IsPaused() {
-		_, err = s.startClientTunnels(client, sanitizeAgentRemotes(req.Remotes), clog)
+		_, err = s.startClientTunnels(client, remotes, clog)
 
 		if err != nil {
 			return nil, err
@@ -420,6 +431,54 @@ func (s *ClientServiceProvider) StartClient(
 	s.log().Debugf("total clients = %d (last: %s)", len(totalClients), client.GetName())
 
 	return client, nil
+}
+
+// hasServerSideFields reports whether a remote carries anything that only the
+// API can have set: the fields sanitizeAgentRemotes clears.
+func hasServerSideFields(r *models.Remote) bool {
+	return r.TunnelURL != "" || r.SkipTLSVerify || r.AuthUser != "" || r.AuthPassword != "" || r.Owner != ""
+}
+
+// keepServerSideTunnels replaces each remote an agent asks for with the
+// existing tunnel it stands for, when that tunnel carries fields set through
+// the API. The pairing is the one getTunnelsToReestablish uses: the same
+// remote on the same local address, or, for a remote without a local address,
+// an existing tunnel on a random port with the same target and ACL. Each
+// existing tunnel is used once. agentRemotes must already be sanitized.
+func keepServerSideTunnels(agentRemotes, existing []*models.Remote) []*models.Remote {
+	if len(agentRemotes) == 0 || len(existing) == 0 {
+		return agentRemotes
+	}
+
+	used := make([]bool, len(existing))
+	result := make([]*models.Remote, 0, len(agentRemotes))
+	for _, asked := range agentRemotes {
+		kept := asked
+		for i, cur := range existing {
+			if used[i] || !hasServerSideFields(cur) {
+				continue
+			}
+			var same bool
+			if asked.IsLocalSpecified() {
+				same = asked.String() == cur.String()
+			} else {
+				same = cur.LocalPortRandom && asked.Remote() == cur.Remote() && asked.EqualACL(cur.ACL)
+			}
+			if !same {
+				continue
+			}
+			used[i] = true
+			r := *cur
+			if r.LocalPortRandom {
+				r.LocalHost = ""
+				r.LocalPort = ""
+			}
+			kept = &r
+			break
+		}
+		result = append(result, kept)
+	}
+	return result
 }
 
 func getRemotes(tunnels []*clienttunnel.Tunnel) []*models.Remote {
@@ -816,6 +875,14 @@ func (s *ClientServiceProvider) StartTunnel(
 	client *clientdata.Client,
 	remote *models.Remote,
 	acl *clienttunnel.TunnelACL) (tunnel *clienttunnel.Tunnel, err error) {
+	// The local port was set aside when it was chosen, and so is the port of
+	// the tunnel behind a proxy. Both start functions below bind before they
+	// return, so the reservations end with this call, whether it succeeds or
+	// not. remote.LocalPort is read again at the end because a proxied start
+	// moves the tunnel itself to a second port.
+	requestedPort := remote.LocalPort
+	defer func() { s.endPortReservations(requestedPort, remote.LocalPort) }()
+
 	tunnel = s.FindTunnelByRemote(client, remote)
 	// tunnel exists
 	if tunnel != nil {
@@ -922,6 +989,17 @@ func (s *ClientServiceProvider) startCaddyDownstreamProxy(
 
 	clientLogger.Infof("started downstream caddy proxy at %s to %s:%s", remote.TunnelURL, tunnel.LocalHost, tunnel.LocalPort)
 	return nil
+}
+
+func (s *ClientServiceProvider) endPortReservations(localPorts ...string) {
+	if s.portDistributor == nil {
+		return
+	}
+	for _, p := range localPorts {
+		if port, err := strconv.Atoi(p); err == nil {
+			s.portDistributor.Unreserve(port)
+		}
+	}
 }
 
 func (s *ClientServiceProvider) startRegularTunnel(ctx context.Context, client *clientdata.Client, remote *models.Remote, acl *clienttunnel.TunnelACL) (*clienttunnel.Tunnel, error) {
@@ -1245,6 +1323,12 @@ func (s *ClientServiceProvider) log() (l *logger.Logger) {
 //	AuthUser/Pass  -- the basic-auth credential guarding the proxied tunnel,
 //	                  which the agent would then know
 //	Owner          -- set server-side from the authenticated user
+//
+// It is for remotes that come from an agent and for nothing else. A tunnel
+// the server re-establishes from its own record when an agent reconnects must
+// not pass through it: that tunnel's credential, owner and URL were set
+// through the API, and clearing them would bring a password-protected tunnel
+// back without its password.
 func sanitizeAgentRemotes(remotes []*models.Remote) []*models.Remote {
 	if remotes == nil {
 		return nil

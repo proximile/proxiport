@@ -119,6 +119,22 @@ func (d *PortDistributor) Reserve(protocol string, port int) {
 	d.reserved.Add(port)
 }
 
+// Unreserve ends the reservation of ports whose start attempt is over: their
+// listeners are bound, or the attempt failed. A reservation only bridges the
+// gap between choosing a port and binding it. Kept longer it outlives the
+// listener: Refresh drops a reservation only when it sees the port in use, so
+// a port that is bound and closed again between two refreshes would stay out
+// of the pool for good. The pools are left alone; the next Refresh puts a
+// port back once nothing listens on it.
+func (d *PortDistributor) Unreserve(ports ...int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	for _, port := range ports {
+		d.reserved.Remove(port)
+	}
+}
+
 func (d *PortDistributor) IsPortAllowed(port int) bool {
 	return d.allowedPorts.Contains(port)
 }
