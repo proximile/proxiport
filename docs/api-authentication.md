@@ -408,6 +408,34 @@ host is caught by the per-IP limit above.
   ban_time = 600
 ```
 
+**Callers with a loopback address.** When the API is reached through a
+relay on the server's own host, every caller has the address
+`127.0.0.1`: a Tor onion service mapped to the API port, or a reverse
+proxy on the same host that is not listed in `[api] trusted_proxies`.
+Banning that address would lock out everyone behind the relay, so for
+loopback callers the per-IP limit works per user name instead:
+
+- `max_failed_login` wrong passwords or wrong second-factor codes for
+  one user name refuse further logins *for that user name* from
+  loopback with `429 Too Many Requests` for `ban_time` seconds. Other
+  user names, and that user from any other address, are not affected.
+  A session that is already signed in is not ended by it.
+- Requests that name no user (no credentials, or a rejected session
+  token) are answered with `401` and counted against nobody.
+
+This keeps password and second-factor guessing through the relay as
+bounded as it is from any other address. What remains: someone who can
+reach the relay and knows a user name can keep that name from signing
+in through it. To close that as well, limit who can reach the relay:
+
+- for an onion service, turn on Tor's client authorization (an
+  `authorized_clients` directory in the service's `HiddenServiceDir`),
+  so that only holders of a key can connect at all;
+- for a reverse proxy, list it in `[api] trusted_proxies` and have it
+  send `X-Forwarded-For`, so each caller is counted by its own address
+  again (see
+  [IP-address determination](ip-address-determination.md#forwarded-for-handling-on-the-server)).
+
 Second factors carry their own limits, independent of the settings
 above:
 

@@ -98,7 +98,7 @@ func (al *APIListener) wrapWithAuthMiddleware(isBearerOnly bool) mux.MiddlewareF
 			}
 
 			if !authorized {
-				al.recordFailedAuth(r, isBearerOnly)
+				al.recordFailedAuth(r, isBearerOnly, username)
 			}
 
 			if !authorized || username == "" {

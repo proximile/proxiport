@@ -69,8 +69,11 @@ type APIListener struct {
 	insecureForTests  bool
 	bannedUsers       *security.BanList
 	bannedIPs         *security.MaxBadAttemptsBanList
-	twoFASrv          TwoFAService
-	wsTickets         *wsTicketStore
+	// bannedLoopbackUsers takes the place of bannedIPs for callers whose
+	// address is the server's own host; it is keyed by user name (banTarget).
+	bannedLoopbackUsers *security.MaxBadAttemptsBanList
+	twoFASrv            TwoFAService
+	wsTickets           *wsTicketStore
 
 	testDone chan bool // is used only in tests to be able to wait until async task is done
 
@@ -319,6 +322,11 @@ func NewAPIListener(
 			time.Duration(config.API.BanTime)*time.Second,
 			a.Logger,
 		)
+		a.bannedLoopbackUsers = security.NewMaxBadAttemptsBanList(
+			config.API.MaxFailedLogin,
+			time.Duration(config.API.BanTime)*time.Second,
+			a.Logger,
+		)
 	}
 
 	if config.API.AccessLogFile != "" {
@@ -440,7 +448,7 @@ func (al *APIListener) lookupUser(r *http.Request, isBearerOnly bool) (authorize
 
 // handleBasicAuth checks username and password against either user's password or token
 func (al *APIListener) handleBasicAuth(ctx context.Context, httpverb, urlpath, remoteIP, username, password string) (authorized bool, name string, err error) {
-	if al.bannedUsers.IsBanned(loginBanKey(remoteIP, username)) {
+	if al.loginThrottled(remoteIP, username) {
 		return false, username, ErrTooManyRequests
 	}
 
@@ -674,7 +682,7 @@ func (al *APIListener) wsAuth(f http.Handler) http.HandlerFunc {
 			if basicAuthProvided {
 				authorized, username, err = al.handleBasicAuth(r.Context(), r.Method, r.URL.Path, chshare.RemoteIP(r), basicUser, basicPwd)
 			} else {
-				if !al.handleBannedIPs(r, false) {
+				if !al.handleBannedIPs(r, false, "") {
 					return
 				}
 				al.jsonErrorResponse(w, http.StatusUnauthorized, errWSTicketRequired)
@@ -691,7 +699,7 @@ func (al *APIListener) wsAuth(f http.Handler) http.HandlerFunc {
 			return
 		}
 
-		if !al.handleBannedIPs(r, authorized) {
+		if !al.handleBannedIPs(r, authorized, username) {
 			return
 		}
 

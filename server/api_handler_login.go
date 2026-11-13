@@ -39,7 +39,7 @@ func (al *APIListener) handleGetLogin(w http.ResponseWriter, req *http.Request) 
 
 	// TODO: lift this bad-request banning check out of every API endpoint and into middleware.
 	// ban IP if it sends a lot of bad requests
-	if !al.handleBannedIPs(req, false) {
+	if !al.handleBannedIPs(req, false, "") {
 		return
 	}
 	al.jsonErrorResponseWithTitle(w, http.StatusUnauthorized, "auth is required")
@@ -51,7 +51,7 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 	// bad passwords at their username. Per-IP abuse is still caught separately by
 	// the bannedIPs machinery via handleBannedIPs.
 	banKey := loginBanKey(chshare.RemoteIP(req), username)
-	if al.bannedUsers.IsBanned(banKey) {
+	if al.loginThrottled(chshare.RemoteIP(req), username) {
 		al.jsonErrorResponseWithTitle(w, http.StatusTooManyRequests, ErrTooManyRequests.Error())
 		return
 	}
@@ -67,7 +67,7 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 		return
 	}
 
-	if !al.handleBannedIPs(req, authorized) {
+	if !al.handleBannedIPs(req, authorized, username) {
 		return
 	}
 
@@ -212,7 +212,7 @@ func (al *APIListener) handleLogin(username, pwd string, newpwd string, skipPass
 
 	// login token, normal. 2FA is off, so the password alone completes the
 	// authentication: clear the per-IP failure counter here.
-	al.recordAuthSuccess(req)
+	al.recordAuthSuccess(req, username)
 
 	tokenStr, err := bearer.CreateAuthToken(
 		req.Context(),
@@ -246,7 +246,7 @@ func (al *APIListener) sendJWTToken(username string, w http.ResponseWriter, req 
 	// the completed authentication: clear the per-IP failure counter. Doing this
 	// from the auth middleware instead is what let a /verify-2fa brute force
 	// reset the limiter on every guess.
-	al.recordAuthSuccess(req)
+	al.recordAuthSuccess(req, username)
 
 	tokenStr, err := bearer.CreateAuthToken(
 		req.Context(),
@@ -275,7 +275,7 @@ func (al *APIListener) handlePostLogin(w http.ResponseWriter, req *http.Request)
 
 	if err != nil {
 		// ban IP if it sends a lot of bad requests
-		if !al.handleBannedIPs(req, false) {
+		if !al.handleBannedIPs(req, false, "") {
 			return
 		}
 		al.jsonError(w, err)

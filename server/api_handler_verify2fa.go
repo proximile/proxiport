@@ -13,15 +13,21 @@ func (al *APIListener) handlePostVerify2FAToken() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		username, pendingPassword, err := al.parseAndValidate2FATokenRequest(req)
 		if err != nil {
-			if !al.handleBannedIPs(req, false) {
-				return
-			}
-			// Count the failure against the principal too, not just the source
-			// IP. A wrong second factor is a failed authentication and has to be
-			// throttled like one — the request carries a valid 2FA-pending
-			// bearer, so nothing else on the path treats it as a failure.
-			if username != "" {
-				al.bannedUsers.Add(loginBanKey(chshare.RemoteIP(req), username))
+			// A user name that is already banned for loopback callers was
+			// refused before its code was looked at: that is not another
+			// failure, and counting it would let a caller keep the ban, and
+			// the short wait that also holds up that user's sessions, alive.
+			if !al.loopbackUserBanned(chshare.RemoteIP(req), username) {
+				if !al.handleBannedIPs(req, false, username) {
+					return
+				}
+				// Count the failure against the principal too, not just the source
+				// IP. A wrong second factor is a failed authentication and has to be
+				// throttled like one — the request carries a valid 2FA-pending
+				// bearer, so nothing else on the path treats it as a failure.
+				if username != "" {
+					al.bannedUsers.Add(loginBanKey(chshare.RemoteIP(req), username))
+				}
 			}
 			al.Errorf(err.Error())
 			al.jsonError(w, err)
@@ -64,7 +70,7 @@ func (al *APIListener) parseAndValidate2FATokenRequest(req *http.Request) (usern
 		return "", "", err
 	}
 
-	if al.bannedUsers.IsBanned(reqBody.Username) {
+	if al.loginThrottled(chshare.RemoteIP(req), reqBody.Username) {
 		return reqBody.Username, "", errors2.APIError{
 			HTTPStatus: http.StatusTooManyRequests,
 			Err:        ErrTooManyRequests,

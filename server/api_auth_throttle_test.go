@@ -27,8 +27,8 @@ func TestHandleBannedIPsDoesNotClearCounterOnAuthorizedRequests(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		// The shape of the attack: one authorized request (the bearer check
 		// passes) followed by the failed second factor.
-		al.handleBannedIPs(req, true)
-		al.handleBannedIPs(req, false)
+		al.handleBannedIPs(req, true, "user1")
+		al.handleBannedIPs(req, false, "user1")
 	}
 
 	assert.True(t, al.bannedIPs.IsBanned("192.0.2.10"),
@@ -44,11 +44,11 @@ func TestRecordAuthSuccessClearsCounter(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/login", nil)
 	req.RemoteAddr = "192.0.2.11:5555"
 
-	al.handleBannedIPs(req, false)
-	al.handleBannedIPs(req, false)
-	al.recordAuthSuccess(req)
-	al.handleBannedIPs(req, false)
-	al.handleBannedIPs(req, false)
+	al.handleBannedIPs(req, false, "user1")
+	al.handleBannedIPs(req, false, "user1")
+	al.recordAuthSuccess(req, "user1")
+	al.handleBannedIPs(req, false, "user1")
+	al.handleBannedIPs(req, false, "user1")
 
 	assert.False(t, al.bannedIPs.IsBanned("192.0.2.11"))
 }
