@@ -1,6 +1,7 @@
 package clientconfig
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -137,6 +138,50 @@ type CommandsConfig struct {
 
 	AllowRegexp []*regexp.Regexp `json:"allow_regexp"`
 	DenyRegexp  []*regexp.Regexp `json:"deny_regexp"`
+}
+
+// UnmarshalJSON reads a CommandsConfig and is forgiving about the two lists
+// of compiled patterns. They are written as strings. A server reads them
+// back from the client records it stored, and records written by older
+// servers hold each pattern as an empty JSON object, which is how a compiled
+// pattern was encoded before it could be written as text. Refusing such a
+// record would keep the server from starting, over a value it does not
+// need: it never matches commands itself, and the client reports its
+// configuration again when it connects. So an entry that is not a string,
+// or does not compile, is left out.
+func (c *CommandsConfig) UnmarshalJSON(data []byte) error {
+	type plain CommandsConfig
+	aux := struct {
+		*plain
+		AllowRegexp []json.RawMessage `json:"allow_regexp"`
+		DenyRegexp  []json.RawMessage `json:"deny_regexp"`
+	}{plain: (*plain)(c)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	c.AllowRegexp = compileStoredPatterns(aux.AllowRegexp)
+	c.DenyRegexp = compileStoredPatterns(aux.DenyRegexp)
+	return nil
+}
+
+func compileStoredPatterns(raw []json.RawMessage) []*regexp.Regexp {
+	if raw == nil {
+		return nil
+	}
+	patterns := make([]*regexp.Regexp, 0, len(raw))
+	for _, entry := range raw {
+		var text *string
+		if err := json.Unmarshal(entry, &text); err != nil || text == nil {
+			continue
+		}
+		re, err := regexp.Compile(*text)
+		if err != nil {
+			continue
+		}
+		patterns = append(patterns, re)
+	}
+	return patterns
 }
 
 type ScriptsConfig struct {
