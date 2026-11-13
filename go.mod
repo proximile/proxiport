@@ -28,7 +28,7 @@ require (
 	github.com/jpillora/sizestr v1.0.0
 	github.com/kardianos/service v1.3.0
 	github.com/kr/fs v0.1.0 // indirect
-	github.com/mattn/go-sqlite3 v1.14.52
+	github.com/mattn/go-sqlite3 v1.14.53
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/mocktools/go-smtp-mock v1.10.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -75,7 +75,7 @@ require (
 require (
 	filippo.io/bigmod v0.1.0
 	github.com/xhit/go-str2duration/v2 v2.2.0
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
