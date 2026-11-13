@@ -208,7 +208,46 @@ func InitClientService(
 		return nil, fmt.Errorf("failed to init Client Repository: %v", err)
 	}
 
+	warnAboutSharedCredentials(repo.GetAllClients(), logger)
+
 	return NewClientService(tunnelProxyConfig, portDistributor, repo, logger, acme), nil
+}
+
+// credentialsSharedByClients returns, for each client auth id that more than
+// one known client is registered with, the number of those clients.
+func credentialsSharedByClients(clients []*clientdata.Client) map[string]int {
+	counts := make(map[string]int)
+	for _, c := range clients {
+		if id := c.GetClientAuthID(); id != "" {
+			counts[id]++
+		}
+	}
+	for id, n := range counts {
+		if n < 2 {
+			delete(counts, id)
+		}
+	}
+	return counts
+}
+
+// warnAboutSharedCredentials says at start-up what sharing a credential
+// means. A client id is bound to the credential that registered it, and
+// clients that share a credential share that binding: whoever holds the
+// credential can connect under the id of any of them that is offline.
+func warnAboutSharedCredentials(clients []*clientdata.Client, l *logger.Logger) {
+	shared := credentialsSharedByClients(clients)
+	if len(shared) == 0 {
+		return
+	}
+	total := 0
+	for _, n := range shared {
+		total += n
+	}
+	l.Infof(
+		"%d clients are registered with %d shared client auth credential(s). "+
+			"A holder of a shared credential can connect under the id of any client registered with it while that client is offline; "+
+			"give each client its own credential to rule that out.",
+		total, len(shared))
 }
 
 // UpdateClientStatus is retained for interface compatibility. Per-client
@@ -333,16 +372,28 @@ func (s *ClientServiceProvider) StartClient(
 			return nil, fmt.Errorf("client is already connected: %s [%s]", client.GetName(), clientID)
 		}
 
-		// In per-client-credential deployments a client id is bound to the
-		// credential that first registered it. Reject a (re)connection that
-		// claims an existing client id with a different credential, otherwise a
-		// holder of any other valid credential could take over a disconnected
-		// client's identity and history. Multiuse-credential deployments share
-		// one credential by design, so the binding does not apply there. To
-		// rebind a client id to a new credential (e.g. after a credential
-		// rotation) delete the client first.
-		if !authMultiuseCreds && client.GetClientAuthID() != "" && client.GetClientAuthID() != clientAuthID {
-			clog.Infof("rejecting client %s: id is registered to a different credential", clientID)
+		// A client id is bound to the credential that registered it. Reject a
+		// (re)connection that claims an existing client id with a different
+		// credential: otherwise the holder of any other valid credential
+		// could connect under the id of a client that is offline and take
+		// over what the server keeps for it -- the user groups allowed to
+		// reach it, its tunnels, and every command, script and file sent to
+		// it from then on.
+		//
+		// This holds whether or not credentials may be shared between
+		// agents. auth_multiuse_creds allows several clients to register
+		// with one credential; it never meant that a client id could move to
+		// another credential. Clients that do share a credential can still
+		// claim each other's ids, which is what sharing one means.
+		//
+		// To let a host register under its id with a new credential (after a
+		// credential rotation, say) delete the client first. A record that
+		// has no credential stored is bound by its next connection.
+		if client.GetClientAuthID() != "" && client.GetClientAuthID() != clientAuthID {
+			clog.Errorf(
+				"rejecting a connection as client %s: the id is registered to client auth id %q and this connection used %q. "+
+					"If the host was given a new credential on purpose, delete the client and let it register again.",
+				clientID, client.GetClientAuthID(), clientAuthID)
 			return nil, fmt.Errorf("client id %q is already registered to a different credential", clientID)
 		}
 

@@ -244,6 +244,41 @@ ID (and the client's history) changes every time the agent restarts.
 Two agents may share one client-auth credential as long as their IDs
 differ.
 
+A client ID is bound to the credential that registered it. An agent
+that connects under an existing client ID with a different credential
+is refused, and the server log names both credentials:
+
+```
+rejecting a connection as client host01: the id is registered to client auth id "alpha-prod" and this connection used "bravo-staging"
+```
+
+Without that rule the holder of any valid agent credential could
+connect under the ID of a client that is offline and take over what the
+server keeps for it: the user groups allowed to reach it, its tunnels,
+and the commands, scripts and files sent to it from then on. The rule
+applies whether or not credentials may be shared.
+
+- **Giving a host a new credential.** Delete the client through the
+  API once it is disconnected, then let the agent connect with the new
+  credential:
+
+    ```bash
+    curl -s -X DELETE -u admin:password \
+      "https://proxiport.example.com/api/v1/clients/<client-id>"
+    ```
+
+    It registers as a new client: the allowed user groups of the old
+    record are not carried over and have to be set again. Deleting the
+    old credential on the **Client Access** page has the same effect for
+    every client registered with it.
+- **Shared credentials.** Clients that share one credential share the
+  binding too. Whoever holds that credential can connect under the ID of
+  any of those clients while it is offline. The server says so at
+  start-up when it finds clients registered with a shared credential.
+  One credential per agent rules it out.
+- **Records from older versions** that have no credential stored are
+  bound by the next agent that connects under their ID.
+
 To force a one-to-one relationship between credentials and clients,
 disable `auth_multiuse_creds`:
 
