@@ -17,7 +17,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/gorilla/mux"
-	"github.com/jpillora/requestlog"
 
 	"github.com/proximile/proxiport/db/migration/api_token"
 	"github.com/proximile/proxiport/db/migration/library"
@@ -46,6 +45,7 @@ import (
 	"github.com/proximile/proxiport/share/files"
 	"github.com/proximile/proxiport/share/logger"
 	"github.com/proximile/proxiport/share/random"
+	"github.com/proximile/proxiport/share/requestlog"
 	"github.com/proximile/proxiport/share/security"
 )
 

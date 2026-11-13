@@ -20,7 +20,6 @@ import (
 	"github.com/pkg/sftp"
 
 	"github.com/gorilla/websocket"
-	"github.com/jpillora/requestlog"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/proximile/proxiport/server/api/middleware"
@@ -33,6 +32,7 @@ import (
 	"github.com/proximile/proxiport/share/comm"
 	"github.com/proximile/proxiport/share/logger"
 	"github.com/proximile/proxiport/share/models"
+	"github.com/proximile/proxiport/share/requestlog"
 	"github.com/proximile/proxiport/share/security"
 )
 
@@ -289,7 +289,7 @@ func (cl *ClientListener) Start(ctx context.Context, listenAddr string) error {
 	if cl.bannedIPs != nil {
 		h = security.RejectBannedIPs(cl.bannedIPs)(h)
 	}
-	h = requestlog.WrapWith(h, *cl.requestLogOptions)
+	h = requestlog.Wrap(h, *cl.requestLogOptions)
 
 	return cl.httpServer.GoListenAndServe(ctx, listenAddr, h)
 }

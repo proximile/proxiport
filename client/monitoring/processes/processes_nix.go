@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +21,7 @@ import (
 	"github.com/proximile/proxiport/client/monitoring/helper"
 )
 
-var errorProcessTerminated = fmt.Errorf("Process was terminated")
+var errorProcessTerminated = fmt.Errorf("Process was terminated") //nolint:staticcheck // ST1005: existing message, kept as it is
 
 type ProcessCache struct {
 	monitoredProcessCache map[int]*process.Process
@@ -109,7 +108,7 @@ func (ph *ProcessHandler) processesFromProc(systemMemorySize uint64) ([]*ProcSta
 		if err != nil && err != errorProcessTerminated {
 			ph.logger.Errorf("failed to read cmdline(%s):%v", cmdLineFilepath, err)
 		} else if err == nil {
-			stat.Cmdline = strings.Replace(string(bytes.TrimRight(cmdline, "\x00")), "\x00", " ", -1)
+			stat.Cmdline = strings.ReplaceAll(string(bytes.TrimRight(cmdline, "\x00")), "\x00", " ")
 		}
 
 		statFilepath := helper.HostProc() + "/" + pidString + "/stat"
@@ -251,7 +250,7 @@ func procPidStatSplit(b string) []string {
 }
 
 func readProcFile(filename string) ([]byte, error) {
-	data, err := ioutil.ReadFile(filename)
+	data, err := os.ReadFile(filename) //nolint:gosec // G304: a path under the proc directory, built from a process id
 	if err != nil {
 		// if file doesn't exists it means that process was closed after we got the directory listing
 		if os.IsNotExist(err) {
@@ -270,13 +269,27 @@ func readProcFile(filename string) ([]byte, error) {
 	return data, nil
 }
 
+// psColumnSets are tried in order. The first asks ps for memory and CPU
+// figures as well; a ps that does not know one of those keywords prints no
+// table, and the second, plain set is used.
+var psColumnSets = []string{
+	"pid,ppid,pgid,state,rss,vsz,pcpu,pmem,command",
+	"pid,ppid,pgrp,state,command",
+}
+
 func execPS() ([]byte, error) {
 	bin, err := exec.LookPath("ps")
 	if err != nil {
 		return nil, err
 	}
 
-	out, _ := exec.Command(bin, "axwwo", "pid,ppid,pgrp,state,command").Output()
+	var out []byte
+	for _, columns := range psColumnSets {
+		out, _ = exec.Command(bin, "axwwo", columns).Output()
+		if header, _, _ := bytes.Cut(out, []byte("\n")); bytes.Contains(header, []byte("PID")) {
+			break
+		}
+	}
 	return out, nil
 }
 
@@ -286,6 +299,15 @@ func (ph *ProcessHandler) processesFromPS(systemMemorySize uint64) ([]*ProcStat,
 		return nil, err
 	}
 
+	return ph.processesFromPSOutput(out, systemMemorySize, ph.gatherProcessResourceUsage), nil
+}
+
+// resourceUsage returns the resident and virtual memory size in bytes and the
+// memory and CPU usage in percent of one process.
+type resourceUsage func(proc *process.Process, systemMemorySize uint64) (uint64, uint64, float32, float32)
+
+func (ph *ProcessHandler) processesFromPSOutput(out []byte, systemMemorySize uint64, usage resourceUsage) []*ProcStat {
+	var err error
 	lines := strings.Split(string(out), "\n")
 	var procs []*ProcStat
 	var updatedProcessCache = make(map[int]*process.Process)
@@ -302,7 +324,9 @@ func (ph *ProcessHandler) processesFromPS(systemMemorySize uint64) ([]*ProcStat,
 			continue
 		}
 
-		if len(parts) < 3 {
+		// Every column but the last (the command, which may be empty) must
+		// be there, or the fields below would be read from the wrong place.
+		if len(parts) < 3 || len(parts) < len(columnsIndex)-1 {
 			continue
 		}
 
@@ -330,7 +354,13 @@ func (ph *ProcessHandler) processesFromPS(systemMemorySize uint64) ([]*ProcStat,
 			stat.ParentPID = -1
 		}
 
-		if pgidIndex, exists := columnsIndex["PGRP"]; exists {
+		// The process group column is headed PGID or PGRP, depending on the
+		// keyword the system's ps knows.
+		pgidIndex, exists := columnsIndex["PGID"]
+		if !exists {
+			pgidIndex, exists = columnsIndex["PGRP"]
+		}
+		if exists {
 			pgidString := parts[pgidIndex]
 			stat.ProcessGID, err = strconv.Atoi(pgidString)
 			if err != nil {
@@ -357,7 +387,12 @@ func (ph *ProcessHandler) processesFromPS(systemMemorySize uint64) ([]*ProcStat,
 
 		if stat.PID > 0 {
 			p := ph.getProcessByPID(stat.PID)
-			stat.RSS, stat.VMS, stat.MemoryUsagePercent, stat.CPUAverageUsagePercent = ph.gatherProcessResourceUsage(p, systemMemorySize)
+			stat.RSS, stat.VMS, stat.MemoryUsagePercent, stat.CPUAverageUsagePercent = usage(p, systemMemorySize)
+			if stat.RSS == 0 && stat.VMS == 0 {
+				// The process library has nothing for this process (on
+				// OpenBSD it has nothing for any). Use what ps printed.
+				stat.RSS, stat.VMS, stat.MemoryUsagePercent, stat.CPUAverageUsagePercent = resourceUsageFromPS(columnsIndex, parts)
+			}
 			updatedProcessCache[stat.PID] = p
 		}
 
@@ -365,23 +400,62 @@ func (ph *ProcessHandler) processesFromPS(systemMemorySize uint64) ([]*ProcStat,
 	}
 	ph.processCache.monitoredProcessCache = updatedProcessCache
 
-	return procs, nil
+	return procs
+}
+
+// resourceUsageFromPS reads the rss, vsz, %cpu and %mem columns of one ps
+// line. ps prints the sizes in units of 1024 bytes. A missing or unreadable
+// column counts as zero.
+func resourceUsageFromPS(columnsIndex map[string]int, parts []string) (rss uint64, vms uint64, memPercent float32, cpuPercent float32) {
+	field := func(name string) string {
+		if i, exists := columnsIndex[name]; exists && i < len(parts) {
+			return parts[i]
+		}
+		return ""
+	}
+	if kb, err := strconv.ParseUint(field("RSS"), 10, 64); err == nil {
+		rss = kb * 1024
+	}
+	if kb, err := strconv.ParseUint(field("VSZ"), 10, 64); err == nil {
+		vms = kb * 1024
+	}
+	if v, err := strconv.ParseFloat(field("%MEM"), 32); err == nil {
+		memPercent = float32(v)
+	}
+	if v, err := strconv.ParseFloat(field("%CPU"), 32); err == nil {
+		cpuPercent = float32(v)
+	}
+	return rss, vms, memPercent, cpuPercent
 }
 
 func (ph *ProcessHandler) getProcessByPID(pid int) *process.Process {
 	p, exists := ph.processCache.monitoredProcessCache[pid]
 	if !exists {
 		p = &process.Process{
-			Pid: int32(pid),
+			Pid: int32(pid), //nolint:gosec // G115: a process id
 		}
 	}
 	return p
 }
 
-func (ph *ProcessHandler) gatherProcessResourceUsage(proc *process.Process, systemMemorySize uint64) (uint64, uint64, float32, float32) {
+func (ph *ProcessHandler) gatherProcessResourceUsage(proc *process.Process, systemMemorySize uint64) (rss uint64, vms uint64, memPercent float32, cpuPercent float32) {
+	// The process library does not work on every system. On OpenBSD it
+	// returns neither data nor an error for a process, and its CPU call then
+	// dereferences a nil pointer. A process without figures is reported with
+	// zeros; it must not take the agent down.
+	defer func() {
+		if r := recover(); r != nil {
+			ph.logger.Debugf("no resource usage for a process: %v", r)
+			rss, vms, memPercent, cpuPercent = 0, 0, 0, 0
+		}
+	}()
+
 	memoryInfo, err := proc.MemoryInfo()
 	if err != nil {
 		ph.logger.Errorf("failed to get memory info:%v", err)
+		return 0, 0, 0.0, 0.0
+	}
+	if memoryInfo == nil {
 		return 0, 0, 0.0, 0.0
 	}
 	memUsagePercent := 0.0
