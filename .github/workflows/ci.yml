@@ -90,11 +90,22 @@ jobs:
 
       - name: go build and database tests (proxiportd, CGO=0)
         # The server must not need cgo: its SQLite driver is pure Go. The
-        # steps below keep CGO=1 because the race detector requires it, so
-        # this is the step that would notice a cgo dependency coming back.
+        # steps below keep CGO=1 because the race detector requires it.
+        #
+        # Building with CGO_ENABLED=0 does not by itself notice a cgo package
+        # coming back: Go leaves cgo files out of such a build, and a cgo
+        # driver can ship a stub that compiles and only fails when used. So
+        # the packages the server links are listed first, and any outside the
+        # standard library that has cgo files fails the step.
         env:
           CGO_ENABLED: "0"
         run: |
+          cgo_pkgs=$(CGO_ENABLED=1 go list -deps -f '{{if and .CgoFiles (not .Standard)}}{{.ImportPath}}{{end}}' ./cmd/proxiportd)
+          if [ -n "$cgo_pkgs" ]; then
+            echo "::error::the server links packages that need cgo"
+            echo "$cgo_pkgs"
+            exit 1
+          fi
           go build -ldflags "-s -w" -o /tmp/proxiportd-nocgo ./cmd/proxiportd
           go test -count=1 ./db/...
 
