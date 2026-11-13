@@ -1,12 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { page } from '$app/stores';
-  import { apiGet } from '$lib/api';
-  import type { Client } from '$lib/types';
-  import { setClientContext } from '$lib/clientContext';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import { documentTitle } from '$lib/pageTitle';
+  import { page } from '$app/state';
+  import { apiGet } from '#lib/api.ts';
+  import type { Client } from '#lib/types.ts';
+  import { setClientContext } from '#lib/clientContext.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import { documentTitle } from '#lib/pageTitle.ts';
 
   let { children } = $props();
   let client: Client | null = $state(null);
@@ -37,7 +37,7 @@
 
   // Track the id alone, so moving between tabs of the same client does not
   // fetch it again (load reads client, which must not become a dependency).
-  let id = $derived($page.params.id);
+  let id = $derived(page.params.id);
   $effect(() => {
     const cur = id;
     if (cur) untrack(() => load(cur));
@@ -75,15 +75,15 @@
     { slug: 'schedules', label: 'Schedules' }
   ];
 
-  let baseHref = $derived(`/inventory/${$page.params.id}`);
+  let baseHref = $derived(`/inventory/${page.params.id}`);
 
   function isActive(slug: string, current: string): boolean {
     const path = current.replace(baseHref, '').replace(/^\//, '');
     return slug === '' ? path === '' : path === slug || path.startsWith(slug + '/');
   }
 
-  let activeTab = $derived(TABS.find((t) => isActive(t.slug, $page.url.pathname)));
-  let title = $derived(documentTitle((client as Client | null)?.name || $page.params.id, activeTab?.label));
+  let activeTab = $derived(TABS.find((t) => isActive(t.slug, page.url.pathname)));
+  let title = $derived(documentTitle((client as Client | null)?.name || page.params.id, activeTab?.label));
 
   // Bring the active tab into view within the horizontally-scrolling strip so
   // there is always a visible active-tab indicator on narrow viewports.
@@ -124,7 +124,7 @@
   <nav aria-label="Client sections" class="flex flex-wrap xl:flex-nowrap gap-x-1 border-b border-pp-border xl:overflow-x-auto">
     {#each TABS as tab}
       {@const href = tab.slug ? `${baseHref}/${tab.slug}` : baseHref}
-      {@const active = isActive(tab.slug, $page.url.pathname)}
+      {@const active = isActive(tab.slug, page.url.pathname)}
       <a
         {href}
         use:scrollActiveIntoView={active}

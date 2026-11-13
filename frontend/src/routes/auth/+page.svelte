@@ -1,13 +1,13 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { onMount, tick } from 'svelte';
-  import { safeNext } from '$lib/redirect';
-  import { login, loginWithNewPassword, isPasswordExpired, verify2fa, createTotpSecret, ApiException } from '$lib/api';
-  import { tokenStore } from '$lib/stores';
-  import type { LoginResponse } from '$lib/api';
+  import { DEFAULT_LANDING, safeNext } from '#lib/redirect.ts';
+  import { login, loginWithNewPassword, isPasswordExpired, verify2fa, createTotpSecret, ApiException } from '#lib/api.ts';
+  import { tokenStore } from '#lib/stores.ts';
+  import type { LoginResponse } from '#lib/api.ts';
   import { get } from 'svelte/store';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
 
   let username = $state('');
   let password = $state('');
@@ -26,6 +26,13 @@
   // After signing in, return to the page that sent the user here.
   function landing(): string {
     return safeNext(new URLSearchParams(location.search).get('next'), location.origin);
+  }
+
+  // goto() rejects when the return path matches no page (a stale or mistyped
+  // link). The session is valid by then, so go to the default page rather
+  // than leave a signed-in user looking at the sign-in form.
+  function enter() {
+    return goto(landing(), { replace: true }).catch(() => goto(DEFAULT_LANDING, { replace: true }));
   }
 
   // The submit button is disabled while a request runs, which drops focus;
@@ -50,7 +57,7 @@
   let isDemo = $state(false);
 
   onMount(() => {
-    if (get(tokenStore)) goto(landing(), { replaceState: true });
+    if (get(tokenStore)) enter();
     if (typeof window !== 'undefined' && window.location.hostname.startsWith('demo.')) {
       isDemo = true;
     }
@@ -102,7 +109,7 @@
   async function signedIn(res: LoginResponse) {
     if (res.token && !res.two_fa) {
       tokenStore.set(res.token);
-      goto(landing(), { replaceState: true });
+      enter();
     } else {
       loginToken = res.token ?? '';
       stage = '2fa';
@@ -135,7 +142,7 @@
       const tok = await verify2fa(username, totp, loginToken);
       if (!tok) throw new Error('Server returned no token');
       tokenStore.set(tok);
-      goto(landing(), { replaceState: true });
+      enter();
     } catch (err) {
       error = err instanceof ApiException ? err.errors[0]?.title || err.message : String(err);
     } finally {

@@ -1,14 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiGet, apiPost, apiDelete } from '$lib/api';
-  import type { ApiToken, User } from '$lib/types';
-  import { fmtDate } from '$lib/format';
-  import { datetimeLocalValue, expiryToRfc3339, tokenFormError } from '$lib/apiTokens';
-  import { copyToClipboard } from '$lib/clipboard';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import { pushToast } from '$lib/stores';
+  import { apiGet, apiPost, apiDelete } from '#lib/api.ts';
+  import type { ApiToken, User } from '#lib/types.ts';
+  import { fmtDate } from '#lib/format.ts';
+  import { datetimeLocalValue, expiryToRfc3339, tokenFormError } from '#lib/apiTokens.ts';
+  import { copyToClipboard } from '#lib/clipboard.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import { pushToast } from '#lib/stores.ts';
 
   let tokens: ApiToken[] = $state([]);
   let me = $state<User | null>(null);

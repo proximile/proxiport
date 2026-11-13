@@ -33,6 +33,12 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # The Node type definitions follow the Node major that CI and the
+      # release build run (node-version in the workflows); move them together.
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /

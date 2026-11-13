@@ -1,25 +1,25 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { tokenStore } from '$lib/stores';
-  import { loginUrl } from '$lib/redirect';
-  import { sectionTitle } from '$lib/pageTitle';
-  import { page } from '$app/stores';
-  import { refreshVaultStatus } from '$lib/api';
+  import { tokenStore } from '#lib/stores.ts';
+  import { loginUrl } from '#lib/redirect.ts';
+  import { sectionTitle } from '#lib/pageTitle.ts';
+  import { page } from '$app/state';
+  import { refreshVaultStatus } from '#lib/api.ts';
   import { get } from 'svelte/store';
-  import Sidebar from '$lib/components/Sidebar.svelte';
-  import TopBar from '$lib/components/TopBar.svelte';
-  import { sidebarMobileOpen } from '$lib/stores';
+  import Sidebar from '#lib/components/Sidebar.svelte';
+  import TopBar from '#lib/components/TopBar.svelte';
+  import { sidebarMobileOpen } from '#lib/stores.ts';
 
   let { children } = $props();
   let ready = $state(false);
   // Below the md breakpoint the sidebar is an off-canvas drawer.
   let mobile = $state(false);
   let drawerOpen = $derived(mobile && $sidebarMobileOpen);
-  let title = $derived(sectionTitle($page.url.pathname));
+  let title = $derived(sectionTitle(page.url.pathname));
 
   function toAuth() {
-    goto(loginUrl(location.pathname + location.search), { replaceState: true });
+    goto(loginUrl(location.pathname + location.search), { replace: true });
   }
 
   onMount(() => {

@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { page } from '$app/stores';
-  import { apiPost, apiGet, apiErrorText } from '$lib/api';
-  import type { Job } from '$lib/types';
-  import { fmtRelative } from '$lib/format';
-  import { finishedJobOutput, isJobFinished, jobErrorText, jobStatusLabel, parseTimeoutSec, pollDeadlineMs } from '$lib/jobs';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { page } from '$app/state';
+  import { apiPost, apiGet, apiErrorText } from '#lib/api.ts';
+  import type { Job } from '#lib/types.ts';
+  import { fmtRelative } from '#lib/format.ts';
+  import { finishedJobOutput, isJobFinished, jobErrorText, jobStatusLabel, parseTimeoutSec, pollDeadlineMs } from '#lib/jobs.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
 
   let cmd = $state('');
   let cwd = $state('');
@@ -30,7 +30,7 @@
   async function loadHistory() {
     clearTimeout(historyTimer);
     try {
-      const id = $page.params.id;
+      const id = page.params.id;
       // Newest first by start time, so a job that is still running (and has
       // no finished_at yet) is at the top rather than past the page limit.
       const jobs = await apiGet<Job[]>(`/clients/${id}/commands?fields[jobs]=jid,status,finished_at,started_at,created_by,command,error,timeout_sec&page[limit]=50&sort=-started_at`).catch(() => []);
@@ -48,7 +48,7 @@
   }
 
   $effect(() => {
-    if ($page.params.id) loadHistory();
+    if (page.params.id) loadHistory();
   });
 
   async function run(e: Event) {
@@ -67,7 +67,7 @@
     error = '';
     stream = [];
     currentJobId = '';
-    const id = $page.params.id;
+    const id = page.params.id;
     try {
       const payload: any = {
         command: cmd,
@@ -90,7 +90,7 @@
     // Poll the per-client command-result endpoint. Single-client jobs live
     // under /clients/{id}/commands/{jid}; the global /commands/{jid} endpoint
     // is for multi-client orchestrator jobs only.
-    const id = $page.params.id;
+    const id = page.params.id;
     const deadline = Date.now() + pollDeadlineMs(timeoutSec);
     while (running && !destroyed) {
       await new Promise((r) => setTimeout(r, 800));

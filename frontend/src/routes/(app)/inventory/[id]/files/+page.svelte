@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { page } from '$app/stores';
-  import { apiPostForm, apiErrorText, openAuthedSocket } from '$lib/api';
-  import { pushToast } from '$lib/stores';
-  import { resolveRemotePath, waitForOpen, watchUploads } from '$lib/uploads';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { page } from '$app/state';
+  import { apiPostForm, apiErrorText, openAuthedSocket } from '#lib/api.ts';
+  import { pushToast } from '#lib/stores.ts';
+  import { resolveRemotePath, waitForOpen, watchUploads } from '#lib/uploads.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
 
   // How long to wait for the client to report the outcome of a push.
   const RESULT_TIMEOUT_MS = 60_000;
@@ -33,7 +33,7 @@
     e.preventDefault();
     const f = file?.[0];
     if (!f) return;
-    const id = $page.params.id;
+    const id = page.params.id;
     if (!id) return;
     const path = resolveRemotePath(dest, f.name);
     busy = true;

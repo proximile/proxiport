@@ -7,8 +7,7 @@ import path from 'node:path';
 export default defineConfig({
   resolve: {
     alias: {
-      '$app/environment': path.resolve(import.meta.dirname, 'src/test/stubs/app-environment.ts'),
-      $lib: path.resolve(import.meta.dirname, 'src/lib')
+      '$app/env': path.resolve(import.meta.dirname, 'src/test/stubs/app-env.ts')
     }
   },
   test: {

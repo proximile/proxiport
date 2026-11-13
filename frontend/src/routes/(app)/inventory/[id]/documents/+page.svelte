@@ -1,13 +1,13 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { page } from '$app/stores';
-  import { apiGet, asList } from '$lib/api';
-  import { fmtRelative } from '$lib/format';
-  import VaultLocked from '$lib/components/VaultLocked.svelte';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import { vaultUnlocked } from '$lib/stores';
+  import { page } from '$app/state';
+  import { apiGet, asList } from '#lib/api.ts';
+  import { fmtRelative } from '#lib/format.ts';
+  import VaultLocked from '#lib/components/VaultLocked.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import { vaultUnlocked } from '#lib/stores.ts';
 
   type VaultKey = { id: number; client_id?: string; key: string; created_by?: string; created_at?: string };
 
@@ -34,7 +34,7 @@
 
   // The vault only lists entries while it is unlocked.
   $effect(() => {
-    const id = $page.params.id;
+    const id = page.params.id;
     if (id && $vaultUnlocked) untrack(() => load(id));
   });
 </script>

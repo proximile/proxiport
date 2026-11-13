@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { apiGet, apiPost, apiErrorText } from '$lib/api';
-  import type { Client, Job } from '$lib/types';
-  import { isJobFinished, jobStatusLabel, multiJobProgress, parseTimeoutSec, pollDeadlineMs, type MultiJobSummary } from '$lib/jobs';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { apiGet, apiPost, apiErrorText } from '#lib/api.ts';
+  import type { Client, Job } from '#lib/types.ts';
+  import { isJobFinished, jobStatusLabel, multiJobProgress, parseTimeoutSec, pollDeadlineMs, type MultiJobSummary } from '#lib/jobs.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
 
   let clients: Client[] = $state([]);
   let selected: Set<string> = $state(new Set());

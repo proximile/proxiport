@@ -1,4 +1,6 @@
+import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
@@ -8,7 +10,20 @@ import { defineConfig } from 'vite';
 const apiTarget = process.env.PROXIPORT_DEV_API ?? 'http://127.0.0.1:8000';
 
 export default defineConfig({
-  plugins: [tailwindcss(), sveltekit()],
+  plugins: [
+    tailwindcss(),
+    sveltekit({
+      preprocess: vitePreprocess(),
+      adapter: adapter({
+        pages: 'build',
+        assets: 'build',
+        fallback: 'index.html',
+        precompress: false,
+        strict: false
+      }),
+      prerender: { entries: [] }
+    })
+  ],
   server: {
     port: 5173,
     host: '0.0.0.0',

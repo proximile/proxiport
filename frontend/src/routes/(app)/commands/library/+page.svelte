@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { apiGetPage, apiPost, apiPut, apiDelete } from '$lib/api';
-  import { parseList, timeoutError } from '$lib/schedules';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { apiGetPage, apiPost, apiPut, apiDelete } from '#lib/api.ts';
+  import { parseList, timeoutError } from '#lib/schedules.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
 
   type Kind = 'commands' | 'scripts';
   const PAGE_SIZE = 100;
@@ -51,7 +51,7 @@
   }
 
   onMount(() => {
-    if ($page.url.searchParams.get('tab') === 'scripts') tab = 'scripts';
+    if (page.url.searchParams.get('tab') === 'scripts') tab = 'scripts';
     load();
   });
 
@@ -71,7 +71,7 @@
     if (!discardOk()) return;
     editing = null;
     tab = t;
-    goto(t === 'commands' ? '?' : `?tab=${t}`, { replaceState: true, keepFocus: true, noScroll: true });
+    goto(t === 'commands' ? '?' : `?tab=${t}`, { replace: true, reset: false });
   }
 
   function startCreate(kind: Kind) {

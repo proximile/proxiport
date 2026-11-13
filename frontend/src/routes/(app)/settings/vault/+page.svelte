@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiGet, apiPost, apiDelete, refreshVaultStatus, ApiException } from '$lib/api';
-  import { vaultPassphrase, vaultStatus, vaultUnlocked, pushToast } from '$lib/stores';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import { fmtDate } from '$lib/format';
+  import { apiGet, apiPost, apiDelete, refreshVaultStatus, ApiException } from '#lib/api.ts';
+  import { vaultPassphrase, vaultStatus, vaultUnlocked, pushToast } from '#lib/stores.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import { fmtDate } from '#lib/format.ts';
 
   // What GET /vault lists for each entry; values are only returned one at a time.
   type VaultEntry = { id?: number; client_id?: string; key?: string; created_at?: string; created_by?: string };

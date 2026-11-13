@@ -1,12 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { page } from '$app/stores';
-  import { apiGet } from '$lib/api';
-  import { fmtPercent, fmtBytes, fmtDate } from '$lib/format';
-  import { normalizeProcesses, fmtPid, timeTicks, fmtTick, type Process } from '$lib/clientData';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
+  import { page } from '$app/state';
+  import { apiGet } from '#lib/api.ts';
+  import { fmtPercent, fmtBytes, fmtDate } from '#lib/format.ts';
+  import { normalizeProcesses, fmtPid, timeTicks, fmtTick, type Process } from '#lib/clientData.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
 
   type GMPoint = { timestamp: string; cpu_usage_percent: { avg: number; min: number; max: number } | number; memory_usage_percent: { avg: number; min: number; max: number } | number; io_usage_percent?: { avg: number } | number };
 
@@ -78,7 +78,7 @@
   // Reload when the client or the period changes. load() itself reads other
   // state, which must not become a dependency of this effect.
   $effect(() => {
-    const id = $page.params.id;
+    const id = page.params.id;
     void period;
     if (id) untrack(() => load(id));
   });
@@ -138,7 +138,7 @@
   }
 
   function selectPoint(ts: string) {
-    const id = $page.params.id;
+    const id = page.params.id;
     if (!id) return;
     selectedTimestamp = ts;
     loadProcesses(id, ts);
@@ -148,7 +148,7 @@
   // this component is mounted -- but it is typed optional, and the guard is
   // the same one the $effect above and the sibling routes already use.
   function reload() {
-    const id = $page.params.id;
+    const id = page.params.id;
     if (id) load(id);
   }
 </script>

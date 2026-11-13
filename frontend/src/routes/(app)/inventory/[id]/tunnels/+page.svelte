@@ -1,17 +1,17 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { page } from '$app/stores';
-  import { apiGet, apiPut, apiPost, apiDelete, ApiException } from '$lib/api';
-  import type { Tunnel } from '$lib/types';
-  import { getClientContext } from '$lib/clientContext';
-  import { tunnelPublicUrl, fmtIdle } from '$lib/clientData';
-  import { fmtRelative } from '$lib/format';
-  import { singleHostAcl } from '$lib/encoding';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import EmptyState from '$lib/components/EmptyState.svelte';
-  import ErrorBox from '$lib/components/ErrorBox.svelte';
-  import { pushToast } from '$lib/stores';
-  import { copyToClipboard, sshCommandFor } from '$lib/clipboard';
+  import { page } from '$app/state';
+  import { apiGet, apiPut, apiPost, apiDelete, ApiException } from '#lib/api.ts';
+  import type { Tunnel } from '#lib/types.ts';
+  import { getClientContext } from '#lib/clientContext.ts';
+  import { tunnelPublicUrl, fmtIdle } from '#lib/clientData.ts';
+  import { fmtRelative } from '#lib/format.ts';
+  import { singleHostAcl } from '#lib/encoding.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import EmptyState from '#lib/components/EmptyState.svelte';
+  import ErrorBox from '#lib/components/ErrorBox.svelte';
+  import { pushToast } from '#lib/stores.ts';
+  import { copyToClipboard, sshCommandFor } from '#lib/clipboard.ts';
 
   // The client record (with its active tunnels) is loaded by the layout, which
   // also reports a failed load; this page re-fetches it after a change.
@@ -167,7 +167,7 @@
   }
 
   $effect(() => {
-    const id = $page.params.id;
+    const id = page.params.id;
     if (id) {
       untrack(() => {
         stored = [];
@@ -247,7 +247,7 @@
 
   async function createTunnel(e: Event) {
     e.preventDefault();
-    const id = $page.params.id;
+    const id = page.params.id;
     if (!id) return;
     const why = formValid();
     if (why) {
@@ -329,7 +329,7 @@
   }
 
   async function deleteTunnel(tid: string) {
-    const id = $page.params.id;
+    const id = page.params.id;
     if (!id) return;
     if (!confirm(`Delete tunnel ${tid}?`)) return;
     try {
@@ -345,7 +345,7 @@
   // full request — including the TLS-proxy settings kept in further_options —
   // so a saved tunnel round-trips faithfully ("one-click recreation").
   async function recreateFromStored(s: any) {
-    const id = $page.params.id;
+    const id = page.params.id;
     if (!id || creating) return;
     creating = true;
     try {
@@ -378,7 +378,7 @@
   }
 
   async function deleteStored(s: any) {
-    const id = $page.params.id;
+    const id = page.params.id;
     if (!id) return;
     if (!confirm(`Delete stored tunnel "${s.name || s.id}"?`)) return;
     try {

@@ -1,12 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { page } from '$app/stores';
-  import { apiGet } from '$lib/api';
-  import { getClientContext } from '$lib/clientContext';
-  import { latestSample } from '$lib/clientData';
-  import { fmtBytes, fmtDate, fmtRelative } from '$lib/format';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import KV from '$lib/components/KV.svelte';
+  import { page } from '$app/state';
+  import { apiGet } from '#lib/api.ts';
+  import { getClientContext } from '#lib/clientContext.ts';
+  import { latestSample } from '#lib/clientData.ts';
+  import { fmtBytes, fmtDate, fmtRelative } from '#lib/format.ts';
+  import Spinner from '#lib/components/Spinner.svelte';
+  import KV from '#lib/components/KV.svelte';
 
   type MetricsSample = { cpu_usage_percent?: number; memory_usage_percent?: number; io_usage_percent?: number };
 
@@ -32,7 +32,7 @@
   }
 
   // Wait for the layout's record so an unknown id costs no extra request.
-  let readyId = $derived(client?.id === $page.params.id ? client?.id : undefined);
+  let readyId = $derived(client?.id === page.params.id ? client?.id : undefined);
   $effect(() => {
     const id = readyId;
     if (id) untrack(() => loadMetrics(id));

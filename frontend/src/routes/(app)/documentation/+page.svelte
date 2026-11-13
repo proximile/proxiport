@@ -1,7 +1,7 @@
 <script lang="ts">
-  import VaultLocked from '$lib/components/VaultLocked.svelte';
-  import { vaultUnlocked } from '$lib/stores';
-  import EmptyState from '$lib/components/EmptyState.svelte';
+  import VaultLocked from '#lib/components/VaultLocked.svelte';
+  import { vaultUnlocked } from '#lib/stores.ts';
+  import EmptyState from '#lib/components/EmptyState.svelte';
 </script>
 
 {#if !$vaultUnlocked}
