@@ -1,0 +1,75 @@
+get:
+  tags:
+    - Users
+  summary: List the API tokens of a user. Require admin access
+  operationId: UserAPITokensGet
+  description: >-
+    Lists the API tokens stored for the user: prefix, name, scope and dates,
+    never the token itself. The user does not have to exist, so tokens left
+    under the name of a deleted user can be found too.
+  parameters:
+    - name: user_id
+      in: path
+      description: unique user ID
+      required: true
+      schema:
+        type: string
+  responses:
+    "200":
+      description: Successful Operation
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                type: array
+                items:
+                  $ref: ../components/schemas/APITokenInfo.yaml
+    "403":
+      description: >-
+        current user should belong to Administrators group to access this
+        resource
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
+    "500":
+      description: Invalid Operation
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
+delete:
+  tags:
+    - Users
+  summary: Delete all API tokens of a user. Require admin access
+  operationId: UserAPITokensDelete
+  description: >-
+    Deletes every API token stored for the user. The tokens stop
+    authenticating on the next request.
+  parameters:
+    - name: user_id
+      in: path
+      description: unique user ID
+      required: true
+      schema:
+        type: string
+  responses:
+    "204":
+      description: Successful Operation
+      content: {}
+    "403":
+      description: >-
+        current user should belong to Administrators group to access this
+        resource
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml
+    "500":
+      description: Invalid Operation
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas/ErrorPayload.yaml

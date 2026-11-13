@@ -47,7 +47,7 @@ tags:
   - name: Notifications
     description: The log of notifications the server sent.
   - name: Users
-    description: API users, their sessions and two-factor secrets.
+    description: API users, their sessions, API tokens and two-factor secrets.
   - name: User Groups
     description: User groups and their permissions.
 paths:
@@ -131,6 +131,10 @@ paths:
     $ref: paths/users_{user_id}_sessions.yaml
   /users/{user_id}/sessions/{session_id}:
     $ref: paths/users_{user_id}_sessions_{session_id}.yaml
+  /users/{user_id}/tokens:
+    $ref: paths/users_{user_id}_tokens.yaml
+  /users/{user_id}/tokens/{prefix}:
+    $ref: paths/users_{user_id}_tokens_{prefix}.yaml
   /users/{user_id}/totp-secret:
     $ref: paths/users_{user_id}_totp-secret.yaml
   /user-groups:

@@ -317,23 +317,30 @@ func (al *APIListener) handleGetToken(w http.ResponseWriter, req *http.Request) 
 		al.jsonErrorResponseWithTitle(w, http.StatusNotFound, "user not found")
 		return
 	}
-	type APITokenPayload struct {
-		Prefix    string                      `json:"prefix" db:"prefix"`
-		Name      string                      `json:"name" db:"name"`
-		CreatedAt *time.Time                  `json:"created_at" db:"created_at"`
-		ExpiresAt *time.Time                  `json:"expires_at" db:"expires_at"`
-		Scope     authorization.APITokenScope `json:"scope" db:"scope"`
-	}
-
 	apitokenset, err := al.tokenManager.GetAll(req.Context(), user.Username)
 	if err != nil {
 		al.jsonError(w, err)
 		return
 	}
 
-	apiTokenToSend := make([]APITokenPayload, 0, len(apitokenset))
-	for _, at := range apitokenset {
-		apiTokenToSend = append(apiTokenToSend,
+	response := api.NewSuccessPayload(newAPITokenPayloads(apitokenset))
+	al.writeJSONResponse(w, http.StatusOK, response)
+}
+
+// APITokenPayload is what the API shows of a stored token: everything that
+// identifies it, never the secret or its hash.
+type APITokenPayload struct {
+	Prefix    string                      `json:"prefix" db:"prefix"`
+	Name      string                      `json:"name" db:"name"`
+	CreatedAt *time.Time                  `json:"created_at" db:"created_at"`
+	ExpiresAt *time.Time                  `json:"expires_at" db:"expires_at"`
+	Scope     authorization.APITokenScope `json:"scope" db:"scope"`
+}
+
+func newAPITokenPayloads(tokens []*authorization.APIToken) []APITokenPayload {
+	payloads := make([]APITokenPayload, 0, len(tokens))
+	for _, at := range tokens {
+		payloads = append(payloads,
 			APITokenPayload{
 				Prefix:    at.Prefix,
 				Name:      at.Name,
@@ -342,9 +349,7 @@ func (al *APIListener) handleGetToken(w http.ResponseWriter, req *http.Request) 
 				Scope:     at.Scope,
 			})
 	}
-
-	response := api.NewSuccessPayload(apiTokenToSend)
-	al.writeJSONResponse(w, http.StatusOK, response)
+	return payloads
 }
 
 func (al *APIListener) handlePostToken(w http.ResponseWriter, req *http.Request) {

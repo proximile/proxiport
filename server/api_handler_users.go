@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/proximile/proxiport/server/api"
+	"github.com/proximile/proxiport/server/api/authorization"
 	"github.com/proximile/proxiport/server/api/users"
 	"github.com/proximile/proxiport/server/auditlog"
 	"github.com/proximile/proxiport/server/routes"
@@ -87,9 +88,10 @@ func (al *APIListener) handleChangeUser(w http.ResponseWriter, req *http.Request
 
 	// A password set by an admin, or a password marked expired, must retire that
 	// user's sessions: otherwise an attacker's stolen bearer survives the very
-	// rotation performed to lock them out.
+	// rotation performed to lock them out. The user's API tokens go with them
+	// for the same reason: anyone who held a session could have minted one.
 	passwordChanged := userIDExists && user.Password != ""
-	if passwordChanged || (user.PasswordExpired != nil && *user.PasswordExpired) {
+	if passwordChanged || (userIDExists && user.PasswordExpired != nil && *user.PasswordExpired) {
 		ctx := req.Context()
 		err := al.apiSessions.DeleteAllByUser(ctx, userID)
 		if err != nil {
@@ -97,6 +99,21 @@ func (al *APIListener) handleChangeUser(w http.ResponseWriter, req *http.Request
 			al.jsonErrorResponseWithDetail(w, http.StatusInternalServerError, "Unable to delete all User's sessions", titleMsg, err.Error())
 			return
 		}
+
+		// The same request may have renamed the user, and the tokens with them.
+		tokenOwner := userID
+		if user.Username != "" {
+			tokenOwner = user.Username
+		}
+		if err := al.tokenManager.DeleteAllByUser(ctx, tokenOwner); err != nil {
+			titleMsg := fmt.Sprintf("password changed, unable to delete the API tokens of user \"%s\"", tokenOwner)
+			al.jsonErrorResponseWithDetail(w, http.StatusInternalServerError, "Unable to delete the User's API tokens", titleMsg, err.Error())
+			return
+		}
+		al.auditLog.Entry(auditlog.ApplicationAuthUserTokens, auditlog.ActionDelete).
+			WithHTTPRequest(req).
+			WithID(tokenOwner).
+			Save()
 	}
 
 	if userIDExists {
@@ -267,5 +284,92 @@ func (al *APIListener) handleDeleteAllUserAPISessions(w http.ResponseWriter, req
 		WithID(userID).
 		Save()
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleGetUserAPITokens lists the API tokens stored for a user. It does not
+// require the user to exist, so an admin can also find tokens left under the
+// name of a user who is gone.
+func (al *APIListener) handleGetUserAPITokens(w http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	userID, userIDExists := vars[routes.ParamUserID]
+	if !userIDExists {
+		al.jsonError(w, ErrMissingUserIDParam)
+		return
+	}
+
+	tokens, err := al.tokenManager.GetAll(req.Context(), userID)
+	if err != nil {
+		titleMsg := fmt.Sprintf("unable to get the API tokens of user \"%s\"", userID)
+		al.jsonErrorResponseWithDetail(w, http.StatusInternalServerError, "", titleMsg, err.Error())
+		return
+	}
+
+	al.writeJSONResponse(w, http.StatusOK, api.NewSuccessPayload(newAPITokenPayloads(tokens)))
+}
+
+// handleDeleteUserAPIToken deletes one API token of a user.
+func (al *APIListener) handleDeleteUserAPIToken(w http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	userID, userIDExists := vars[routes.ParamUserID]
+	if !userIDExists {
+		al.jsonError(w, ErrMissingUserIDParam)
+		return
+	}
+
+	prefix := vars[routes.ParamTokenPrefix]
+	if len(prefix) != authorization.APITokenPrefixLength {
+		al.jsonErrorResponseWithTitle(w, http.StatusBadRequest, "missing or invalid token prefix.")
+		return
+	}
+
+	ctx := req.Context()
+
+	token, err := al.tokenManager.Get(ctx, userID, prefix)
+	if err != nil {
+		titleMsg := fmt.Sprintf("unable to get API token \"%s\" of user \"%s\"", prefix, userID)
+		al.jsonErrorResponseWithDetail(w, http.StatusInternalServerError, "", titleMsg, err.Error())
+		return
+	}
+	if token == nil {
+		al.jsonErrorResponseWithTitle(w, http.StatusNotFound, fmt.Sprintf("user %q has no API token with prefix %q", userID, prefix))
+		return
+	}
+
+	if err := al.tokenManager.Delete(ctx, userID, prefix); err != nil {
+		al.jsonError(w, err)
+		return
+	}
+
+	al.auditLog.Entry(auditlog.ApplicationAuthUserToken, auditlog.ActionDelete).
+		WithHTTPRequest(req).
+		WithID(userID).
+		Save()
+
+	al.Debugf("APIToken [%s] of user [%s] is deleted.", prefix, userID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDeleteAllUserAPITokens deletes every API token of a user.
+func (al *APIListener) handleDeleteAllUserAPITokens(w http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	userID, userIDExists := vars[routes.ParamUserID]
+	if !userIDExists {
+		al.jsonError(w, ErrMissingUserIDParam)
+		return
+	}
+
+	if err := al.tokenManager.DeleteAllByUser(req.Context(), userID); err != nil {
+		titleMsg := fmt.Sprintf("unable to delete the API tokens of user \"%s\"", userID)
+		al.jsonErrorResponseWithDetail(w, http.StatusInternalServerError, "", titleMsg, err.Error())
+		return
+	}
+
+	al.auditLog.Entry(auditlog.ApplicationAuthUserTokens, auditlog.ActionDelete).
+		WithHTTPRequest(req).
+		WithID(userID).
+		Save()
+
+	al.Debugf("All API tokens of user [%s] are deleted.", userID)
 	w.WriteHeader(http.StatusNoContent)
 }
