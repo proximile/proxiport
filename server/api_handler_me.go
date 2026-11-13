@@ -183,10 +183,7 @@ func (al *APIListener) handleManageTotP(w http.ResponseWriter, req *http.Request
 			return
 		}
 
-		totP, err = GenerateTotPSecretKey(&TotPInput{
-			Issuer:      user.Username,
-			AccountName: al.config.API.TotPAccountName,
-		})
+		totP, err = GenerateTotPSecretKey(EnrolmentTotPInput(al.config.API.TotPAccountName, user.Username))
 		if err != nil {
 			al.Logf(logger.LogLevelError, "failed to generate TotP secret for user %s: %v", user.Username, err)
 			al.jsonErrorResponse(w, http.StatusInternalServerError, err)

@@ -55,6 +55,15 @@ type TotPInput struct {
 	AccountName string
 }
 
+// EnrolmentTotPInput names a new authenticator entry. The issuer is the
+// server's configured name (api.totp_account_name) and the account is the
+// user: an authenticator app shows the issuer as the entry's title and the
+// account beneath it, so two servers, or two users of one server, can be told
+// apart on the same phone.
+func EnrolmentTotPInput(serverName, username string) *TotPInput {
+	return &TotPInput{Issuer: serverName, AccountName: username}
+}
+
 type TotP struct {
 	Secret        string   `json:"secret"`
 	QRImageBase64 string   `json:"qr"`
