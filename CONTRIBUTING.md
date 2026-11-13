@@ -51,10 +51,9 @@ so we can sanity-check the direction before you spend time on a patch.
 3. A `Signed-off-by` trailer (`git commit -s`) is welcome but not
    required; the pull request itself is the inbound = outbound agreement.
 4. Before pushing, run the core checks CI gates on. You need the Go
-   version listed in `go.mod` and a C compiler: the server uses the cgo
-   SQLite driver, so run the server checks with `CGO_ENABLED=1`
-   (without cgo the driver compiles to a stub and the database tests
-   fail). The agent (`./cmd/proxiport`) builds with `CGO_ENABLED=0`.
+   version listed in `go.mod`. Neither the server nor the agent needs
+   cgo: both build and pass their tests with `CGO_ENABLED=0`. A C
+   compiler is only needed for the race detector (`go test -race`).
    - `gofmt -s -l $(git ls-files '*.go')` (must list nothing except
      generated files, which begin with a `Code generated ... DO NOT
      EDIT` line and which CI skips) and `go vet ./...`

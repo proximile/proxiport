@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 
 	jobsmig "github.com/proximile/proxiport/db/migration/jobs"
 	"github.com/proximile/proxiport/db/sqlite"

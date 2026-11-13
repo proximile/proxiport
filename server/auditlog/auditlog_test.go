@@ -15,6 +15,7 @@ import (
 	"github.com/proximile/proxiport/db/migration/auditlog"
 	"github.com/proximile/proxiport/db/sqlite"
 	"github.com/proximile/proxiport/server/clients/clientdata"
+	_ "github.com/proximile/proxiport/share/test/utcprocess"
 )
 
 var DataSourceOptions = sqlite.DataSourceOptions{WALEnabled: false}

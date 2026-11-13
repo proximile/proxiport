@@ -961,8 +961,8 @@ func (d *DatabaseConfig) ParseAndValidate() error {
 		d.Dsn += "/"
 		d.Dsn += d.Name
 	case "sqlite":
-		d.Driver = "sqlite3"
-		d.Dsn = d.Name
+		d.Driver = "sqlite"
+		d.Dsn = sqlite.DSN(d.Name, false)
 	default:
 		return fmt.Errorf("invalid 'db_type', expected 'mysql' or 'sqlite', got %q", d.Type)
 	}

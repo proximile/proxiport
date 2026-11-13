@@ -79,9 +79,11 @@ builds:
         {{- else -}}
           CC=gcc
         {{- end -}}
-    # CGO=1 (mattn/go-sqlite3) confines the server to the two arches whose C
-    # cross-toolchains the release workflow installs. Widening this set requires
-    # dropping CGO (pure-Go sqlite), tracked separately.
+    # The server no longer needs cgo (its SQLite driver is pure Go). This
+    # build still uses it, with the two C cross-toolchains the release
+    # workflow installs, so that the released binaries are linked the way
+    # they always were. Building without cgo, for more targets, is a
+    # separate change.
     targets:
       - linux_amd64
       - linux_arm64

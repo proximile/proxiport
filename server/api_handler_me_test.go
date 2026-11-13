@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/proximile/proxiport/db/sqlite"
 	"github.com/proximile/proxiport/server/api"
 	"github.com/proximile/proxiport/server/api/users"
 	"github.com/proximile/proxiport/server/chconfig"
@@ -73,9 +74,9 @@ func TestHandleMeStaticAuth(t *testing.T) {
 
 // TestHandleMeDBAuth verifies group permissions are supported and the user has exemplary access to the vault only.
 func TestHandleMeDBAuth(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	require.NoError(t, err)
 	sqlExecs := []string{
@@ -93,9 +94,9 @@ func TestHandleMeDBAuth(t *testing.T) {
 	}
 
 	logfile := t.TempDir() + "/test.log"
-	l, err := os.OpenFile(logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0444)
+	l, err := os.OpenFile(logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600) //nolint:gosec // G304: a file under t.TempDir()
 	require.NoError(t, err, "error creating log file")
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	logger := logger.NewLogger("test", logger.LogOutput{File: l}, logger.LogLevelDebug)
 
 	userProvider, err := users.NewUserDatabase(

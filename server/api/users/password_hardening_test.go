@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
+	_ "modernc.org/sqlite"
 
+	"github.com/proximile/proxiport/db/sqlite"
 	"github.com/proximile/proxiport/server/chconfig"
 )
 
@@ -45,7 +46,7 @@ func TestStaticAuthUserIsHashedAtLoad(t *testing.T) {
 // Storage construction is permissive (it round-trips whatever is stored); the
 // bcrypt-only policy is enforced by the boot scan the auth-DB constructor runs.
 func TestDatabaseRejectsPlaintextPasswordAtBoot(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	require.NoError(t, prepareTables(db, false, false, false))
@@ -65,7 +66,7 @@ func TestDatabaseRejectsPlaintextPasswordAtBoot(t *testing.T) {
 // A bcrypt-hashed DB row passes the boot scan; an empty password row is ignored
 // (it can never authenticate anyway).
 func TestDatabaseAcceptsBcryptAndEmptyPasswords(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	require.NoError(t, prepareTables(db, false, false, false))

@@ -88,6 +88,16 @@ jobs:
           CGO_ENABLED: "0"
         run: go build -ldflags "-s -w" -o /tmp/proxiport ./cmd/proxiport
 
+      - name: go build and database tests (proxiportd, CGO=0)
+        # The server must not need cgo: its SQLite driver is pure Go. The
+        # steps below keep CGO=1 because the race detector requires it, so
+        # this is the step that would notice a cgo dependency coming back.
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          go build -ldflags "-s -w" -o /tmp/proxiportd-nocgo ./cmd/proxiportd
+          go test -count=1 ./db/...
+
       - name: go test (unit, race detector)
         env:
           CGO_ENABLED: "1"
@@ -137,8 +147,7 @@ jobs:
       # gates every merge and every release; bump it deliberately. The vuln
       # DB is not pinned: it's fetched at run time, so a newly-disclosed
       # reachable vuln can still turn main red with no code change — that's
-      # intended. CGO=1 so the sqlite-linked server packages analyze as they
-      # build.
+      # intended. CGO=1, the setting the release builds the server with.
       - name: govulncheck (dependency vulnerability scan)
         env:
           CGO_ENABLED: "1"
@@ -156,9 +165,9 @@ jobs:
     # buffer and an encoding table covering one of nine Windows code pages sit
     # in a release. This job closes it.
     #
-    # Scope is the AGENT, not ./... : the server links cgo sqlite and only
-    # builds for linux, so a cross-compile of the whole module is expected to
-    # fail on db/sqlite and is not a useful signal.
+    # The agent is built, vetted and linted for every system. The server is
+    # only built: it is released for linux alone, and the build is what shows
+    # that it still needs no cgo and no linux-only package.
     strategy:
       fail-fast: false
       matrix:
@@ -181,9 +190,12 @@ jobs:
       - name: go build (agent)
         run: go build -ldflags "-s -w" -o /tmp/proxiport-${{ matrix.goos }} ./cmd/proxiport
 
+      - name: go build (server)
+        run: go build -ldflags "-s -w" -o /tmp/proxiportd-${{ matrix.goos }} ./cmd/proxiportd
+
       - name: go vet (agent packages)
-        # The agent's own transitive package set, so the server's cgo-only
-        # packages are excluded without hand-maintaining a list.
+        # The agent's own transitive package set, without hand-maintaining a
+        # list.
         run: go vet $(go list -deps ./cmd/proxiport | grep '^github.com/proximile/proxiport')
 
       - name: compile test binaries

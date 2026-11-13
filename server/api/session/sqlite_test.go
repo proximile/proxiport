@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/proximile/proxiport/db/sqlite"
+	_ "github.com/proximile/proxiport/share/test/utcprocess"
 
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/stretchr/testify/assert"

@@ -14,6 +14,7 @@ import (
 	"github.com/proximile/proxiport/db/sqlite"
 	"github.com/proximile/proxiport/share/ptr"
 	"github.com/proximile/proxiport/share/test"
+	_ "github.com/proximile/proxiport/share/test/utcprocess"
 )
 
 var DataSourceOptions = sqlite.DataSourceOptions{WALEnabled: false}

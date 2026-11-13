@@ -11,6 +11,7 @@ import (
 
 	"github.com/proximile/proxiport/share/models"
 	"github.com/proximile/proxiport/share/query"
+	_ "github.com/proximile/proxiport/share/test/utcprocess"
 )
 
 var DataSourceOptions = sqlite.DataSourceOptions{WALEnabled: false}
@@ -18,7 +19,7 @@ var DataSourceOptions = sqlite.DataSourceOptions{WALEnabled: false}
 func TestMonitoringService_SaveMeasurement(t *testing.T) {
 	dbProvider, err := NewSqliteProvider(":memory:", DataSourceOptions, nil, testLog)
 	require.NoError(t, err)
-	defer dbProvider.Close()
+	defer func() { _ = dbProvider.Close() }()
 
 	service := NewService(dbProvider, testLog)
 	minGap := time.Second
@@ -36,7 +37,7 @@ func TestMonitoringService_SaveMeasurement(t *testing.T) {
 func TestMonitoringService_ListClientMetrics(t *testing.T) {
 	dbProvider, err := NewSqliteProvider(":memory:", DataSourceOptions, nil, testLog)
 	require.NoError(t, err)
-	defer dbProvider.Close()
+	defer func() { _ = dbProvider.Close() }()
 
 	service := NewService(dbProvider, testLog)
 
@@ -100,7 +101,7 @@ func TestMonitoringService_ListClientMetrics(t *testing.T) {
 func TestMonitoringService_ListClientGraphMetrics(t *testing.T) {
 	dbProvider, err := NewSqliteProvider(":memory:", DataSourceOptions, nil, testLog)
 	require.NoError(t, err)
-	defer dbProvider.Close()
+	defer func() { _ = dbProvider.Close() }()
 
 	service := NewService(dbProvider, testLog)
 

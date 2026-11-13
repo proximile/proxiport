@@ -2,12 +2,13 @@ package clientsauth
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
-	"github.com/mattn/go-sqlite3"
 
+	"github.com/proximile/proxiport/db/sqlite"
 	"github.com/proximile/proxiport/share/query"
 
 	"github.com/proximile/proxiport/share/enums"
@@ -63,15 +64,12 @@ func (c *DatabaseProvider) Add(client *ClientAuth) (bool, error) {
 	_, err := c.db.NamedExec(fmt.Sprintf("INSERT INTO %s (id, password) VALUES (:id, :password)", c.tableName), client)
 	if err != nil {
 		// Check for client already exists error
-		switch typeErr := err.(type) {
-		case sqlite3.Error:
-			if typeErr.Code == sqlite3.ErrConstraint {
-				return false, nil
-			}
-		case *mysql.MySQLError:
-			if typeErr.Number == mysqlDuplicateEntryErrorCode {
-				return false, nil
-			}
+		if sqlite.IsConstraintErr(err) {
+			return false, nil
+		}
+		var mysqlErr *mysql.MySQLError
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == mysqlDuplicateEntryErrorCode {
+			return false, nil
 		}
 		return false, err
 	}
