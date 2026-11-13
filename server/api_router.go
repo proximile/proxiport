@@ -6,12 +6,12 @@ import (
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	"github.com/jpillora/requestlog"
 	"github.com/rs/cors"
 
 	"github.com/proximile/proxiport/server/api/middleware"
 	"github.com/proximile/proxiport/server/api/users"
 	"github.com/proximile/proxiport/server/routes"
+	"github.com/proximile/proxiport/share/requestlog"
 	"github.com/proximile/proxiport/share/security"
 )
 
@@ -255,7 +255,7 @@ func (al *APIListener) initRouter() {
 	}
 
 	if al.requestLogOptions != nil {
-		r.Use(func(next http.Handler) http.Handler { return requestlog.WrapWith(next, *al.requestLogOptions) })
+		r.Use(func(next http.Handler) http.Handler { return requestlog.Wrap(next, *al.requestLogOptions) })
 	}
 	if al.accessLogFile != nil {
 		r.Use(func(next http.Handler) http.Handler { return handlers.CombinedLoggingHandler(al.accessLogFile, next) })

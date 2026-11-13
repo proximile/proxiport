@@ -28,7 +28,6 @@ import (
 	"github.com/proximile/proxiport/share/files"
 
 	mapset "github.com/deckarep/golang-set"
-	"github.com/jpillora/requestlog"
 	"github.com/pkg/errors"
 
 	"github.com/proximile/proxiport/server/api/message"
@@ -40,6 +39,7 @@ import (
 	chshare "github.com/proximile/proxiport/share"
 	"github.com/proximile/proxiport/share/email"
 	"github.com/proximile/proxiport/share/logger"
+	"github.com/proximile/proxiport/share/requestlog"
 )
 
 type APIConfig struct {
@@ -382,12 +382,13 @@ func (s *ServerConfig) GetSQLiteDataSourceOptions() sqlite.DataSourceOptions {
 }
 
 func (c *Config) InitRequestLogOptions() *requestlog.Options {
-	o := requestlog.DefaultOptions
-	o.Writer = c.Logging.LogOutput.File
-	o.Filter = func(r *http.Request, code int, duration time.Duration, size int64) bool {
-		return c.Logging.LogLevel == logger.LogLevelInfo || c.Logging.LogLevel == logger.LogLevelDebug
+	return &requestlog.Options{
+		Writer: c.Logging.LogOutput.File,
+		Color:  requestlog.IsTerminal(c.Logging.LogOutput.File),
+		Filter: func(r *http.Request, code int, duration time.Duration, size int64) bool {
+			return c.Logging.LogLevel == logger.LogLevelInfo || c.Logging.LogLevel == logger.LogLevelDebug
+		},
 	}
-	return &o
 }
 
 func (c *Config) AllowedPorts() mapset.Set {
