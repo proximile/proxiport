@@ -1,6 +1,8 @@
 package ports
 
 import (
+	"fmt"
+	"net"
 	"sync"
 	"testing"
 
@@ -164,4 +166,35 @@ func TestListBusyPortsHandlesTCPUDP(t *testing.T) {
 	_, err = ListBusyPorts("sctp")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported protocol")
+}
+
+// A reservation covers the time between choosing a port and binding it. If
+// it is not ended once the listener is bound, a port that is bound and
+// closed again before the next refresh never returns to the pool, because a
+// refresh drops a reservation only when it sees the port in use.
+func TestUnreserveReturnsAPortToThePoolAfterItsListenerCloses(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := probe.Addr().(*net.TCPAddr).Port
+	require.NoError(t, probe.Close())
+
+	pd := NewPortDistributor(mapset.NewSetFromSlice([]interface{}{port}))
+	require.NoError(t, pd.Refresh())
+
+	// Reserve, bind, close: no refresh in between.
+	pd.Reserve(models.ProtocolTCP, port)
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	require.NoError(t, err)
+	require.NoError(t, l.Close())
+
+	require.NoError(t, pd.Refresh())
+	busy, err := pd.IsPortBusy(models.ProtocolTCP, port)
+	require.NoError(t, err)
+	require.True(t, busy, "a reservation that is never ended keeps the port out of the pool")
+
+	pd.Unreserve(port)
+	require.NoError(t, pd.Refresh())
+	busy, err = pd.IsPortBusy(models.ProtocolTCP, port)
+	require.NoError(t, err)
+	assert.False(t, busy)
 }
