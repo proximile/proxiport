@@ -1,2 +1,3 @@
-DROP TABLE api_tokens;
-DROP INDEX api_tokens_unique_name;
+-- The step up rebuilds the table in the shape the step before it leaves, so
+-- there is nothing to undo.
+SELECT 1;

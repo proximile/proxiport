@@ -50,6 +50,12 @@ schema rebuild.
    (`sudo systemctl edit proxiportd`, then under `[Service]` add
    `ReadWritePaths=/var/lib/rport`). Without the drop-in the server
    cannot write its databases there.
+
+   Keep a copy of the old directory (`sudo cp -a /var/lib/rport
+   /var/lib/rport.before-proxiport`, before the `mv`) until the new
+   server runs and you have checked your data. The first start changes
+   the schema of the databases in place, and a copy is the way back if
+   it stops halfway.
 6. **Start the service.**
    ```sh
    sudo systemctl enable --now proxiportd
@@ -62,6 +68,9 @@ schema rebuild.
    `sudo journalctl -u proxiportd -n 50` shows why. That includes a
    config error or a `log_file` the `proxiport` account cannot write,
    such as one that still points at the old upstream log directory.
+
+   API tokens are carried over. Tokens created before tokens had names
+   are listed under their prefix as their name.
 
    Existing agents reconnect against the same client-auth credentials
    and the same host-key fingerprint, so the inventory comes back
