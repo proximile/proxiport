@@ -55,13 +55,23 @@ Point `[server] auth_file` at a JSON map of `client-auth-id → password`:
 ```
 
 This is the mode the SvelteKit SPA expects. The **Client Access** page
-reads and writes this file in place, so the file must be writable by
-the daemon's system user:
+reads and writes this file, so the file must be writable by the daemon's
+system user:
 
 ```bash
 sudo chown proxiport /var/lib/proxiport/client-auth.json
 sudo chmod 0640 /var/lib/proxiport/client-auth.json
 ```
+
+The server also rewrites the file by itself: the first time an agent
+logs in with a credential that is stored in plain text, the entry is
+replaced by a hash. Each change is written to a temporary file in the
+same directory, which then replaces the auth file in one step and keeps
+its mode, owner and group. That needs the directory to be writable by
+the daemon's user as well. Where it is not, or where the file is a
+single file mounted into a container, the server overwrites the file
+where it is instead; a crash in the middle of such a write can leave it
+incomplete, so prefer a directory the daemon owns.
 
 Deleting a credential from the **Client Access** page also removes any
 clients still bound to it — including disconnected ones — so the
