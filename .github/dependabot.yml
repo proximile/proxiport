@@ -1,5 +1,5 @@
-# Keep dependencies current across the Go module, the frontend, and the
-# GitHub Actions used by CI. Patch and minor bumps are auto-merged once the
+# Keep dependencies current across the Go module, the frontend, the docs
+# toolchain and the GitHub Actions used by CI. Patch and minor bumps are auto-merged once the
 # required checks pass (see dependabot-auto-merge.yml); majors and every
 # Actions bump stay manual.
 #
@@ -43,6 +43,21 @@ updates:
     open-pull-requests-limit: 5
     groups:
       actions-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # The documentation toolchain (requirements.in and its hash-locked
+  # requirements.txt).
+  - package-ecosystem: pip
+    directory: /.github/docs
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      docs-minor-and-patch:
         update-types:
           - minor
           - patch

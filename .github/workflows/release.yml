@@ -3,7 +3,7 @@ name: release
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
 
 permissions: {}
@@ -19,11 +19,38 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
+
+      # A release is built only from a version tag whose commit is on main
+      # and has passed CI. Without this a tag on any commit -- a branch that
+      # was never merged, a commit whose checks failed -- would be built and
+      # offered for approval like any other.
+      - name: Check the tag, its commit and its CI result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "not a release version tag: $REF" >&2
+            exit 1
+          fi
+          sha=$(git rev-parse HEAD)
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "the tagged commit $sha is not on main" >&2
+            exit 1
+          fi
+          passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml \
+            --commit "$sha" --status success --json databaseId --jq length)
+          if [ "$passed" -lt 1 ]; then
+            echo "no successful run of the ci workflow for $sha; run it on main first" >&2
+            exit 1
+          fi
 
       - name: Set up Go
         # Build released binaries with the 1.26.x PATCH that clears known stdlib
