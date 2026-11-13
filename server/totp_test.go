@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"image/png"
+	"net/url"
 	"testing"
 	"time"
 
@@ -135,4 +136,19 @@ func TestGetTotPCodeFromUser(t *testing.T) {
 			assert.Equal(t, tc.providedTotPCode, actualTotPStr)
 		})
 	}
+}
+
+// The enrolment QR used to name the user as the issuer and the server as the
+// account, so an authenticator app listed the entry under the username.
+func TestEnrolmentKeyNamesTheServerAsIssuerAndTheUserAsAccount(t *testing.T) {
+	totP, err := GenerateTotPSecretKey(EnrolmentTotPInput("ProxiPort", "alice"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "ProxiPort", totP.TotPKey.Issuer())
+	assert.Equal(t, "alice", totP.TotPKey.AccountName())
+
+	u, err := url.Parse(totP.TotPKey.URL())
+	require.NoError(t, err)
+	assert.Equal(t, "/ProxiPort:alice", u.Path)
+	assert.Equal(t, "ProxiPort", u.Query().Get("issuer"))
 }
