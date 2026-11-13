@@ -310,3 +310,25 @@ func TestShouldNotChangeExistingSessionsWhenDeleteAllForUnknownUser(t *testing.T
 	require.True(t, found)
 	assert.Equal(t, s2, storedS2)
 }
+
+// A session saved again without its token id, as a caller that builds the
+// value itself would, keeps the id it was created with.
+func TestCacheKeepsTheTokenIDOnUpdate(t *testing.T) {
+	ctx := context.Background()
+	storage, err := NewSqliteProvider(":memory:", DataSourceOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = storage.Close() })
+	c, err := NewCache(ctx, time.Hour, time.Hour, storage, nil)
+	require.NoError(t, err)
+
+	id, err := c.Save(ctx, APISession{Username: "alice", ExpiresAt: time.Now().Add(time.Hour), LastAccessAt: time.Now(), TokenID: "token-id-1"})
+	require.NoError(t, err)
+
+	_, err = c.Save(ctx, APISession{SessionID: id, Username: "alice", ExpiresAt: time.Now().Add(2 * time.Hour), LastAccessAt: time.Now()})
+	require.NoError(t, err)
+
+	found, got, err := c.Get(ctx, id)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "token-id-1", got.TokenID)
+}

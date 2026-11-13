@@ -74,8 +74,8 @@ func (p *SqliteProvider) add(ctx context.Context, session APISession) (sessionID
 	result, err := p.db.NamedExecContext(
 		ctx,
 		"INSERT INTO"+
-			" api_sessions (expires_at, username, last_access_at, user_agent, ip_address)"+
-			" VALUES (:expires_at, :username, :last_access_at, :user_agent, :ip_address)",
+			" api_sessions (expires_at, username, last_access_at, user_agent, ip_address, token_id)"+
+			" VALUES (:expires_at, :username, :last_access_at, :user_agent, :ip_address, :token_id)",
 		session,
 	)
 	if err != nil {
@@ -90,6 +90,7 @@ func (p *SqliteProvider) add(ctx context.Context, session APISession) (sessionID
 	return sessionID, nil
 }
 
+// update leaves token_id alone: it is fixed when the session is created.
 func (p *SqliteProvider) update(ctx context.Context, session APISession) (sessionID int64, err error) {
 	_, err = p.db.NamedExecContext(
 		ctx,

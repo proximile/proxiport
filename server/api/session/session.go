@@ -14,6 +14,11 @@ type APISession struct {
 	Username     string    `json:"username" db:"username"`
 	UserAgent    string    `json:"user_agent" db:"user_agent"`
 	IPAddress    string    `json:"ip_address" db:"ip_address"`
+	// TokenID is the id of the one token issued for this session. It is set
+	// when the session is created and never changes; a token is accepted for
+	// a session only if it carries this id. It is not part of what the API
+	// returns about a session.
+	TokenID string `json:"-" db:"token_id"`
 }
 
 // current implementation provided by go-cache

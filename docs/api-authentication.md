@@ -457,6 +457,14 @@ whether the user changes it themselves, an admin changes it from
 **Users**, or it is changed during login. Anyone still holding a bearer
 token minted under the old password is logged out.
 
+A bearer token is valid only for the login session it was issued for.
+The server stores an id with each session and accepts a token only if
+it carries that id and names the session's user, so a token whose
+session has ended is never accepted again, whatever sessions are
+created later. Upgrading from a release without this check ends every
+existing login session once: users sign in again after the upgrade.
+API tokens are not affected.
+
 !!! note "Changing a password at login with 2FA on"
     `/login` accepts a `new_password` alongside the current one. When a
     second factor is enabled the new password is held and applied only

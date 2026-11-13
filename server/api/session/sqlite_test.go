@@ -2,9 +2,11 @@ package session
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/proximile/proxiport/db/migration/api_sessions"
 	"github.com/proximile/proxiport/db/sqlite"
 	_ "github.com/proximile/proxiport/share/test/utcprocess"
 
@@ -134,4 +136,58 @@ func generateAPISession(t *testing.T, username string, expiresAt time.Time, last
 	}
 
 	return apiSession
+}
+
+// An existing database with sessions in the previous schema is brought to
+// the current one: the old sessions are gone (their tokens cannot be matched
+// to them), new ones carry a token id, and ids are not reused.
+func TestMigrationFromThePreviousSessionSchema(t *testing.T) {
+	ctx := context.Background()
+	dbPath := t.TempDir() + "/api_sessions.db"
+
+	var previous []string
+	for _, name := range api_sessions.AssetNames() {
+		if strings.HasPrefix(name, "001_") || strings.HasPrefix(name, "002_") {
+			previous = append(previous, name)
+		}
+	}
+	require.Len(t, previous, 4)
+
+	old, err := sqlite.New(dbPath, previous, api_sessions.Asset, DataSourceOptions)
+	require.NoError(t, err)
+	for _, user := range []string{"alice", "bob", "alice"} {
+		_, err = old.ExecContext(ctx,
+			"INSERT INTO api_sessions (expires_at, username, last_access_at, user_agent, ip_address) VALUES (?, ?, ?, 'ua', '192.0.2.10')",
+			time.Now().Add(time.Hour), user, time.Now())
+		require.NoError(t, err)
+	}
+	require.NoError(t, old.Close())
+
+	p, err := NewSqliteProvider(dbPath, DataSourceOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = p.Close() })
+
+	all, err := p.GetAll(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, all, "sessions of the previous schema must not survive")
+
+	first, err := p.Save(ctx, APISession{Username: "alice", ExpiresAt: time.Now().Add(time.Hour), LastAccessAt: time.Now(), TokenID: "token-id-1"})
+	require.NoError(t, err)
+	found, got, err := p.Get(ctx, first)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "token-id-1", got.TokenID)
+
+	// An update does not change the token id, whatever the caller passes.
+	got.TokenID = "something-else"
+	_, err = p.Save(ctx, got)
+	require.NoError(t, err)
+	_, got, err = p.Get(ctx, first)
+	require.NoError(t, err)
+	assert.Equal(t, "token-id-1", got.TokenID)
+
+	require.NoError(t, p.Delete(ctx, first))
+	second, err := p.Save(ctx, APISession{Username: "bob", ExpiresAt: time.Now().Add(time.Hour), LastAccessAt: time.Now(), TokenID: "token-id-2"})
+	require.NoError(t, err)
+	assert.Greater(t, second, first, "a session id was issued twice")
 }
