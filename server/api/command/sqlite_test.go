@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/proximile/proxiport/share/test"
+	_ "github.com/proximile/proxiport/share/test/utcprocess"
 )
 
 var timeoutSec = DefaultTimeoutSec
@@ -49,7 +50,7 @@ func TestGetByID(t *testing.T) {
 	db, err := sqlite.New(":memory:", library.AssetNames(), library.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 	ctx := context.Background()
 
 	err = addDemoData(dbProv.db)
@@ -88,7 +89,7 @@ func TestList(t *testing.T) {
 	db, err := sqlite.New(":memory:", library.AssetNames(), library.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	t.Cleanup(func() { dbProv.Close() })
+	t.Cleanup(func() { _ = dbProv.Close() })
 
 	err = addDemoData(dbProv.db)
 	require.NoError(t, err)
@@ -217,7 +218,7 @@ func TestCreate(t *testing.T) {
 	db, err := sqlite.New(":memory:", library.AssetNames(), library.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 	ctx := context.Background()
 
 	itemToSave := demoData[0]
@@ -245,7 +246,7 @@ func TestUpdate(t *testing.T) {
 	db, err := sqlite.New(":memory:", library.AssetNames(), library.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 	ctx := context.Background()
 
 	err = addDemoData(dbProv.db)
@@ -278,7 +279,7 @@ func TestDelete(t *testing.T) {
 	db, err := sqlite.New(":memory:", library.AssetNames(), library.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := NewSqliteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 
 	ctx := context.Background()
 

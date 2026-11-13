@@ -12,6 +12,7 @@ import (
 	"github.com/proximile/proxiport/server/test/jb"
 	"github.com/proximile/proxiport/share/logger"
 	"github.com/proximile/proxiport/share/ptr"
+	_ "github.com/proximile/proxiport/share/test/utcprocess"
 
 	"github.com/jmoiron/sqlx"
 
@@ -66,7 +67,7 @@ func TestGet(t *testing.T) {
 	db, err := sqlite.New(":memory:", jobsmigration.AssetNames(), jobsmigration.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := newSQLiteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 	ctx := context.Background()
 
 	err = addTestData(dbProv.db)
@@ -85,7 +86,7 @@ func TestList(t *testing.T) {
 	db, err := sqlite.New(":memory:", jobsmigration.AssetNames(), jobsmigration.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := newSQLiteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 
 	err = addTestData(dbProv.db)
 	require.NoError(t, err)
@@ -100,7 +101,7 @@ func TestCreate(t *testing.T) {
 	db, err := sqlite.New(":memory:", jobsmigration.AssetNames(), jobsmigration.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := newSQLiteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 	ctx := context.Background()
 
 	itemToSave := testData[0]
@@ -116,7 +117,7 @@ func TestUpdate(t *testing.T) {
 	db, err := sqlite.New(":memory:", jobsmigration.AssetNames(), jobsmigration.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := newSQLiteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 	ctx := context.Background()
 
 	err = addTestData(dbProv.db)
@@ -138,7 +139,7 @@ func TestDelete(t *testing.T) {
 	db, err := sqlite.New(":memory:", jobsmigration.AssetNames(), jobsmigration.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := newSQLiteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 	ctx := context.Background()
 
 	err = addTestData(dbProv.db)
@@ -164,7 +165,7 @@ func TestCountJobsInProgress(t *testing.T) {
 	db, err := sqlite.New(":memory:", jobsmigration.AssetNames(), jobsmigration.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	dbProv := newSQLiteProvider(db)
-	defer dbProv.Close()
+	defer func() { _ = dbProv.Close() }()
 	ctx := context.Background()
 
 	addJobs(t, db)

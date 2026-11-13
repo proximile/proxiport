@@ -134,8 +134,8 @@ func TestDatabaseParseAndValidate(t *testing.T) {
 				Type: "sqlite",
 				Name: "/var/lib/proxiport/proxiport.db",
 			},
-			ExpectedDriver: "sqlite3",
-			ExpectedDSN:    "/var/lib/proxiport/proxiport.db",
+			ExpectedDriver: "sqlite",
+			ExpectedDSN:    "/var/lib/proxiport/proxiport.db?_time_format=sqlite&_busy_timeout=5000&_synchronous=NORMAL&_inttotime=1",
 		}, {
 			Name: "mysql defaults",
 			Database: DatabaseConfig{
@@ -524,7 +524,7 @@ func TestParseAndValidateAPI(t *testing.T) {
 		{
 			Name: "api enabled, url 2fa method, no base_url",
 			Config: Config{
-				API: APIConfig{
+				API: APIConfig{ //nolint:gosec // G101: a fixture delivery URL, not a credential
 					Address:            "0.0.0.0:3000",
 					AuthFile:           "test.json",
 					TwoFATokenDelivery: "https://example.com",
@@ -535,7 +535,7 @@ func TestParseAndValidateAPI(t *testing.T) {
 		{
 			Name: "api enabled, url 2fa method, ok",
 			Config: Config{
-				API: APIConfig{
+				API: APIConfig{ //nolint:gosec // G101: a fixture delivery URL, not a credential
 					BaseURL:            "https://proxiport.example.com",
 					Address:            "0.0.0.0:3000",
 					AuthFile:           "test.json",

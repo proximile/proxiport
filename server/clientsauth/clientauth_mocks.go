@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proximile/proxiport/db/sqlite"
 	"github.com/proximile/proxiport/share/query"
 
 	"github.com/jmoiron/sqlx"
@@ -18,7 +19,7 @@ import (
 // NewDatabaseMockProvider creates a clients auth database for testing and returns the DatabaseProvider
 func NewDatabaseMockProvider(clients []*ClientAuth, t *testing.T) *DatabaseProvider {
 	var authDb *sqlx.DB
-	authDb, err := sqlx.Connect("sqlite3", ":memory:")
+	authDb, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	if err != nil {
 		require.NoError(t, err)
 	}
@@ -40,8 +41,8 @@ func NewDatabaseMockProvider(clients []*ClientAuth, t *testing.T) *DatabaseProvi
 // NewMockFileProvider creates a clients auth file for testing and returns the FileProvider
 func NewMockFileProvider(clients []*ClientAuth, t *testing.T) *FileProvider {
 	var authFile = t.TempDir() + "/client-auth.json"
-	f, _ := os.Create(authFile)
-	defer f.Close()
+	f, _ := os.Create(authFile) //nolint:gosec // G304: a file under t.TempDir()
+	defer func() { _ = f.Close() }()
 	clientAuth := make(map[string]string)
 	for _, v := range clients {
 		clientAuth[v.ID] = v.Password

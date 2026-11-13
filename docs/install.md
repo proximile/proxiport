@@ -133,8 +133,8 @@ container image, which we do not publish — build from source:
 go install github.com/proximile/proxiport/cmd/proxiportd@latest
 ```
 
-The server needs CGO (`CGO_ENABLED=1`) for the embedded SQLite. The
-agent is pure Go.
+The server and the agent are pure Go: neither needs cgo or a C compiler,
+and both cross-compile with `CGO_ENABLED=0`.
 
 `go install` builds the server binary only. The web UI is a separate
 build — `npm install && npm run build` in `frontend/` writes the `build/`

@@ -10,9 +10,8 @@ installs that can be torn down and recreated cheaply.
 - `node` 22+ and `npm`
 - `openssl`
 - `ssh` / `scp` and an SSH key authorised on the target
-- a C compiler (`gcc` or `cc`) targeting linux/amd64: `proxiportd` is
-  built with `CGO_ENABLED=1` for its embedded SQLite (not needed with
-  `SKIP_BUILD`)
+
+No C compiler is needed: `proxiportd` is built with `CGO_ENABLED=0`.
 
 ## Prerequisites on the target host
 

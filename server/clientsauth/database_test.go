@@ -9,13 +9,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/proximile/proxiport/db/sqlite"
 	"github.com/proximile/proxiport/share/enums"
 )
 
 func TestDatabaseProvider(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	_, err = db.Exec("CREATE TABLE clients (id TEXT PRIMARY KEY, password TEXT)")
 	require.NoError(t, err)
 	c := &ClientAuth{ID: "test-client", Password: "test-password"}

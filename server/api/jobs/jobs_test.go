@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 
 	"github.com/proximile/proxiport/db/migration/jobs"
 	"github.com/proximile/proxiport/db/sqlite"
@@ -16,6 +16,7 @@ import (
 	"github.com/proximile/proxiport/share/logger"
 	"github.com/proximile/proxiport/share/models"
 	"github.com/proximile/proxiport/share/query"
+	_ "github.com/proximile/proxiport/share/test/utcprocess"
 )
 
 var DataSourceOptions = sqlite.DataSourceOptions{WALEnabled: false}
@@ -26,7 +27,7 @@ func TestJobsSqliteProvider(t *testing.T) {
 	jobsDB, err := sqlite.New(":memory:", jobs.AssetNames(), jobs.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	p := NewSqliteProvider(jobsDB, nil, testLog)
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	// add jobs
 	job1 := jb.New(t).Status(models.JobStatusRunning).Result(nil).IsSudo().Build()
@@ -102,7 +103,7 @@ func TestCreateJob(t *testing.T) {
 	jobsDB, err := sqlite.New(":memory:", jobs.AssetNames(), jobs.Asset, DataSourceOptions)
 	require.NoError(t, err)
 	p := NewSqliteProvider(jobsDB, nil, testLog)
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	// create job
 	job := jb.New(t).Status(models.JobStatusSuccessful).Result(nil).Build()

@@ -42,11 +42,11 @@ run() {
 }
 
 if [[ -z "${SKIP_BUILD:-}" ]]; then
-    say "Building proxiportd (linux/amd64, CGO=1)"
+    say "Building proxiportd (linux/amd64, CGO=0)"
     mkdir -p "$STAGE_DIR"
     (
         cd "$REPO_ROOT"
-        CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
             go build -ldflags "-s -w" \
             -o "$STAGE_DIR/proxiportd" ./cmd/proxiportd
     )

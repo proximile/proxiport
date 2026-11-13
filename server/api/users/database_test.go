@@ -7,12 +7,13 @@ import (
 
 	chshare "github.com/proximile/proxiport/share/logger"
 
+	"github.com/proximile/proxiport/db/sqlite"
 	"github.com/proximile/proxiport/share/test"
 
 	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
 
 var testLog = chshare.NewLogger("client", chshare.LogOutput{File: os.Stdout}, chshare.LogLevelDebug)
@@ -96,9 +97,9 @@ func TestNewUserDatabase(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.Name, func(t *testing.T) {
-			db, err := sqlx.Connect("sqlite3", ":memory:")
+			db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 
 			err = prepareTables(db, tc.twoFAOn, tc.totPOn, tc.plusEnabled)
 			require.NoError(t, err)
@@ -122,9 +123,9 @@ func TestNewUserDatabase(t *testing.T) {
 }
 
 func TestGetByUsername(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	err = prepareTables(db, true, false, false)
 	require.NoError(t, err)
@@ -185,9 +186,9 @@ func TestGetByUsername(t *testing.T) {
 }
 
 func TestGetAll(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	err = prepareTables(db, false, true, false)
 	require.NoError(t, err)
@@ -255,9 +256,9 @@ func TestListGroups(t *testing.T) {
 		},
 	}
 
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	err = prepareTables(db, false, false, false)
 	require.NoError(t, err)
@@ -311,9 +312,9 @@ func TestListGroupsPlusEnabled(t *testing.T) {
 		},
 	}
 
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	err = prepareTables(db, false, false, true)
 	require.NoError(t, err)
@@ -361,9 +362,9 @@ func TestGetGroup(t *testing.T) {
 		},
 	}
 
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	err = prepareTables(db, false, false, false)
 	require.NoError(t, err)
@@ -431,9 +432,9 @@ func TestGetGroupPlusEnabled(t *testing.T) {
 		},
 	}
 
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	err = prepareTables(db, false, false, true)
 	require.NoError(t, err)
@@ -469,9 +470,9 @@ func TestUpdateGroup(t *testing.T) {
 		},
 	}
 
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	err = prepareTables(db, false, false, false)
 	require.NoError(t, err)
@@ -534,9 +535,9 @@ func TestUpdateGroupRoundtripsPermissionParams(t *testing.T) {
 		},
 	}
 
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	err = prepareTables(db, false, false, true)
 	require.NoError(t, err)
@@ -560,9 +561,9 @@ func TestUpdateGroupRoundtripsPermissionParams(t *testing.T) {
 }
 
 func TestDeleteGroup(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	err = prepareTables(db, false, false, false)
 	require.NoError(t, err)
@@ -627,9 +628,9 @@ func TestAdd(t *testing.T) {
 		t.Run(testCases[i].name, func(t *testing.T) {
 			testCase := testCases[i]
 
-			db, err := sqlx.Connect("sqlite3", ":memory:")
+			db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 
 			err = prepareTables(db, false, false, false)
 			require.NoError(t, err)
@@ -808,9 +809,9 @@ func TestUpdate(t *testing.T) {
 
 	for i := range testCases {
 		t.Run(testCases[i].name, func(t *testing.T) {
-			db, err := sqlx.Connect("sqlite3", ":memory:")
+			db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 
 			err = prepareTables(db, false, false, false)
 			require.NoError(t, err)
@@ -833,9 +834,9 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	err = prepareTables(db, false, false, false)
 	require.NoError(t, err)

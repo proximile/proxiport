@@ -85,7 +85,7 @@ jobs:
           # pin them so the package does not inherit the builder's umask.
           chmod -R u=rwX,go=rX build
 
-      # The proxiportd build is CGO=1 (sqlite). The runner is x86_64; the
+      # The proxiportd release build uses cgo (see .goreleaser.yml). The runner is x86_64; the
       # aarch64 cross toolchain (gcc-aarch64-linux-gnu) is required to
       # build the linux/arm64 server binary. .goreleaser.yml selects
       # `CC=aarch64-linux-gnu-gcc` for that target via build-time env.
@@ -102,7 +102,7 @@ jobs:
       # binaries built against a reachable known-vulnerable dependency or stdlib.
       # ci.yml runs the same scan on every push, but a vuln can be disclosed
       # between the last green CI run and the tag, so re-check at release time.
-      # CGO=1 so the sqlite-linked server packages analyze as they build.
+      # CGO=1, the setting the server is built with below.
       - name: govulncheck (dependency vulnerability scan)
         env:
           CGO_ENABLED: "1"

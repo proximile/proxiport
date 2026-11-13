@@ -4,10 +4,11 @@ import (
 	"testing"
 
 	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 
+	"github.com/proximile/proxiport/db/sqlite"
 	"github.com/proximile/proxiport/share/enc"
 )
 
@@ -25,7 +26,7 @@ func rawTotP(t *testing.T, db *sqlx.DB, username string) string {
 // With a key provider configured, totp_secret is written encrypted and read
 // back transparently; empty and the " " clear-sentinel are stored verbatim.
 func TestUserDatabase_TotPEncryptedAtRest(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	require.NoError(t, prepareTables(db, false, true, false))
@@ -55,7 +56,7 @@ func TestUserDatabase_TotPEncryptedAtRest(t *testing.T) {
 // startup, is then ciphertext at rest, and still reads back; re-running the
 // migration is a no-op.
 func TestUserDatabase_TotPBackfillMigration(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	require.NoError(t, prepareTables(db, false, true, false))
@@ -88,7 +89,7 @@ func TestUserDatabase_TotPBackfillMigration(t *testing.T) {
 
 // With no key provider the column is stored and read as plaintext (legacy mode).
 func TestUserDatabase_TotPDisabledPassthrough(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	require.NoError(t, prepareTables(db, false, true, false))
@@ -107,7 +108,7 @@ func TestUserDatabase_TotPDisabledPassthrough(t *testing.T) {
 // A value encrypted under one key must fail closed when the provider has a
 // different (or absent) key — never surface as ciphertext.
 func TestUserDatabase_TotPFailsClosedOnWrongKey(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect("sqlite", sqlite.MemoryDSN)
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	require.NoError(t, prepareTables(db, false, true, false))

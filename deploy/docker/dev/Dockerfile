@@ -1,8 +1,8 @@
 # Development toolchain image for ProxiPort.
 #
 # Builds a minimal Debian + Go environment large enough to compile this
-# repo (cgo + sqlite3) and run `go build ./...`, `go vet ./...`, `go test
-# ./...`. Not for production — the runtime image lives one directory up.
+# repo and run `go build ./...`, `go vet ./...`, `go test ./...` (the C
+# compiler is there for `go test -race`). Not for production — the runtime image lives one directory up.
 #
 # Usage:
 #   docker build -t proxiport-dev:latest deploy/docker/dev

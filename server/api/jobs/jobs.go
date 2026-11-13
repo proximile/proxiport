@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 
 	"github.com/proximile/proxiport/db/sqlite"
@@ -399,8 +398,7 @@ func (p *SqliteProvider) CreateJob(job *models.Job) error {
 	}, "createjob", p.log)
 	if err != nil {
 		// check if it's "already exist" err
-		typeErr, ok := err.(sqlite3.Error)
-		if ok && typeErr.Code == sqlite3.ErrConstraint {
+		if sqlite.IsConstraintErr(err) {
 			p.log.Debugf("Job already exist with ID: %s", job.JID)
 			return nil
 		}
