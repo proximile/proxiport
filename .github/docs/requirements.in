@@ -1,0 +1,7 @@
+# The tools that build the documentation site. requirements.txt is the
+# hash-locked resolution of this file; regenerate it after any change here:
+#
+#   pip-compile --generate-hashes --strip-extras --no-header \
+#       --output-file .github/docs/requirements.txt .github/docs/requirements.in
+mkdocs-material
+pymdown-extensions

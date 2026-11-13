@@ -272,8 +272,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install MkDocs Material
-        run: pip install mkdocs-material
+      # The locked versions, checked against their recorded hashes: the same
+      # tools the publish workflow uses, so a page that builds here builds
+      # there.
+      - name: Install the docs toolchain
+        run: pip install --require-hashes -r .github/docs/requirements.txt
 
       - name: Build docs
         run: mkdocs build --strict --site-dir _site

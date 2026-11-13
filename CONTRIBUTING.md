@@ -66,7 +66,9 @@ so we can sanity-check the direction before you spend time on a patch.
    - `golangci-lint run` (CI pins v2.12.2)
    - if you touched `frontend/`: `npm run check && npm run test &&
      npm run build` in that directory
-   - if you touched `docs/` or `mkdocs.yml`: `mkdocs build --strict`
+   - if you touched `docs/` or `mkdocs.yml`: `mkdocs build --strict`,
+     with the locked toolchain CI uses
+     (`pip install --require-hashes -r .github/docs/requirements.txt`)
 
    CI runs these and more: govulncheck, agent cross-builds for Windows,
    macOS and the BSDs, and shellcheck plus the packaging tests for the
