@@ -149,8 +149,8 @@ stamp a real version into a source build, pass the ldflag yourself, with
 the version of the tag you checked out:
 
 ```sh
-git checkout v0.12.1
-go build -ldflags "-X github.com/proximile/proxiport/share.BuildVersion=0.12.1" \
+git checkout v0.13.0
+go build -ldflags "-X github.com/proximile/proxiport/share.BuildVersion=0.13.0" \
   ./cmd/proxiportd
 ```
 
@@ -737,7 +737,60 @@ version). The client
 database schema is versioned and migrated forward on start, so a
 downgrade across a schema change is not supported — snapshot
 `/var/lib/proxiport` first if you intend to go back. Going back below
-v0.11.1 also needs `doc_root` set back by hand (see the next section).
+v0.13.0 needs the session database removed, and going back below
+v0.11.1 needs `doc_root` set back by hand; both are described in the
+sections that follow.
+
+## Upgrading to v0.13.0
+
+Nothing has to be changed before this upgrade. These are the changes an
+operator can notice afterwards:
+
+- **Everyone signs in once more.** A bearer token is now tied to the
+  login session it was issued for, and the upgrade drops the sessions
+  stored by the older version. API tokens are not affected. See
+  [JWT bearer token](api-authentication.md#jwt-bearer-token).
+- **Going back to v0.12.1 or earlier needs one step.** The older server
+  cannot read the session database after this upgrade and does not
+  start. Stop the server and delete `api_sessions.db`, with its `-wal`
+  and `-shm` files if present, from the data directory before you
+  install the older package. The file holds login sessions only.
+- **`proxiportd` command-line flags now take effect.** Earlier versions
+  accepted flags and ignored them; the configuration file alone
+  decided. A flag now overrides the file. If your service unit or start
+  script passes flags, compare them with the configuration file before
+  the upgrade. `--save-clients-interval` never did anything and is
+  gone: a command line that still passes it stops with an unknown-flag
+  error.
+- **A client id stays with the credential that registered it.** A
+  connection under an existing client id with another credential is
+  refused and logged, also when `auth_multiuse_creds` is on. To give a
+  host a new credential, delete its client record and let it register
+  again. See
+  [Multi-use credentials and client identity](client-authentication.md#multi-use-credentials-and-client-identity).
+- **An administrator's password reset revokes the user's API tokens.**
+  Setting another user's password, or marking it expired, deletes that
+  user's API tokens together with their sessions. Deleting a user
+  deletes both as well. A user who changes their own password keeps
+  their tokens.
+- **Failed logins from the server's own address are counted per user
+  name.** This matters where the API is reached through an onion
+  service or a reverse proxy on the same host. Other callers are
+  counted per address as before. See
+  [Login throttling and second-factor limits](api-authentication.md#login-throttling-and-second-factor-limits).
+- **New authenticator entries are labelled the other way round.** The
+  enrolment QR code names the server as issuer and the user as account.
+  Existing entries keep working and keep the label the app saved.
+- **TLS key exchange follows Go's defaults.** Clients that offer only
+  X25519 can connect, and the hybrid post-quantum group
+  X25519MLKEM768 is used with clients that offer it.
+- **A stored tunnel can follow its user's address.** A tunnel saved to
+  the library with "Only my current IP address" now looks the address
+  up again each time it is used. Entries saved by an earlier version
+  keep the address they were saved with until they are saved again.
+
+The server's SQLite driver changed in this version. Databases written
+by earlier versions are opened as they are; no conversion runs.
 
 ## Upgrading to v0.11.1 or later
 
