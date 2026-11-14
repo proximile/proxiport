@@ -346,7 +346,11 @@ server closes the listener and notifies the agent.
 limits.](screenshots/05-tunnel-acl-timeouts.png)
 
 You can save a tunnel definition into the **Stored tunnels**
-library to re-open it later in one click.
+library to re-open it later in one click. An entry saved with
+**Only my current IP address** keeps that choice, not the address:
+**Use** sets the ACL to the address you have at that moment. Entries
+saved by an earlier version hold a fixed address; delete them and save
+them again to get the new behaviour.
 
 ![Stored tunnels — pre-canned definitions for repeat
 use.](screenshots/05b-tunnel-bottom-stored.png)
