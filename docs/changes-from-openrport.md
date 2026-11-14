@@ -90,6 +90,25 @@ consumer that depended on them:
   endpoint. The SPA accepts either shape, so older third-party clients
   written against the buggy response are not broken.
 
+### Client identity and login limits
+
+Behaviour that differs from openrport on purpose. A server moved over
+from openrport behaves this way after its first start:
+
+- **A client id belongs to the credential that registered it.** openrport
+  let an agent with any valid credential connect under the id of a
+  client that was offline, and so take over its tunnels and access
+  groups. ProxiPort refuses such a connection, also with
+  `auth_multiuse_creds` on. See
+  [multi-use credentials and client identity](client-authentication.md#multi-use-credentials-and-client-identity).
+- **Failed logins from the server's own address are counted per user
+  name.** openrport counted them per address, so behind an onion
+  service or a same-host proxy a run of failed requests from anyone
+  locked every caller out. See
+  [login throttling](api-authentication.md#login-throttling-and-second-factor-limits).
+- **The two-factor enrolment QR names the server as issuer and the user
+  as account.** openrport encoded them the other way round.
+
 ## Added
 
 Configuration and behaviour that rport / openrport never had. All of

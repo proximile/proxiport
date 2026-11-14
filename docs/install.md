@@ -22,7 +22,9 @@ without pairing, see
 
 ### Requirements
 
-- Linux x86_64 or arm64 with systemd.
+- Linux x86_64 or arm64 with systemd, for the packages and the
+  tarball. On other platforms, see
+  [Building from source](#building-from-source).
 - A public hostname pointed at the host. The **Pick a public listener**
   step below walks through the three TLS setups (built-in ACME, manual
   cert, reverse proxy) — all of them need a hostname.
@@ -134,7 +136,10 @@ go install github.com/proximile/proxiport/cmd/proxiportd@latest
 ```
 
 The server and the agent are pure Go: neither needs cgo or a C compiler,
-and both cross-compile with `CGO_ENABLED=0`.
+and both cross-compile with `CGO_ENABLED=0`. Built this way the server
+also runs on OpenBSD. There is no package or `rc.d` script for it there
+yet: create the account and directories and write the service
+definition yourself, following the tarball steps above.
 
 `go install` builds the server binary only. The web UI is a separate
 build — `npm install && npm run build` in `frontend/` writes the `build/`
