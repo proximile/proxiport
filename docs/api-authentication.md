@@ -314,8 +314,11 @@ the JSON `auth_file` are not covered by this — that file is read as-is.
   totp_account_name = "ProxiPort"
 ```
 
-Run multiple servers with distinct `totp_account_name` values so the
-authenticator app can tell them apart.
+`totp_account_name` names the server: the app shows it as the entry's
+title, with the user name beneath it. Run multiple servers with distinct
+`totp_account_name` values so the app can tell them apart. Entries
+enrolled with a version before v0.13.0 show the two the other way round
+and keep that label until the user enrols again; the codes are the same.
 
 To enroll programmatically:
 

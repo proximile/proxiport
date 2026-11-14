@@ -7,6 +7,10 @@ put:
     Update an existing user. This API requires the current user to be member of
     group `Administrators`. Returns 403 otherwise. The `Administrators` group
     name is hardcoded and cannot be changed at the moment.
+
+    Setting `password`, or setting `password_expired` to true, ends the
+    user's sessions and deletes their API tokens. A new `username` moves the
+    user's API tokens to that name and ends their sessions.
   parameters:
     - name: user_id
       in: path
@@ -57,7 +61,9 @@ delete:
   description: >-
     Deletes a user by a given id. This API requires the current user to be
     member of group `Administrators`. Returns 403 otherwise. The
-    `Administrators` group name is hardcoded and cannot be changed at the moment
+    `Administrators` group name is hardcoded and cannot be changed at the
+    moment. The user's API tokens are deleted and their sessions ended with
+    it.
   parameters:
     - name: user_id
       in: path
