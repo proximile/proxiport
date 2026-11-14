@@ -205,12 +205,20 @@ nfpms:
           mode: 0644
       - src: ./LICENSE
         dst: /usr/share/doc/proxiport/LICENSE
+        file_info:
+          mode: 0644
       - src: ./LICENSE-MIT
         dst: /usr/share/doc/proxiport/LICENSE-MIT
+        file_info:
+          mode: 0644
       - src: ./NOTICE
         dst: /usr/share/doc/proxiport/NOTICE
+        file_info:
+          mode: 0644
       - src: ./README.md
         dst: /usr/share/doc/proxiport/README.md
+        file_info:
+          mode: 0644
     scripts:
       preinstall: ./opt/packaging/preinstall.sh
       postinstall: ./opt/packaging/postinstall.sh
@@ -271,12 +279,20 @@ nfpms:
         type: tree
       - src: ./LICENSE
         dst: /usr/share/doc/proxiportd/LICENSE
+        file_info:
+          mode: 0644
       - src: ./LICENSE-MIT
         dst: /usr/share/doc/proxiportd/LICENSE-MIT
+        file_info:
+          mode: 0644
       - src: ./NOTICE
         dst: /usr/share/doc/proxiportd/NOTICE
+        file_info:
+          mode: 0644
       - src: ./README.md
         dst: /usr/share/doc/proxiportd/README.md
+        file_info:
+          mode: 0644
     scripts:
       preinstall: ./opt/packaging/preinstall.sh
       postinstall: ./opt/packaging/postinstall.sh
