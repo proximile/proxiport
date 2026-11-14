@@ -7,6 +7,7 @@
   import { tunnelPublicUrl, fmtIdle } from '#lib/clientData.ts';
   import { fmtRelative } from '#lib/format.ts';
   import { singleHostAcl } from '#lib/encoding.ts';
+  import { ACL_MODE_CURRENT, aclForStoredTunnel, storedAclFollowsUser, storedAclLabel } from '#lib/storedTunnels.ts';
   import Spinner from '#lib/components/Spinner.svelte';
   import EmptyState from '#lib/components/EmptyState.svelte';
   import ErrorBox from '#lib/components/ErrorBox.svelte';
@@ -106,11 +107,16 @@
   let myIp = $state('');
   let myIpError = $state('');
 
+  // The caller's address as the server sees it.
+  async function fetchMyIp(): Promise<string> {
+    const r = await apiGet<{ ip?: string } | string>('/me/ip');
+    return typeof r === 'string' ? r : (r?.ip ?? '');
+  }
+
   async function loadMyIp() {
     myIpError = '';
     try {
-      const r = await apiGet<{ ip?: string } | string>('/me/ip');
-      const ip = typeof r === 'string' ? r : (r?.ip ?? '');
+      const ip = await fetchMyIp();
       myIp = ip;
       if (!ip) myIpError = 'The server could not determine your IP address.';
       if (aclMode === 'current') aclIp = ip;
@@ -296,6 +302,9 @@
           // the API rejects unknown body fields.
           const furtherOptions: Record<string, unknown> = {};
           if (autoClose) furtherOptions.auto_close = autoClose;
+          // "Only my current IP address" is a choice, not an address: keep
+          // the choice, so that using the entry looks the address up again.
+          if (aclMode === 'current') furtherOptions.acl_mode = ACL_MODE_CURRENT;
           if (tlsProxy && tlsProxyAvailable()) {
             furtherOptions.http_proxy = true;
             if (tlsHostname.trim()) furtherOptions.host_header = tlsHostname.trim();
@@ -354,7 +363,11 @@
       params.set('remote', s.remote_ip ? `${s.remote_ip}:${s.remote_port}` : String(s.remote_port));
       if (s.scheme && s.scheme !== 'other') params.set('scheme', s.scheme);
       if (s.public_port) params.set('local', String(s.public_port));
-      if (s.acl) params.set('acl', s.acl);
+      // An entry saved with "Only my current IP address" gets the address of
+      // whoever uses it now. This throws, and no tunnel is created, when the
+      // address cannot be determined.
+      const acl = await aclForStoredTunnel(s, fetchMyIp);
+      if (acl) params.set('acl', acl);
       if (fo.auto_close) params.set('auto-close', String(fo.auto_close));
       if (fo.http_proxy) {
         params.set('http_proxy', 'true');
@@ -711,7 +724,10 @@
                 {#if fo.http_proxy}<span class="pill pill-info ml-1">TLS</span>{/if}
                 {#if fo.skip_tls_verify}<span class="pill pill-warn ml-1" title="target certificate not verified">no-verify</span>{/if}
               </td>
-              <td class="font-mono text-xs">{s.acl || '—'}</td>
+              <td class="font-mono text-xs"
+                  title={storedAclFollowsUser(s) ? 'Set to your address at the moment you use this entry' : undefined}>
+                {storedAclLabel(s)}
+              </td>
               <td>{fo.auto_close ?? '—'}</td>
               <td class="text-right whitespace-nowrap">
                 <button class="btn btn-ghost btn-sm" disabled={creating} aria-label={`Use stored tunnel ${s.name || s.id}`} onclick={() => recreateFromStored(s)}>Use</button>
